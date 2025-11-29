@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	ers "errors"
 
-	"gochen/orm"
-	"gochen/storage/database"
+	database "gochen/data/db"
+	"gochen/data/orm"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"

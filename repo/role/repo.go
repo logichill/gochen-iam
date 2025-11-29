@@ -2,13 +2,13 @@ package role
 
 import (
 	"context"
-	stdErrors "errors"
+	ers "errors"
 
 	iamentity "gochen-iam/entity"
-	sharedentity "gochen/domain/entity"
+	"gochen/data/orm"
+	db "gochen/data/orm/repo"
+	"gochen/domain/entity"
 	"gochen/errors"
-	"gochen/orm"
-	db "gochen/orm/repo"
 )
 
 // RoleRepo 角色数据访问层
@@ -31,7 +31,7 @@ func (r *RoleRepo) FindByName(ctx context.Context, name string) (*iamentity.Role
 	)
 
 	if err != nil {
-		if stdErrors.Is(err, orm.ErrNotFound) {
+		if ers.Is(err, orm.ErrNotFound) {
 			return nil, errors.NewError(errors.ErrCodeNotFound, "角色不存在")
 		}
 		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询角色失败")
@@ -160,7 +160,7 @@ func (r *RoleRepo) AssignToUser(ctx context.Context, roleID, userID int64) error
 	}
 
 	err = r.Association(role, "Users").
-		Append(ctx, &iamentity.User{EntityFields: sharedentity.EntityFields{ID: userID}})
+		Append(ctx, &iamentity.User{EntityFields: entity.EntityFields{ID: userID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.ErrCodeDatabase, "分配角色给用户失败")
@@ -178,7 +178,7 @@ func (r *RoleRepo) RemoveFromUser(ctx context.Context, roleID, userID int64) err
 	}
 
 	err = r.Association(role, "Users").
-		Delete(ctx, &iamentity.User{EntityFields: sharedentity.EntityFields{ID: userID}})
+		Delete(ctx, &iamentity.User{EntityFields: entity.EntityFields{ID: userID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.ErrCodeDatabase, "从用户移除角色失败")
@@ -196,7 +196,7 @@ func (r *RoleRepo) AssignToGroup(ctx context.Context, roleID, groupID int64) err
 	}
 
 	err = r.Association(role, "Groups").
-		Append(ctx, &iamentity.Group{EntityFields: sharedentity.EntityFields{ID: groupID}})
+		Append(ctx, &iamentity.Group{EntityFields: entity.EntityFields{ID: groupID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.ErrCodeDatabase, "分配角色给组织失败")
@@ -214,7 +214,7 @@ func (r *RoleRepo) RemoveFromGroup(ctx context.Context, roleID, groupID int64) e
 	}
 
 	err = r.Association(role, "Groups").
-		Delete(ctx, &iamentity.Group{EntityFields: sharedentity.EntityFields{ID: groupID}})
+		Delete(ctx, &iamentity.Group{EntityFields: entity.EntityFields{ID: groupID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.ErrCodeDatabase, "从组织移除角色失败")
