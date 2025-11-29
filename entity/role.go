@@ -39,7 +39,7 @@ func (p PermissionArray) Value() (any, error) {
 
 // Role 角色实体
 type Role struct {
-	sharedentity.EntityFields
+	sharedentity.Entity
 	Code        string          `json:"code" gorm:"size:50;index"` // 稳定标识，默认与 Name 相同
 	Name        string          `json:"name" gorm:"uniqueIndex;size:50;not null"`
 	Description string          `json:"description" gorm:"size:500"`

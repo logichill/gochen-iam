@@ -222,3 +222,24 @@ var (
 		append(PlanPermissions, RolePermissions...)...,
 	)
 )
+
+// 租户相关请求类型
+
+// CreateTenantRequest 创建租户请求
+type CreateTenantRequest struct {
+	Key         string `json:"key" binding:"required,max=64"`
+	Name        string `json:"name" binding:"required,max=100"`
+	Description string `json:"description" binding:"omitempty,max=500"`
+}
+
+// UpdateTenantRequest 更新租户请求
+type UpdateTenantRequest struct {
+	Name        string `json:"name" binding:"omitempty,max=100"`
+	Description string `json:"description" binding:"omitempty,max=500"`
+}
+
+// 租户状态
+const (
+	TenantStatusActive   = "active"
+	TenantStatusInactive = "inactive"
+)

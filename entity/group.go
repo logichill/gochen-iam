@@ -12,7 +12,7 @@ import (
 
 // Group 组织实体
 type Group struct {
-	sharedentity.EntityFields
+	sharedentity.Entity
 	Name        string `json:"name" gorm:"size:100;not null"`
 	Description string `json:"description" gorm:"size:500"`
 	ParentID    *int64 `json:"parent_id" gorm:"index"`

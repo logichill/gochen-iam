@@ -10,7 +10,7 @@ import (
 
 // User 用户实体
 type User struct {
-	sharedentity.EntityFields
+	sharedentity.Entity
 	Username    string     `json:"username" gorm:"uniqueIndex;size:50;not null"`
 	Email       string     `json:"email" gorm:"uniqueIndex;size:100;not null"`
 	Password    string     `json:"password" gorm:"column:password_hash;size:255;not null"`

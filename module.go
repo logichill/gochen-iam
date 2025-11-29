@@ -1,14 +1,17 @@
 package iam
 
 import (
+	"context"
+
 	grouprepo "gochen-iam/repo/group"
+	tenantrepo "gochen-iam/repo/tenant"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
 	iamrouter "gochen-iam/router"
 	groupsvc "gochen-iam/service/group"
+	tenantsvc "gochen-iam/service/tenant"
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
-	"context"
 	"gochen/di"
 	"gochen/eventing/bus"
 	"gochen/eventing/projection"
@@ -31,6 +34,7 @@ func (m *Module) Name() string {
 func (m *Module) RegisterProviders(container di.IContainer) error {
 	// 注册仓储层
 	repoCtors := []interface{}{
+		tenantrepo.NewTenantRepository,
 		userrepo.NewUserRepository,
 		grouprepo.NewGroupRepository,
 		rolerepo.NewRoleRepository,
@@ -44,6 +48,7 @@ func (m *Module) RegisterProviders(container di.IContainer) error {
 
 	// 注册服务层
 	svcCtors := []interface{}{
+		tenantsvc.NewTenantService,
 		usersvc.NewUserService,
 		groupsvc.NewGroupService,
 		rolesvc.NewRoleService,
@@ -60,6 +65,7 @@ func (m *Module) RegisterProviders(container di.IContainer) error {
 		iamrouter.NewUserRoutes,
 		iamrouter.NewRoleRoutes,
 		iamrouter.NewGroupRoutes,
+		iamrouter.NewTenantRoutes,
 	}
 
 	for _, ctor := range routeCtors {
