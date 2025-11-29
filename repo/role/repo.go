@@ -5,10 +5,10 @@ import (
 	stdErrors "errors"
 
 	iamentity "gochen-iam/entity"
-	db "gochen-iam/internal/db/repo"
 	sharedentity "gochen/domain/entity"
 	"gochen/errors"
 	"gochen/orm"
+	db "gochen/orm/repo"
 )
 
 // RoleRepo 角色数据访问层

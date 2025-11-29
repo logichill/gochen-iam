@@ -6,8 +6,8 @@ import (
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
 	"gochen/errors"
-	httpx "gochen/httpx"
-	hbasic "gochen/httpx/basic"
+	httpx "gochen/http"
+	hbasic "gochen/http/basic"
 )
 
 // AuthRoutes 认证路由注册器

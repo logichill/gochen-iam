@@ -77,13 +77,23 @@ func (g *Group) GetLevel() int {
 // SetParent 设置父组织
 func (g *Group) SetParent(parent *Group) {
 	if parent == nil {
+		g.Parent = nil
 		g.ParentID = nil
 		g.Level = 1
-		g.Path = "/" + strconv.FormatInt(g.GetID(), 10)
+		if g.GetID() > 0 {
+			g.Path = "/" + strconv.FormatInt(g.GetID(), 10)
+		} else {
+			g.Path = ""
+		}
 	} else {
+		g.Parent = parent
 		g.ParentID = &parent.ID
 		g.Level = parent.Level + 1
-		g.Path = parent.Path + "/" + strconv.FormatInt(g.GetID(), 10)
+		if g.GetID() > 0 {
+			g.Path = parent.Path + "/" + strconv.FormatInt(g.GetID(), 10)
+		} else {
+			g.Path = ""
+		}
 	}
 	g.SetUpdatedAt(time.Now())
 }

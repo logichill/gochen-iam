@@ -11,8 +11,8 @@ import (
 	appsvc "gochen/app"
 	api "gochen/app/api"
 	"gochen/errors"
-	httpx "gochen/httpx"
-	hbasic "gochen/httpx/basic"
+	httpx "gochen/http"
+	hbasic "gochen/http/basic"
 )
 
 // GroupRoutes 组织路由注册器

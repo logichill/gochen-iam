@@ -6,10 +6,10 @@ import (
 	"time"
 
 	iamentity "gochen-iam/entity"
-	db "gochen-iam/internal/db/repo"
 	sharedentity "gochen/domain/entity"
 	"gochen/errors"
 	"gochen/orm"
+	db "gochen/orm/repo"
 )
 
 // UserRepo 用户数据访问层

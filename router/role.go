@@ -10,8 +10,8 @@ import (
 	appsvc "gochen/app"
 	api "gochen/app/api"
 	"gochen/errors"
-	httpx "gochen/httpx"
-	hbasic "gochen/httpx/basic"
+	httpx "gochen/http"
+	hbasic "gochen/http/basic"
 )
 
 // RoleRoutes 角色路由注册器

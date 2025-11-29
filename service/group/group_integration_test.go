@@ -3,6 +3,7 @@ package group_test
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -144,6 +145,9 @@ func TestGroupServiceCreateGroup(t *testing.T) {
 	if group.ParentID != nil {
 		t.Errorf("expected nil parent ID, got %v", *group.ParentID)
 	}
+	if group.Path != "/"+strconv.FormatInt(group.GetID(), 10) {
+		t.Errorf("expected path /%d, got %s", group.GetID(), group.Path)
+	}
 
 	// 创建子组织
 	parentID := group.GetID()
@@ -162,6 +166,10 @@ func TestGroupServiceCreateGroup(t *testing.T) {
 	}
 	if childGroup.ParentID == nil || *childGroup.ParentID != parentID {
 		t.Errorf("expected parent ID %d, got %v", parentID, childGroup.ParentID)
+	}
+	expectedChildPath := group.Path + "/" + strconv.FormatInt(childGroup.GetID(), 10)
+	if childGroup.Path != expectedChildPath {
+		t.Errorf("expected child path %s, got %s", expectedChildPath, childGroup.Path)
 	}
 }
 
