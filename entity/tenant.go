@@ -3,7 +3,7 @@ package entity
 import (
 	"time"
 
-	sharedentity "gochen/domain/entity"
+	sharedentity "gochen/domain/audited"
 	"gochen/errors"
 )
 
@@ -11,10 +11,10 @@ import (
 type Tenant struct {
 	sharedentity.Entity
 
-	Key         string `json:"key" gorm:"uniqueIndex;size:64;not null"`  // 业务主键
-	Name        string `json:"name" gorm:"size:100;not null"`            // 租户名称
-	Description string `json:"description" gorm:"size:500"`              // 描述
-	Status      string `json:"status" gorm:"size:20;default:inactive"`   // 状态：active/inactive
+	Key         string `json:"key" gorm:"uniqueIndex;size:64;not null"` // 业务主键
+	Name        string `json:"name" gorm:"size:100;not null"`           // 租户名称
+	Description string `json:"description" gorm:"size:500"`             // 描述
+	Status      string `json:"status" gorm:"size:20;default:inactive"`  // 状态：active/inactive
 }
 
 // TableName 指定表名
@@ -74,4 +74,3 @@ func (t *Tenant) Deactivate() {
 	t.Status = "inactive"
 	t.SetUpdatedAt(time.Now())
 }
-

@@ -22,6 +22,7 @@ type RoleService struct {
 	userRepo  *userrepo.UserRepo
 	groupRepo *grouprepo.GroupRepo
 	eventBus  bus.IEventBus
+	logger    logging.ILogger
 }
 
 // NewRoleService 创建角色服务实例
@@ -36,6 +37,7 @@ func NewRoleService(
 		userRepo:  userRepo,
 		groupRepo: groupRepo,
 		eventBus:  eventBus,
+		logger:    logging.ComponentLogger("iam.service.role"),
 	}
 }
 
@@ -473,7 +475,7 @@ func (s *RoleService) publishUserRoleAssignedEvent(ctx context.Context, userID i
 
 	evt := eventing.NewEvent(userID, "user", payload.GetType(), 1, payload)
 	if err := s.eventBus.PublishEvent(ctx, evt); err != nil {
-		logging.GetLogger().Warn(ctx, "[RoleService] 发布 UserRoleAssigned 事件失败",
+		s.logger.Warn(ctx, "[RoleService] 发布 UserRoleAssigned 事件失败",
 			logging.Error(err),
 			logging.Int64("user_id", userID),
 			logging.Int64("role_id", role.GetID()),
@@ -495,7 +497,7 @@ func (s *RoleService) publishUserRoleRemovedEvent(ctx context.Context, userID, r
 
 	evt := eventing.NewEvent(userID, "user", payload.GetType(), 1, payload)
 	if err := s.eventBus.PublishEvent(ctx, evt); err != nil {
-		logging.GetLogger().Warn(ctx, "[RoleService] 发布 UserRoleRemoved 事件失败",
+		s.logger.Warn(ctx, "[RoleService] 发布 UserRoleRemoved 事件失败",
 			logging.Error(err),
 			logging.Int64("user_id", userID),
 			logging.Int64("role_id", roleID),

@@ -44,4 +44,3 @@ func (r *TenantRepo) FindByKey(ctx context.Context, key string) (*iamentity.Tena
 
 	return &tenant, nil
 }
-

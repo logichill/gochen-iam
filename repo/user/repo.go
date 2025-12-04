@@ -8,7 +8,7 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen/data/orm"
 	db "gochen/data/orm/repo"
-	"gochen/domain/entity"
+	audited "gochen/domain/audited"
 	"gochen/errors"
 )
 
@@ -161,7 +161,7 @@ func (r *UserRepo) AssignToGroup(ctx context.Context, userID, groupID int64) err
 	}
 
 	err = r.Association(user, "Groups").
-		Append(ctx, &iamentity.Group{Entity: entity.Entity{ID: groupID}})
+		Append(ctx, &iamentity.Group{Entity: audited.Entity{ID: groupID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.ErrCodeDatabase, "分配用户到组织失败")
@@ -179,7 +179,7 @@ func (r *UserRepo) RemoveFromGroup(ctx context.Context, userID, groupID int64) e
 	}
 
 	err = r.Association(user, "Groups").
-		Delete(ctx, &iamentity.Group{Entity: entity.Entity{ID: groupID}})
+		Delete(ctx, &iamentity.Group{Entity: audited.Entity{ID: groupID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.ErrCodeDatabase, "从组织移除用户失败")
@@ -197,7 +197,7 @@ func (r *UserRepo) AssignRole(ctx context.Context, userID, roleID int64) error {
 	}
 
 	err = r.Association(user, "Roles").
-		Append(ctx, &iamentity.Role{Entity: entity.Entity{ID: roleID}})
+		Append(ctx, &iamentity.Role{Entity: audited.Entity{ID: roleID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.ErrCodeDatabase, "分配角色失败")
@@ -215,7 +215,7 @@ func (r *UserRepo) RemoveRole(ctx context.Context, userID, roleID int64) error {
 	}
 
 	err = r.Association(user, "Roles").
-		Delete(ctx, &iamentity.Role{Entity: entity.Entity{ID: roleID}})
+		Delete(ctx, &iamentity.Role{Entity: audited.Entity{ID: roleID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.ErrCodeDatabase, "移除角色失败")

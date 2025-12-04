@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"time"
 
-	sharedentity "gochen/domain/entity"
+	sharedentity "gochen/domain/audited"
 	"gochen/errors"
 )
 

@@ -24,6 +24,7 @@ type UserService struct {
 	userRepo  *userrepo.UserRepo
 	groupRepo *grouprepo.GroupRepo
 	roleRepo  *rolerepo.RoleRepo
+	logger    logging.ILogger
 }
 
 // NewUserService 创建用户服务实例
@@ -36,6 +37,7 @@ func NewUserService(
 		userRepo:  userRepo,
 		groupRepo: groupRepo,
 		roleRepo:  roleRepo,
+		logger:    logging.ComponentLogger("iam.service.user"),
 	}
 }
 
@@ -81,7 +83,7 @@ func (s *UserService) Register(ctx context.Context, req *svc.RegisterRequest) (*
 	// 6. 分配默认角色
 	if err := s.assignDefaultRole(ctx, user.GetID()); err != nil {
 		// 记录错误但不影响注册流程
-		logging.GetLogger().Warn(ctx, "[UserService] 分配默认角色失败",
+		s.logger.Warn(ctx, "[UserService] 分配默认角色失败",
 			logging.Error(err),
 			logging.Int64("user_id", user.GetID()),
 			logging.String("username", user.Username),
@@ -121,7 +123,7 @@ func (s *UserService) Login(ctx context.Context, req *svc.LoginRequest) (*svc.Lo
 	user.UpdateLastLogin()
 	if err := s.userRepo.Update(ctx, user); err != nil {
 		// 记录错误但不影响登录流程
-		logging.GetLogger().Warn(ctx, "[UserService] 更新最后登录时间失败",
+		s.logger.Warn(ctx, "[UserService] 更新最后登录时间失败",
 			logging.Error(err),
 			logging.Int64("user_id", user.GetID()),
 			logging.String("username", user.Username),

@@ -18,6 +18,7 @@ type GroupService struct {
 	groupRepo *grouprepo.GroupRepo
 	userRepo  *userrepo.UserRepo
 	roleRepo  *rolerepo.RoleRepo
+	logger    logging.ILogger
 }
 
 // NewGroupService 创建组织服务实例
@@ -30,6 +31,7 @@ func NewGroupService(
 		groupRepo: groupRepo,
 		userRepo:  userRepo,
 		roleRepo:  roleRepo,
+		logger:    logging.ComponentLogger("iam.service.group"),
 	}
 }
 
@@ -84,7 +86,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 	group.UpdatePath()
 	if err := s.groupRepo.Update(ctx, group); err != nil {
 		// 记录错误但不影响创建流程
-		logging.GetLogger().Warn(ctx, "[GroupService] 更新组织路径失败",
+		s.logger.Warn(ctx, "[GroupService] 更新组织路径失败",
 			logging.Error(err),
 			logging.Int64("group_id", group.GetID()),
 			logging.String("group_name", group.Name),
