@@ -129,7 +129,7 @@ func (rr *RoleRoutes) addRolePermission(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.Permission == "" {
-		err := errors.NewError(errors.ErrCodeValidation, "permission is required")
+		err := errors.NewError(errors.Validation, "permission is required")
 		return err
 	}
 
@@ -153,7 +153,7 @@ func (rr *RoleRoutes) removeRolePermission(ctx httpx.IHttpContext) error {
 
 	permission := ctx.GetParam("permission")
 	if permission == "" {
-		err := errors.NewError(errors.ErrCodeValidation, "permission is required")
+		err := errors.NewError(errors.Validation, "permission is required")
 		return err
 	}
 
@@ -200,7 +200,7 @@ func (rr *RoleRoutes) assignRoleToUsers(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if len(req.UserIDs) == 0 {
-		err := errors.NewError(errors.ErrCodeValidation, "user_ids cannot be empty")
+		err := errors.NewError(errors.Validation, "user_ids cannot be empty")
 		return err
 	}
 	req.RoleID = roleID

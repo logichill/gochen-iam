@@ -120,13 +120,13 @@ func (gr *GroupRoutes) getRootGroups(ctx httpx.IHttpContext) error {
 func (gr *GroupRoutes) getGroupsByLevel(ctx httpx.IHttpContext) error {
 	levelStr := ctx.GetQuery("level")
 	if levelStr == "" {
-		err := errors.NewError(errors.ErrCodeValidation, "level parameter is required")
+		err := errors.NewError(errors.Validation, "level parameter is required")
 		return err
 	}
 
 	level, err := strconv.Atoi(levelStr)
 	if err != nil || level <= 0 {
-		err := errors.NewError(errors.ErrCodeValidation, "level must be a positive integer")
+		err := errors.NewError(errors.Validation, "level must be a positive integer")
 		return err
 	}
 
@@ -177,7 +177,7 @@ func (gr *GroupRoutes) addUserToGroup(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.UserID <= 0 {
-		err := errors.NewError(errors.ErrCodeValidation, "user_id must be greater than 0")
+		err := errors.NewError(errors.Validation, "user_id must be greater than 0")
 		return err
 	}
 
@@ -229,7 +229,7 @@ func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if len(req.UserIDs) == 0 {
-		err := errors.NewError(errors.ErrCodeValidation, "user_ids cannot be empty")
+		err := errors.NewError(errors.Validation, "user_ids cannot be empty")
 		return err
 	}
 
@@ -288,7 +288,7 @@ func (gr *GroupRoutes) addGroupRole(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.RoleID <= 0 {
-		err := errors.NewError(errors.ErrCodeValidation, "role_id must be greater than 0")
+		err := errors.NewError(errors.Validation, "role_id must be greater than 0")
 		return err
 	}
 

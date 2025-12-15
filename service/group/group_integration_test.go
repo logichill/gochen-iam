@@ -198,7 +198,7 @@ func TestGroupServiceCreateDuplicateName(t *testing.T) {
 		t.Error("expected error for duplicate name, got nil")
 	}
 	if appErr, ok := err.(*errors.AppError); ok {
-		if appErr.Code() != errors.ErrCodeValidation {
+		if appErr.Code() != errors.Validation {
 			t.Errorf("expected validation error, got %s", appErr.Code())
 		}
 	}

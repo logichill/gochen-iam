@@ -2,7 +2,6 @@ package tenant
 
 import (
 	"context"
-	ers "errors"
 
 	iamentity "gochen-iam/entity"
 	"gochen/data/orm"
@@ -36,10 +35,10 @@ func (r *TenantRepo) FindByKey(ctx context.Context, key string) (*iamentity.Tena
 	)
 
 	if err != nil {
-		if ers.Is(err, orm.ErrNotFound) {
-			return nil, errors.NewError(errors.ErrCodeNotFound, "租户不存在")
+		if errors.IsNotFound(err) {
+			return nil, errors.NewError(errors.NotFound, "租户不存在")
 		}
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询租户失败")
+		return nil, errors.WrapError(err, errors.Database, "查询租户失败")
 	}
 
 	return &tenant, nil

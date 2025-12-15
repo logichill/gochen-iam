@@ -34,13 +34,13 @@ func (Group) TableName() string {
 // Validate 验证组织数据
 func (g *Group) Validate() error {
 	if g.Name == "" {
-		return errors.NewError(errors.ErrCodeValidation, "组织名称不能为空")
+		return errors.NewError(errors.Validation, "组织名称不能为空")
 	}
 	if len(g.Name) > 100 {
-		return errors.NewError(errors.ErrCodeValidation, "组织名称不能超过100个字符")
+		return errors.NewError(errors.Validation, "组织名称不能超过100个字符")
 	}
 	if len(g.Description) > 500 {
-		return errors.NewError(errors.ErrCodeValidation, "组织描述不能超过500个字符")
+		return errors.NewError(errors.Validation, "组织描述不能超过500个字符")
 	}
 	return nil
 }

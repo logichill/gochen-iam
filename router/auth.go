@@ -122,7 +122,7 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.Token == "" {
-		err := errors.NewError(errors.ErrCodeValidation, "token is required")
+		err := errors.NewError(errors.Validation, "token is required")
 		return err
 	}
 

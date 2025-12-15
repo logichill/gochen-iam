@@ -2,7 +2,6 @@ package group
 
 import (
 	"context"
-	ers "errors"
 
 	iamentity "gochen-iam/entity"
 	"gochen/data/orm"
@@ -33,7 +32,7 @@ func (r *GroupRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentit
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询用户组织失败")
+		return nil, errors.WrapError(err, errors.Database, "查询用户组织失败")
 	}
 
 	return groups, nil
@@ -49,7 +48,7 @@ func (r *GroupRepo) FindChildren(ctx context.Context, parentID int64) ([]*iament
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询子组织失败")
+		return nil, errors.WrapError(err, errors.Database, "查询子组织失败")
 	}
 
 	return groups, nil
@@ -66,7 +65,7 @@ func (r *GroupRepo) FindRootGroups(ctx context.Context) ([]*iamentity.Group, err
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询根组织失败")
+		return nil, errors.WrapError(err, errors.Database, "查询根组织失败")
 	}
 
 	return groups, nil
@@ -82,7 +81,7 @@ func (r *GroupRepo) FindByLevel(ctx context.Context, level int) ([]*iamentity.Gr
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询组织失败")
+		return nil, errors.WrapError(err, errors.Database, "查询组织失败")
 	}
 
 	return groups, nil
@@ -100,10 +99,10 @@ func (r *GroupRepo) FindByPath(ctx context.Context, path string) (*iamentity.Gro
 	)
 
 	if err != nil {
-		if ers.Is(err, orm.ErrNotFound) {
-			return nil, errors.NewError(errors.ErrCodeNotFound, "组织不存在")
+		if errors.IsNotFound(err) {
+			return nil, errors.NewError(errors.NotFound, "组织不存在")
 		}
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询组织失败")
+		return nil, errors.WrapError(err, errors.Database, "查询组织失败")
 	}
 
 	return &group, nil
@@ -177,7 +176,7 @@ func (r *GroupRepo) AddUserToGroup(ctx context.Context, groupID, userID int64) e
 		Append(ctx, &iamentity.User{Entity: audited.Entity{ID: userID}})
 
 	if err != nil {
-		return errors.WrapError(err, errors.ErrCodeDatabase, "添加用户到组织失败")
+		return errors.WrapError(err, errors.Database, "添加用户到组织失败")
 	}
 
 	return nil
@@ -195,7 +194,7 @@ func (r *GroupRepo) RemoveUserFromGroup(ctx context.Context, groupID, userID int
 		Delete(ctx, &iamentity.User{Entity: audited.Entity{ID: userID}})
 
 	if err != nil {
-		return errors.WrapError(err, errors.ErrCodeDatabase, "从组织移除用户失败")
+		return errors.WrapError(err, errors.Database, "从组织移除用户失败")
 	}
 
 	return nil
@@ -213,7 +212,7 @@ func (r *GroupRepo) AddDefaultRole(ctx context.Context, groupID, roleID int64) e
 		Append(ctx, &iamentity.Role{Entity: audited.Entity{ID: roleID}})
 
 	if err != nil {
-		return errors.WrapError(err, errors.ErrCodeDatabase, "添加默认角色失败")
+		return errors.WrapError(err, errors.Database, "添加默认角色失败")
 	}
 
 	return nil
@@ -231,7 +230,7 @@ func (r *GroupRepo) RemoveDefaultRole(ctx context.Context, groupID, roleID int64
 		Delete(ctx, &iamentity.Role{Entity: audited.Entity{ID: roleID}})
 
 	if err != nil {
-		return errors.WrapError(err, errors.ErrCodeDatabase, "移除默认角色失败")
+		return errors.WrapError(err, errors.Database, "移除默认角色失败")
 	}
 
 	return nil
@@ -250,7 +249,7 @@ func (r *GroupRepo) GetGroupTree(ctx context.Context) ([]*iamentity.Group, error
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询组织树失败")
+		return nil, errors.WrapError(err, errors.Database, "查询组织树失败")
 	}
 
 	// 构建树结构
@@ -292,7 +291,7 @@ func (r *GroupRepo) CountByLevel(ctx context.Context) (map[int]int64, error) {
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "统计组织层级失败")
+		return nil, errors.WrapError(err, errors.Database, "统计组织层级失败")
 	}
 
 	levelMap := make(map[int]int64)
@@ -323,7 +322,7 @@ func (r *GroupRepo) SearchGroups(ctx context.Context, keyword string, limit int)
 	err := r.Model().Find(ctx, &groups, opts...)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "搜索组织失败")
+		return nil, errors.WrapError(err, errors.Database, "搜索组织失败")
 	}
 
 	return groups, nil
@@ -341,7 +340,7 @@ func (r *GroupRepo) FindByDefaultRoleID(ctx context.Context, roleID int64) ([]*i
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询使用指定默认角色的组织失败")
+		return nil, errors.WrapError(err, errors.Database, "查询使用指定默认角色的组织失败")
 	}
 
 	return groups, nil

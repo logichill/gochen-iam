@@ -2,7 +2,6 @@ package role
 
 import (
 	"context"
-	ers "errors"
 
 	iamentity "gochen-iam/entity"
 	"gochen/data/orm"
@@ -31,10 +30,10 @@ func (r *RoleRepo) FindByName(ctx context.Context, name string) (*iamentity.Role
 	)
 
 	if err != nil {
-		if ers.Is(err, orm.ErrNotFound) {
-			return nil, errors.NewError(errors.ErrCodeNotFound, "角色不存在")
+		if errors.IsNotFound(err) {
+			return nil, errors.NewError(errors.NotFound, "角色不存在")
 		}
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询角色失败")
+		return nil, errors.WrapError(err, errors.Database, "查询角色失败")
 	}
 
 	return &role, nil
@@ -54,7 +53,7 @@ func (r *RoleRepo) FindByNames(ctx context.Context, names []string) ([]*iamentit
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询角色失败")
+		return nil, errors.WrapError(err, errors.Database, "查询角色失败")
 	}
 
 	return roles, nil
@@ -70,7 +69,7 @@ func (r *RoleRepo) FindByStatus(ctx context.Context, status string) ([]*iamentit
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询角色失败")
+		return nil, errors.WrapError(err, errors.Database, "查询角色失败")
 	}
 
 	return roles, nil
@@ -84,7 +83,7 @@ func (r *RoleRepo) FindSystemRoles(ctx context.Context) ([]*iamentity.Role, erro
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询系统角色失败")
+		return nil, errors.WrapError(err, errors.Database, "查询系统角色失败")
 	}
 
 	return roles, nil
@@ -100,7 +99,7 @@ func (r *RoleRepo) FindUserRoles(ctx context.Context) ([]*iamentity.Role, error)
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询用户角色失败")
+		return nil, errors.WrapError(err, errors.Database, "查询用户角色失败")
 	}
 
 	return roles, nil
@@ -115,7 +114,7 @@ func (r *RoleRepo) FindByPermission(ctx context.Context, permission string) ([]*
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询角色失败")
+		return nil, errors.WrapError(err, errors.Database, "查询角色失败")
 	}
 
 	return roles, nil
@@ -130,7 +129,7 @@ func (r *RoleRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询用户角色失败")
+		return nil, errors.WrapError(err, errors.Database, "查询用户角色失败")
 	}
 
 	return roles, nil
@@ -145,7 +144,7 @@ func (r *RoleRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamenti
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询组织角色失败")
+		return nil, errors.WrapError(err, errors.Database, "查询组织角色失败")
 	}
 
 	return roles, nil
@@ -163,7 +162,7 @@ func (r *RoleRepo) AssignToUser(ctx context.Context, roleID, userID int64) error
 		Append(ctx, &iamentity.User{Entity: audited.Entity{ID: userID}})
 
 	if err != nil {
-		return errors.WrapError(err, errors.ErrCodeDatabase, "分配角色给用户失败")
+		return errors.WrapError(err, errors.Database, "分配角色给用户失败")
 	}
 
 	return nil
@@ -181,7 +180,7 @@ func (r *RoleRepo) RemoveFromUser(ctx context.Context, roleID, userID int64) err
 		Delete(ctx, &iamentity.User{Entity: audited.Entity{ID: userID}})
 
 	if err != nil {
-		return errors.WrapError(err, errors.ErrCodeDatabase, "从用户移除角色失败")
+		return errors.WrapError(err, errors.Database, "从用户移除角色失败")
 	}
 
 	return nil
@@ -199,7 +198,7 @@ func (r *RoleRepo) AssignToGroup(ctx context.Context, roleID, groupID int64) err
 		Append(ctx, &iamentity.Group{Entity: audited.Entity{ID: groupID}})
 
 	if err != nil {
-		return errors.WrapError(err, errors.ErrCodeDatabase, "分配角色给组织失败")
+		return errors.WrapError(err, errors.Database, "分配角色给组织失败")
 	}
 
 	return nil
@@ -217,7 +216,7 @@ func (r *RoleRepo) RemoveFromGroup(ctx context.Context, roleID, groupID int64) e
 		Delete(ctx, &iamentity.Group{Entity: audited.Entity{ID: groupID}})
 
 	if err != nil {
-		return errors.WrapError(err, errors.ErrCodeDatabase, "从组织移除角色失败")
+		return errors.WrapError(err, errors.Database, "从组织移除角色失败")
 	}
 
 	return nil
@@ -238,7 +237,7 @@ func (r *RoleRepo) CountByStatus(ctx context.Context) (map[string]int64, error) 
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "统计角色状态失败")
+		return nil, errors.WrapError(err, errors.Database, "统计角色状态失败")
 	}
 
 	statusMap := make(map[string]int64)
@@ -288,7 +287,7 @@ func (r *RoleRepo) GetRoleUsageStats(ctx context.Context) ([]map[string]interfac
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "获取角色使用统计失败")
+		return nil, errors.WrapError(err, errors.Database, "获取角色使用统计失败")
 	}
 
 	// 转换为通用格式
@@ -327,7 +326,7 @@ func (r *RoleRepo) SearchRoles(ctx context.Context, keyword string, limit int) (
 	err := r.Model().Find(ctx, &roles, opts...)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "搜索角色失败")
+		return nil, errors.WrapError(err, errors.Database, "搜索角色失败")
 	}
 
 	return roles, nil
@@ -350,7 +349,7 @@ func (r *RoleRepo) InitializeSystemRoles(ctx context.Context) error {
 		if existing == nil {
 			// 角色不存在，创建它
 			if err := r.Repo.Add(ctx, role); err != nil {
-				return errors.WrapError(err, errors.ErrCodeDatabase, "初始化系统角色失败: "+role.Name)
+				return errors.WrapError(err, errors.Database, "初始化系统角色失败: "+role.Name)
 			}
 		}
 	}

@@ -7,6 +7,7 @@ import (
 
 	database "gochen/data/db"
 	"gochen/data/orm"
+	"gochen/errors"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -217,7 +218,7 @@ func (m *groupTestGormModel) apply(ctx context.Context, opts ...orm.QueryOption)
 
 func convertGroupTestError(err error) error {
 	if ers.Is(err, gorm.ErrRecordNotFound) {
-		return orm.ErrNotFound
+		return errors.NewNotFoundError("record not found")
 	}
 	return err
 }

@@ -212,7 +212,7 @@ func (ur *UserRoutes) assignUserRole(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.RoleID <= 0 {
-		err := errors.NewError(errors.ErrCodeValidation, "role_id must be greater than 0")
+		err := errors.NewError(errors.Validation, "role_id must be greater than 0")
 		return err
 	}
 
@@ -283,7 +283,7 @@ func (ur *UserRoutes) assignUserToGroup(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.GroupID <= 0 {
-		err := errors.NewError(errors.ErrCodeValidation, "group_id must be greater than 0")
+		err := errors.NewError(errors.Validation, "group_id must be greater than 0")
 		return err
 	}
 
@@ -355,7 +355,7 @@ func (ur *UserRoutes) checkUserPermission(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.Permission == "" {
-		err := errors.NewError(errors.ErrCodeValidation, "permission is required")
+		err := errors.NewError(errors.Validation, "permission is required")
 		return err
 	}
 
@@ -377,7 +377,7 @@ func (ur *UserRoutes) getCurrentUser(ctx httpx.IHttpContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID := ctx.GetContext().GetUserID()
 	if userID == 0 {
-		err := errors.NewError(errors.ErrCodeUnauthorized, "用户未认证")
+		err := errors.NewError(errors.Unauthorized, "用户未认证")
 		return err
 	}
 
@@ -397,7 +397,7 @@ func (ur *UserRoutes) updateCurrentUser(ctx httpx.IHttpContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID := ctx.GetContext().GetUserID()
 	if userID == 0 {
-		err := errors.NewError(errors.ErrCodeUnauthorized, "用户未认证")
+		err := errors.NewError(errors.Unauthorized, "用户未认证")
 		return err
 	}
 
@@ -422,7 +422,7 @@ func (ur *UserRoutes) changePassword(ctx httpx.IHttpContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID := ctx.GetContext().GetUserID()
 	if userID == 0 {
-		err := errors.NewError(errors.ErrCodeUnauthorized, "用户未认证")
+		err := errors.NewError(errors.Unauthorized, "用户未认证")
 		return err
 	}
 

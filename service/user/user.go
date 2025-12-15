@@ -51,19 +51,19 @@ func (s *UserService) Register(ctx context.Context, req *svc.RegisterRequest) (*
 	// 2. 检查用户名是否已存在
 	existingUser, err := s.userRepo.FindByUsername(ctx, req.Username)
 	if err != nil && !errors.IsNotFound(err) {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "检查用户名失败")
+		return nil, errors.WrapError(err, errors.Database, "检查用户名失败")
 	}
 	if existingUser != nil {
-		return nil, errors.NewError(errors.ErrCodeValidation, "用户名已存在")
+		return nil, errors.NewError(errors.Validation, "用户名已存在")
 	}
 
 	// 3. 检查邮箱是否已存在
 	existingUser, err = s.userRepo.FindByEmail(ctx, req.Email)
 	if err != nil && !errors.IsNotFound(err) {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "检查邮箱失败")
+		return nil, errors.WrapError(err, errors.Database, "检查邮箱失败")
 	}
 	if existingUser != nil {
-		return nil, errors.NewError(errors.ErrCodeValidation, "邮箱已存在")
+		return nil, errors.NewError(errors.Validation, "邮箱已存在")
 	}
 
 	// 4. 创建用户实体
@@ -77,7 +77,7 @@ func (s *UserService) Register(ctx context.Context, req *svc.RegisterRequest) (*
 
 	// 5. 保存用户
 	if err := s.userRepo.Create(ctx, user); err != nil {
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "保存用户失败")
+		return nil, errors.WrapError(err, errors.Database, "保存用户失败")
 	}
 
 	// 6. 分配默认角色
@@ -97,26 +97,26 @@ func (s *UserService) Register(ctx context.Context, req *svc.RegisterRequest) (*
 func (s *UserService) Login(ctx context.Context, req *svc.LoginRequest) (*svc.LoginResponse, error) {
 	// 1. 验证请求数据
 	if req.Username == "" || req.Password == "" {
-		return nil, errors.NewError(errors.ErrCodeValidation, "用户名和密码不能为空")
+		return nil, errors.NewError(errors.Validation, "用户名和密码不能为空")
 	}
 
 	// 2. 查找用户
 	user, err := s.userRepo.FindByUsername(ctx, req.Username)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			return nil, errors.NewError(errors.ErrCodeNotFound, "用户名或密码错误")
+			return nil, errors.NewError(errors.NotFound, "用户名或密码错误")
 		}
-		return nil, errors.WrapError(err, errors.ErrCodeDatabase, "查询用户失败")
+		return nil, errors.WrapError(err, errors.Database, "查询用户失败")
 	}
 
 	// 3. 验证密码
 	if !s.verifyPassword(req.Password, user.Password) {
-		return nil, errors.NewError(errors.ErrCodeValidation, "用户名或密码错误")
+		return nil, errors.NewError(errors.Validation, "用户名或密码错误")
 	}
 
 	// 4. 检查用户状态
 	if !user.IsActive() {
-		return nil, errors.NewError(errors.ErrCodeValidation, "用户账户已被禁用")
+		return nil, errors.NewError(errors.Validation, "用户账户已被禁用")
 	}
 
 	// 5. 更新最后登录时间
@@ -153,12 +153,12 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *svc
 
 	// 2. 验证旧密码
 	if !s.verifyPassword(req.OldPassword, user.Password) {
-		return errors.NewError(errors.ErrCodeValidation, "原密码错误")
+		return errors.NewError(errors.Validation, "原密码错误")
 	}
 
 	// 3. 验证新密码
 	if len(req.NewPassword) < svc.MinPasswordLength {
-		return errors.NewError(errors.ErrCodeValidation, "新密码长度不能少于6个字符")
+		return errors.NewError(errors.Validation, "新密码长度不能少于6个字符")
 	}
 
 	// 4. 更新密码
@@ -181,10 +181,10 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *svc.
 		// 检查邮箱是否已被使用
 		existingUser, err := s.userRepo.FindByEmail(ctx, req.Email)
 		if err != nil && !errors.IsNotFound(err) {
-			return nil, errors.WrapError(err, errors.ErrCodeDatabase, "检查邮箱失败")
+			return nil, errors.WrapError(err, errors.Database, "检查邮箱失败")
 		}
 		if existingUser != nil && existingUser.GetID() != userID {
-			return nil, errors.NewError(errors.ErrCodeValidation, "邮箱已被使用")
+			return nil, errors.NewError(errors.Validation, "邮箱已被使用")
 		}
 		user.Email = req.Email
 	}
@@ -365,19 +365,19 @@ func (s *UserService) BatchAssignToGroup(ctx context.Context, groupID int64, use
 // validateRegisterRequest 验证注册请求
 func (s *UserService) validateRegisterRequest(req *svc.RegisterRequest) error {
 	if req.Username == "" {
-		return errors.NewError(errors.ErrCodeValidation, "用户名不能为空")
+		return errors.NewError(errors.Validation, "用户名不能为空")
 	}
 	if len(req.Username) < svc.MinUsernameLength || len(req.Username) > svc.MaxUsernameLength {
-		return errors.NewError(errors.ErrCodeValidation, "用户名长度必须在3-50个字符之间")
+		return errors.NewError(errors.Validation, "用户名长度必须在3-50个字符之间")
 	}
 	if req.Email == "" {
-		return errors.NewError(errors.ErrCodeValidation, "邮箱不能为空")
+		return errors.NewError(errors.Validation, "邮箱不能为空")
 	}
 	if req.Password == "" {
-		return errors.NewError(errors.ErrCodeValidation, "密码不能为空")
+		return errors.NewError(errors.Validation, "密码不能为空")
 	}
 	if len(req.Password) < svc.MinPasswordLength {
-		return errors.NewError(errors.ErrCodeValidation, "密码长度不能少于6个字符")
+		return errors.NewError(errors.Validation, "密码长度不能少于6个字符")
 	}
 	return nil
 }

@@ -149,7 +149,7 @@ func TestUserServiceRegister(t *testing.T) {
 				Password: "password123",
 			},
 			expectError: true,
-			errorCode:   errors.ErrCodeValidation,
+			errorCode:   errors.Validation,
 		},
 		{
 			name: "邮箱已存在",
@@ -159,7 +159,7 @@ func TestUserServiceRegister(t *testing.T) {
 				Password: "password123",
 			},
 			expectError: true,
-			errorCode:   errors.ErrCodeValidation,
+			errorCode:   errors.Validation,
 		},
 		{
 			name: "用户名太短",
@@ -169,7 +169,7 @@ func TestUserServiceRegister(t *testing.T) {
 				Password: "password123",
 			},
 			expectError: true,
-			errorCode:   errors.ErrCodeValidation,
+			errorCode:   errors.Validation,
 		},
 		{
 			name: "密码太短",
@@ -179,7 +179,7 @@ func TestUserServiceRegister(t *testing.T) {
 				Password: "12345",
 			},
 			expectError: true,
-			errorCode:   errors.ErrCodeValidation,
+			errorCode:   errors.Validation,
 		},
 	}
 
