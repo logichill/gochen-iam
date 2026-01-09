@@ -6,7 +6,7 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen/data/orm"
 	db "gochen/data/orm/repo"
-	audited "gochen/domain/audited"
+	"gochen/domain/crud"
 	"gochen/errors"
 )
 
@@ -19,6 +19,19 @@ func NewGroupRepository(o orm.IOrm) *GroupRepo {
 }
 
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供
+
+// GetByID 根据ID获取组织（过滤软删记录）
+func (r *GroupRepo) GetByID(ctx context.Context, id int64) (*iamentity.Group, error) {
+	var group iamentity.Group
+	err := r.Model().First(ctx, &group, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, errors.NewError(errors.NotFound, "组织不存在")
+		}
+		return nil, errors.WrapError(err, errors.Database, "查询组织失败")
+	}
+	return &group, nil
+}
 
 // FindByUserID 根据用户ID查找所属组织
 func (r *GroupRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity.Group, error) {
@@ -173,7 +186,7 @@ func (r *GroupRepo) AddUserToGroup(ctx context.Context, groupID, userID int64) e
 	}
 
 	err = r.Association(group, "Users").
-		Append(ctx, &iamentity.User{Entity: audited.Entity{ID: userID}})
+		Append(ctx, &iamentity.User{Entity: crud.Entity{ID: userID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "添加用户到组织失败")
@@ -191,7 +204,7 @@ func (r *GroupRepo) RemoveUserFromGroup(ctx context.Context, groupID, userID int
 	}
 
 	err = r.Association(group, "Users").
-		Delete(ctx, &iamentity.User{Entity: audited.Entity{ID: userID}})
+		Delete(ctx, &iamentity.User{Entity: crud.Entity{ID: userID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "从组织移除用户失败")
@@ -209,7 +222,7 @@ func (r *GroupRepo) AddDefaultRole(ctx context.Context, groupID, roleID int64) e
 	}
 
 	err = r.Association(group, "DefaultRoles").
-		Append(ctx, &iamentity.Role{Entity: audited.Entity{ID: roleID}})
+		Append(ctx, &iamentity.Role{Entity: crud.Entity{ID: roleID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "添加默认角色失败")
@@ -227,7 +240,7 @@ func (r *GroupRepo) RemoveDefaultRole(ctx context.Context, groupID, roleID int64
 	}
 
 	err = r.Association(group, "DefaultRoles").
-		Delete(ctx, &iamentity.Role{Entity: audited.Entity{ID: roleID}})
+		Delete(ctx, &iamentity.Role{Entity: crud.Entity{ID: roleID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "移除默认角色失败")

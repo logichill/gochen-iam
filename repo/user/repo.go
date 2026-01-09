@@ -7,7 +7,7 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen/data/orm"
 	db "gochen/data/orm/repo"
-	audited "gochen/domain/audited"
+	"gochen/domain/crud"
 	"gochen/errors"
 )
 
@@ -29,6 +29,19 @@ func (r *UserRepo) Create(ctx context.Context, u *iamentity.User) error {
 // Update 覆盖通用更新，省略非表字段
 func (r *UserRepo) Update(ctx context.Context, u *iamentity.User) error {
 	return r.Model().Save(ctx, u, orm.WithWhere("id = ? AND deleted_at IS NULL", u.GetID()))
+}
+
+// GetByID 根据ID获取用户（过滤软删记录）
+func (r *UserRepo) GetByID(ctx context.Context, id int64) (*iamentity.User, error) {
+	var user iamentity.User
+	err := r.Model().First(ctx, &user, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, errors.NewError(errors.NotFound, "用户不存在")
+		}
+		return nil, errors.WrapError(err, errors.Database, "查询用户失败")
+	}
+	return &user, nil
 }
 
 // GetWithRelations 根据ID获取用户及关联数据
@@ -160,7 +173,7 @@ func (r *UserRepo) AssignToGroup(ctx context.Context, userID, groupID int64) err
 	}
 
 	err = r.Association(user, "Groups").
-		Append(ctx, &iamentity.Group{Entity: audited.Entity{ID: groupID}})
+		Append(ctx, &iamentity.Group{Entity: crud.Entity{ID: groupID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "分配用户到组织失败")
@@ -178,7 +191,7 @@ func (r *UserRepo) RemoveFromGroup(ctx context.Context, userID, groupID int64) e
 	}
 
 	err = r.Association(user, "Groups").
-		Delete(ctx, &iamentity.Group{Entity: audited.Entity{ID: groupID}})
+		Delete(ctx, &iamentity.Group{Entity: crud.Entity{ID: groupID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "从组织移除用户失败")
@@ -196,7 +209,7 @@ func (r *UserRepo) AssignRole(ctx context.Context, userID, roleID int64) error {
 	}
 
 	err = r.Association(user, "Roles").
-		Append(ctx, &iamentity.Role{Entity: audited.Entity{ID: roleID}})
+		Append(ctx, &iamentity.Role{Entity: crud.Entity{ID: roleID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "分配角色失败")
@@ -214,7 +227,7 @@ func (r *UserRepo) RemoveRole(ctx context.Context, userID, roleID int64) error {
 	}
 
 	err = r.Association(user, "Roles").
-		Delete(ctx, &iamentity.Role{Entity: audited.Entity{ID: roleID}})
+		Delete(ctx, &iamentity.Role{Entity: crud.Entity{ID: roleID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "移除角色失败")

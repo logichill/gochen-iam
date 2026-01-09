@@ -6,13 +6,17 @@ import (
 	"strings"
 	"time"
 
-	sharedentity "gochen/domain/audited"
+	"gochen/domain"
+	"gochen/domain/crud"
 	"gochen/errors"
 )
 
 // Group 组织实体
 type Group struct {
-	sharedentity.Entity
+	crud.Entity
+	domain.Timestamps
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+
 	Name        string `json:"name" gorm:"size:100;not null"`
 	Description string `json:"description" gorm:"size:500"`
 	ParentID    *int64 `json:"parent_id" gorm:"index"`

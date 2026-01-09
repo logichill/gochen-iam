@@ -43,7 +43,10 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	adminGroup := groupGroup.Group("")
 	adminGroup.Use(AdminOnlyMiddleware())
 
-	appService := appsvc.NewApplication[*iamentity.Group](gr.groupRepo, nil, nil)
+	appService, err := appsvc.NewApplication(gr.groupRepo, nil, nil)
+	if err != nil {
+		panic(err)
+	}
 	_ = api.NewApiBuilder[*iamentity.Group](appService, nil).
 		Route(func(cfg *api.RouteConfig) {
 			cfg.EnablePagination = true

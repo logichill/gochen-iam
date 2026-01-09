@@ -44,7 +44,10 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	adminGroup.Use(AdminOnlyMiddleware())
 
 	// 直接使用原生 shared 仓储接口（UserRepo 已实现 ICRUDRepository）
-	appService := appsvc.NewApplication[*iamentity.User](ur.userRepo, nil, nil)
+	appService, err := appsvc.NewApplication(ur.userRepo, nil, nil)
+	if err != nil {
+		panic(err)
+	}
 
 	_ = api.NewApiBuilder[*iamentity.User](appService, nil).
 		Route(func(cfg *api.RouteConfig) {

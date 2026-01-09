@@ -6,7 +6,7 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen/data/orm"
 	db "gochen/data/orm/repo"
-	audited "gochen/domain/audited"
+	"gochen/domain/crud"
 	"gochen/errors"
 )
 
@@ -19,6 +19,19 @@ func NewRoleRepository(o orm.IOrm) *RoleRepo {
 }
 
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供
+
+// GetByID 根据ID获取角色（过滤软删记录）
+func (r *RoleRepo) GetByID(ctx context.Context, id int64) (*iamentity.Role, error) {
+	var role iamentity.Role
+	err := r.Model().First(ctx, &role, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, errors.NewError(errors.NotFound, "角色不存在")
+		}
+		return nil, errors.WrapError(err, errors.Database, "查询角色失败")
+	}
+	return &role, nil
+}
 
 // FindByName 根据角色名查找角色
 func (r *RoleRepo) FindByName(ctx context.Context, name string) (*iamentity.Role, error) {
@@ -159,7 +172,7 @@ func (r *RoleRepo) AssignToUser(ctx context.Context, roleID, userID int64) error
 	}
 
 	err = r.Association(role, "Users").
-		Append(ctx, &iamentity.User{Entity: audited.Entity{ID: userID}})
+		Append(ctx, &iamentity.User{Entity: crud.Entity{ID: userID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "分配角色给用户失败")
@@ -177,7 +190,7 @@ func (r *RoleRepo) RemoveFromUser(ctx context.Context, roleID, userID int64) err
 	}
 
 	err = r.Association(role, "Users").
-		Delete(ctx, &iamentity.User{Entity: audited.Entity{ID: userID}})
+		Delete(ctx, &iamentity.User{Entity: crud.Entity{ID: userID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "从用户移除角色失败")
@@ -195,7 +208,7 @@ func (r *RoleRepo) AssignToGroup(ctx context.Context, roleID, groupID int64) err
 	}
 
 	err = r.Association(role, "Groups").
-		Append(ctx, &iamentity.Group{Entity: audited.Entity{ID: groupID}})
+		Append(ctx, &iamentity.Group{Entity: crud.Entity{ID: groupID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "分配角色给组织失败")
@@ -213,7 +226,7 @@ func (r *RoleRepo) RemoveFromGroup(ctx context.Context, roleID, groupID int64) e
 	}
 
 	err = r.Association(role, "Groups").
-		Delete(ctx, &iamentity.Group{Entity: audited.Entity{ID: groupID}})
+		Delete(ctx, &iamentity.Group{Entity: crud.Entity{ID: groupID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "从组织移除角色失败")
@@ -348,7 +361,7 @@ func (r *RoleRepo) InitializeSystemRoles(ctx context.Context) error {
 
 		if existing == nil {
 			// 角色不存在，创建它
-			if err := r.Repo.Add(ctx, role); err != nil {
+			if err := r.Repo.Create(ctx, role); err != nil {
 				return errors.WrapError(err, errors.Database, "初始化系统角色失败: "+role.Name)
 			}
 		}

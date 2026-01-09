@@ -4,13 +4,17 @@ import (
 	"regexp"
 	"time"
 
-	sharedentity "gochen/domain/audited"
+	"gochen/domain"
+	"gochen/domain/crud"
 	"gochen/errors"
 )
 
 // User 用户实体
 type User struct {
-	sharedentity.Entity
+	crud.Entity
+	domain.Timestamps
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+
 	Username    string     `json:"username" gorm:"uniqueIndex;size:50;not null"`
 	Email       string     `json:"email" gorm:"uniqueIndex;size:100;not null"`
 	Password    string     `json:"password" gorm:"column:password_hash;size:255;not null"`

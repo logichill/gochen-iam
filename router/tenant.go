@@ -5,8 +5,8 @@ import (
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
 	tenantsvc "gochen-iam/service/tenant"
-	appsvc "gochen/app/application"
 	api "gochen/app/api"
+	appsvc "gochen/app/application"
 	httpx "gochen/http"
 	hbasic "gochen/http/basic"
 )
@@ -35,7 +35,10 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	adminGroup := tenantGroup.Group("")
 	adminGroup.Use(AdminOnlyMiddleware())
 
-	appService := appsvc.NewApplication[*iamentity.Tenant](tr.tenantRepo, nil, nil)
+	appService, err := appsvc.NewApplication(tr.tenantRepo, nil, nil)
+	if err != nil {
+		panic(err)
+	}
 	_ = api.NewApiBuilder[*iamentity.Tenant](appService, nil).
 		Route(func(cfg *api.RouteConfig) {
 			cfg.EnablePagination = true

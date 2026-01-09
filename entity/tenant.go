@@ -3,13 +3,16 @@ package entity
 import (
 	"time"
 
-	sharedentity "gochen/domain/audited"
+	"gochen/domain"
+	"gochen/domain/crud"
 	"gochen/errors"
 )
 
 // Tenant 租户实体（普通审计型聚合，不使用 Event Sourcing）
 type Tenant struct {
-	sharedentity.Entity
+	crud.Entity
+	domain.Timestamps
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
 	Key         string `json:"key" gorm:"uniqueIndex;size:64;not null"` // 业务主键
 	Name        string `json:"name" gorm:"size:100;not null"`           // 租户名称
