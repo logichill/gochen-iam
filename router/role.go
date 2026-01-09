@@ -1,7 +1,6 @@
 package router
 
 import (
-	iamentity "gochen-iam/entity"
 	rolerepo "gochen-iam/repo/role"
 	svc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
@@ -47,8 +46,8 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	if err != nil {
 		panic(err)
 	}
-	_ = api.NewApiBuilder[*iamentity.Role](appService, nil).
-		Route(func(cfg *api.RouteConfig) {
+	_ = api.NewApiBuilder(appService, nil).
+		Route(func(cfg *api.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000

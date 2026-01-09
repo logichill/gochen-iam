@@ -1,7 +1,6 @@
 package router
 
 import (
-	iamentity "gochen-iam/entity"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
 	tenantsvc "gochen-iam/service/tenant"
@@ -39,8 +38,8 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	if err != nil {
 		panic(err)
 	}
-	_ = api.NewApiBuilder[*iamentity.Tenant](appService, nil).
-		Route(func(cfg *api.RouteConfig) {
+	_ = api.NewApiBuilder(appService, nil).
+		Route(func(cfg *api.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 100
