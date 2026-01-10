@@ -13,7 +13,7 @@ import (
 
 // Group 组织实体
 type Group struct {
-	crud.Entity
+	crud.Entity[int64]
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 

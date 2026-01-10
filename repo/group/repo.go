@@ -186,7 +186,7 @@ func (r *GroupRepo) AddUserToGroup(ctx context.Context, groupID, userID int64) e
 	}
 
 	err = r.Association(group, "Users").
-		Append(ctx, &iamentity.User{Entity: crud.Entity{ID: userID}})
+		Append(ctx, &iamentity.User{Entity: crud.Entity[int64]{ID: userID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "添加用户到组织失败")
@@ -204,7 +204,7 @@ func (r *GroupRepo) RemoveUserFromGroup(ctx context.Context, groupID, userID int
 	}
 
 	err = r.Association(group, "Users").
-		Delete(ctx, &iamentity.User{Entity: crud.Entity{ID: userID}})
+		Delete(ctx, &iamentity.User{Entity: crud.Entity[int64]{ID: userID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "从组织移除用户失败")
@@ -222,7 +222,7 @@ func (r *GroupRepo) AddDefaultRole(ctx context.Context, groupID, roleID int64) e
 	}
 
 	err = r.Association(group, "DefaultRoles").
-		Append(ctx, &iamentity.Role{Entity: crud.Entity{ID: roleID}})
+		Append(ctx, &iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "添加默认角色失败")
@@ -240,7 +240,7 @@ func (r *GroupRepo) RemoveDefaultRole(ctx context.Context, groupID, roleID int64
 	}
 
 	err = r.Association(group, "DefaultRoles").
-		Delete(ctx, &iamentity.Role{Entity: crud.Entity{ID: roleID}})
+		Delete(ctx, &iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "移除默认角色失败")

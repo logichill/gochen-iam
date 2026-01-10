@@ -10,7 +10,7 @@ import (
 
 // Tenant 租户实体（普通审计型聚合，不使用 Event Sourcing）
 type Tenant struct {
-	crud.Entity
+	crud.Entity[int64]
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 

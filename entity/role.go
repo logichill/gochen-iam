@@ -40,7 +40,7 @@ func (p PermissionArray) Value() (any, error) {
 
 // Role 角色实体
 type Role struct {
-	crud.Entity
+	crud.Entity[int64]
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 

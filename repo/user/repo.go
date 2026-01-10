@@ -173,7 +173,7 @@ func (r *UserRepo) AssignToGroup(ctx context.Context, userID, groupID int64) err
 	}
 
 	err = r.Association(user, "Groups").
-		Append(ctx, &iamentity.Group{Entity: crud.Entity{ID: groupID}})
+		Append(ctx, &iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "分配用户到组织失败")
@@ -191,7 +191,7 @@ func (r *UserRepo) RemoveFromGroup(ctx context.Context, userID, groupID int64) e
 	}
 
 	err = r.Association(user, "Groups").
-		Delete(ctx, &iamentity.Group{Entity: crud.Entity{ID: groupID}})
+		Delete(ctx, &iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "从组织移除用户失败")
@@ -209,7 +209,7 @@ func (r *UserRepo) AssignRole(ctx context.Context, userID, roleID int64) error {
 	}
 
 	err = r.Association(user, "Roles").
-		Append(ctx, &iamentity.Role{Entity: crud.Entity{ID: roleID}})
+		Append(ctx, &iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "分配角色失败")
@@ -227,7 +227,7 @@ func (r *UserRepo) RemoveRole(ctx context.Context, userID, roleID int64) error {
 	}
 
 	err = r.Association(user, "Roles").
-		Delete(ctx, &iamentity.Role{Entity: crud.Entity{ID: roleID}})
+		Delete(ctx, &iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}})
 
 	if err != nil {
 		return errors.WrapError(err, errors.Database, "移除角色失败")

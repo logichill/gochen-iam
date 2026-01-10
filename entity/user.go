@@ -11,7 +11,7 @@ import (
 
 // User 用户实体
 type User struct {
-	crud.Entity
+	crud.Entity[int64]
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
