@@ -137,4 +137,3 @@ func (s *TenantService) validateCreateTenantRequest(req *svc.CreateTenantRequest
 	}
 	return nil
 }
-
