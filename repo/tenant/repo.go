@@ -13,8 +13,12 @@ import (
 type TenantRepo struct{ *db.Repo[*iamentity.Tenant] }
 
 // NewTenantRepository 创建租户仓储
-func NewTenantRepository(o orm.IOrm) *TenantRepo {
-	return &TenantRepo{Repo: db.NewRepo[*iamentity.Tenant](o, "tenants")}
+func NewTenantRepository(o orm.IOrm) (*TenantRepo, error) {
+	base, err := db.NewRepo[*iamentity.Tenant](o, "tenants")
+	if err != nil {
+		return nil, err
+	}
+	return &TenantRepo{Repo: base}, nil
 }
 
 // Create 覆盖通用创建

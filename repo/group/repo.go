@@ -14,8 +14,12 @@ import (
 type GroupRepo struct{ *db.Repo[*iamentity.Group] }
 
 // NewGroupRepository 创建组织Repository
-func NewGroupRepository(o orm.IOrm) *GroupRepo {
-	return &GroupRepo{Repo: db.NewRepo[*iamentity.Group](o, "groups")}
+func NewGroupRepository(o orm.IOrm) (*GroupRepo, error) {
+	base, err := db.NewRepo[*iamentity.Group](o, "groups")
+	if err != nil {
+		return nil, err
+	}
+	return &GroupRepo{Repo: base}, nil
 }
 
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供

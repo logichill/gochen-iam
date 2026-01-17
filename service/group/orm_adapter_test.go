@@ -37,8 +37,11 @@ func (g *groupTestGormOrm) Capabilities() orm.Capabilities { return g.capabiliti
 func (g *groupTestGormOrm) WithContext(ctx context.Context) orm.IOrm {
 	return &groupTestGormOrm{db: g.db.WithContext(ctx), capabilities: g.capabilities}
 }
-func (g *groupTestGormOrm) Model(meta *orm.ModelMeta) orm.IModel {
-	return &groupTestGormModel{db: g.db, meta: meta}
+func (g *groupTestGormOrm) Model(meta *orm.ModelMeta) (orm.IModel, error) {
+	if meta == nil {
+		return nil, errorx.NewInvalidInputError("orm model meta cannot be nil")
+	}
+	return &groupTestGormModel{db: g.db, meta: meta}, nil
 }
 func (g *groupTestGormOrm) Begin(ctx context.Context) (orm.IOrmSession, error) {
 	tx := g.db.WithContext(ctx).Begin()

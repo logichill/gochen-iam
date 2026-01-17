@@ -14,8 +14,12 @@ import (
 type RoleRepo struct{ *db.Repo[*iamentity.Role] }
 
 // NewRoleRepository 创建角色Repository
-func NewRoleRepository(o orm.IOrm) *RoleRepo {
-	return &RoleRepo{Repo: db.NewRepo[*iamentity.Role](o, "roles")}
+func NewRoleRepository(o orm.IOrm) (*RoleRepo, error) {
+	base, err := db.NewRepo[*iamentity.Role](o, "roles")
+	if err != nil {
+		return nil, err
+	}
+	return &RoleRepo{Repo: base}, nil
 }
 
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供

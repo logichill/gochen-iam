@@ -59,9 +59,18 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	}
 
 	// 创建仓储
-	groupRepo := grouprepo.NewGroupRepository(ormAdapter)
-	userRepo := userrepo.NewUserRepository(ormAdapter)
-	roleRepo := rolerepo.NewRoleRepository(ormAdapter)
+	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter)
+	if err != nil {
+		t.Fatalf("NewGroupRepository: %v", err)
+	}
+	userRepo, err := userrepo.NewUserRepository(ormAdapter)
+	if err != nil {
+		t.Fatalf("NewUserRepository: %v", err)
+	}
+	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter)
+	if err != nil {
+		t.Fatalf("NewRoleRepository: %v", err)
+	}
 
 	// 创建服务
 	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo)

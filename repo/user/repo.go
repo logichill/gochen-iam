@@ -15,8 +15,12 @@ import (
 type UserRepo struct{ *db.Repo[*iamentity.User] }
 
 // NewUserRepository 创建用户Repository
-func NewUserRepository(o orm.IOrm) *UserRepo {
-	return &UserRepo{Repo: db.NewRepo[*iamentity.User](o, "users")}
+func NewUserRepository(o orm.IOrm) (*UserRepo, error) {
+	base, err := db.NewRepo[*iamentity.User](o, "users")
+	if err != nil {
+		return nil, err
+	}
+	return &UserRepo{Repo: base}, nil
 }
 
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供
