@@ -9,8 +9,8 @@ import (
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	"gochen/errors"
-	"gochen/logging"
+	"gochen/runtime/errorx"
+	"gochen/runtime/logging"
 )
 
 // GroupService 组织服务
@@ -47,13 +47,13 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 	if req.ParentID != nil {
 		parent, err := s.groupRepo.GetByID(ctx, *req.ParentID)
 		if err != nil {
-			return nil, errors.WrapError(err, errors.NotFound, "父组织不存在")
+			return nil, errorx.WrapError(err, errorx.NotFound, "父组织不存在")
 		}
 		parentGroup = parent
 
 		// 检查层级限制
 		if parentGroup.Level >= svc.MaxGroupLevel {
-			return nil, errors.NewError(errors.Validation, "组织层级不能超过10级")
+			return nil, errorx.NewError(errorx.Validation, "组织层级不能超过10级")
 		}
 	}
 
@@ -79,7 +79,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 
 	// 6. 保存组织
 	if err := s.groupRepo.Create(ctx, group); err != nil {
-		return nil, errors.WrapError(err, errors.Database, "保存组织失败")
+		return nil, errorx.WrapError(err, errorx.Database, "保存组织失败")
 	}
 
 	// 7. 更新路径（需要ID）
@@ -135,7 +135,7 @@ func (s *GroupService) DeleteGroup(ctx context.Context, groupID int64) error {
 		return err
 	}
 	if len(children) > 0 {
-		return errors.NewError(errors.Validation, "不能删除有子组织的组织，请先处理子组织")
+		return errorx.NewError(errorx.Validation, "不能删除有子组织的组织，请先处理子组织")
 	}
 
 	// 2. 检查是否有用户
@@ -144,7 +144,7 @@ func (s *GroupService) DeleteGroup(ctx context.Context, groupID int64) error {
 		return err
 	}
 	if len(users) > 0 {
-		return errors.NewError(errors.Validation, "不能删除有用户的组织，请先移除用户")
+		return errorx.NewError(errorx.Validation, "不能删除有用户的组织，请先移除用户")
 	}
 
 	// 3. 删除组织
@@ -283,13 +283,13 @@ func (s *GroupService) GetGroupStatistics(ctx context.Context) (*svc.StatisticsR
 // validateCreateGroupRequest 验证创建组织请求
 func (s *GroupService) validateCreateGroupRequest(req *svc.CreateGroupRequest) error {
 	if req.Name == "" {
-		return errors.NewError(errors.Validation, "组织名称不能为空")
+		return errorx.NewError(errorx.Validation, "组织名称不能为空")
 	}
 	if len(req.Name) > 100 {
-		return errors.NewError(errors.Validation, "组织名称不能超过100个字符")
+		return errorx.NewError(errorx.Validation, "组织名称不能超过100个字符")
 	}
 	if len(req.Description) > 500 {
-		return errors.NewError(errors.Validation, "组织描述不能超过500个字符")
+		return errorx.NewError(errorx.Validation, "组织描述不能超过500个字符")
 	}
 	return nil
 }
@@ -313,7 +313,7 @@ func (s *GroupService) checkGroupNameDuplicate(ctx context.Context, name string,
 
 	for _, group := range groups {
 		if group.Name == name {
-			return errors.NewError(errors.Validation, "同一层级下组织名称不能重复")
+			return errorx.NewError(errorx.Validation, "同一层级下组织名称不能重复")
 		}
 	}
 

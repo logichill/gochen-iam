@@ -7,11 +7,11 @@ import (
 	groupsvc "gochen-iam/service/group"
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
-	api "gochen/app/api"
+	api "gochen/api/http"
 	appsvc "gochen/app/application"
-	"gochen/errors"
-	httpx "gochen/http"
-	hbasic "gochen/http/basic"
+	httpx "gochen/httpx"
+	hbasic "gochen/httpx/basic"
+	"gochen/runtime/errorx"
 )
 
 // GroupRoutes 组织路由注册器
@@ -19,7 +19,7 @@ type GroupRoutes struct {
 	groupService *groupsvc.GroupService
 	userService  *usersvc.UserService
 	roleService  *rolesvc.RoleService
-	utils        *hbasic.HttpUtils
+	utils        *hbasic.Utils
 	groupRepo    *grouprepo.GroupRepo
 }
 
@@ -29,7 +29,7 @@ func NewGroupRoutes(groupService *groupsvc.GroupService, userService *usersvc.Us
 		groupService: groupService,
 		userService:  userService,
 		roleService:  roleService,
-		utils:        &hbasic.HttpUtils{},
+		utils:        &hbasic.Utils{},
 		groupRepo:    groupRepo,
 	}
 }
@@ -95,7 +95,7 @@ func (gr *GroupRoutes) setupGroupCustomRoutes(groupGroup httpx.IRouteGroup) {
 // 以下只包含扩展功能的处理器
 
 // 组织树操作处理器
-func (gr *GroupRoutes) getGroupTree(ctx httpx.IHttpContext) error {
+func (gr *GroupRoutes) getGroupTree(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 
 	tree, err := gr.groupService.GetGroupTree(reqCtx)
@@ -107,7 +107,7 @@ func (gr *GroupRoutes) getGroupTree(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (gr *GroupRoutes) getRootGroups(ctx httpx.IHttpContext) error {
+func (gr *GroupRoutes) getRootGroups(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 
 	groups, err := gr.groupService.GetRootGroups(reqCtx)
@@ -119,16 +119,16 @@ func (gr *GroupRoutes) getRootGroups(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (gr *GroupRoutes) getGroupsByLevel(ctx httpx.IHttpContext) error {
+func (gr *GroupRoutes) getGroupsByLevel(ctx httpx.IContext) error {
 	levelStr := ctx.GetQuery("level")
 	if levelStr == "" {
-		err := errors.NewError(errors.Validation, "level parameter is required")
+		err := errorx.NewError(errorx.Validation, "level parameter is required")
 		return err
 	}
 
 	level, err := strconv.Atoi(levelStr)
 	if err != nil || level <= 0 {
-		err := errors.NewError(errors.Validation, "level must be a positive integer")
+		err := errorx.NewError(errorx.Validation, "level must be a positive integer")
 		return err
 	}
 
@@ -146,7 +146,7 @@ func (gr *GroupRoutes) getGroupsByLevel(ctx httpx.IHttpContext) error {
 }
 
 // 组织成员管理处理器
-func (gr *GroupRoutes) getGroupUsers(ctx httpx.IHttpContext) error {
+func (gr *GroupRoutes) getGroupUsers(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -165,7 +165,7 @@ func (gr *GroupRoutes) getGroupUsers(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (gr *GroupRoutes) addUserToGroup(ctx httpx.IHttpContext) error {
+func (gr *GroupRoutes) addUserToGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -179,7 +179,7 @@ func (gr *GroupRoutes) addUserToGroup(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.UserID <= 0 {
-		err := errors.NewError(errors.Validation, "user_id must be greater than 0")
+		err := errorx.NewError(errorx.Validation, "user_id must be greater than 0")
 		return err
 	}
 
@@ -194,7 +194,7 @@ func (gr *GroupRoutes) addUserToGroup(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (gr *GroupRoutes) removeUserFromGroup(ctx httpx.IHttpContext) error {
+func (gr *GroupRoutes) removeUserFromGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -217,7 +217,7 @@ func (gr *GroupRoutes) removeUserFromGroup(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IHttpContext) error {
+func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -231,7 +231,7 @@ func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if len(req.UserIDs) == 0 {
-		err := errors.NewError(errors.Validation, "user_ids cannot be empty")
+		err := errorx.NewError(errorx.Validation, "user_ids cannot be empty")
 		return err
 	}
 
@@ -257,7 +257,7 @@ func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IHttpContext) error {
 }
 
 // 组织角色管理处理器
-func (gr *GroupRoutes) getGroupRoles(ctx httpx.IHttpContext) error {
+func (gr *GroupRoutes) getGroupRoles(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -276,7 +276,7 @@ func (gr *GroupRoutes) getGroupRoles(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (gr *GroupRoutes) addGroupRole(ctx httpx.IHttpContext) error {
+func (gr *GroupRoutes) addGroupRole(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -290,7 +290,7 @@ func (gr *GroupRoutes) addGroupRole(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.RoleID <= 0 {
-		err := errors.NewError(errors.Validation, "role_id must be greater than 0")
+		err := errorx.NewError(errorx.Validation, "role_id must be greater than 0")
 		return err
 	}
 
@@ -305,7 +305,7 @@ func (gr *GroupRoutes) addGroupRole(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (gr *GroupRoutes) removeGroupRole(ctx httpx.IHttpContext) error {
+func (gr *GroupRoutes) removeGroupRole(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -329,7 +329,7 @@ func (gr *GroupRoutes) removeGroupRole(ctx httpx.IHttpContext) error {
 }
 
 // 组织统计处理器
-func (gr *GroupRoutes) getGroupStatistics(ctx httpx.IHttpContext) error {
+func (gr *GroupRoutes) getGroupStatistics(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 
 	stats, err := gr.groupService.GetGroupStatistics(reqCtx)

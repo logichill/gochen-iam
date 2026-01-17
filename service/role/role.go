@@ -10,10 +10,10 @@ import (
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	"gochen/errors"
 	"gochen/eventing"
 	"gochen/eventing/bus"
-	"gochen/logging"
+	"gochen/runtime/errorx"
+	"gochen/runtime/logging"
 )
 
 // RoleService 角色服务
@@ -50,11 +50,11 @@ func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest
 
 	// 2. 检查角色名称是否已存在
 	existingRole, err := s.roleRepo.FindByName(ctx, req.Name)
-	if err != nil && !errors.IsNotFound(err) {
-		return nil, errors.WrapError(err, errors.Database, "检查角色名称失败")
+	if err != nil && !errorx.IsNotFound(err) {
+		return nil, errorx.WrapError(err, errorx.Database, "检查角色名称失败")
 	}
 	if existingRole != nil {
-		return nil, errors.NewError(errors.Validation, "角色名称已存在")
+		return nil, errorx.NewError(errorx.Validation, "角色名称已存在")
 	}
 
 	// 3. 验证权限
@@ -75,7 +75,7 @@ func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest
 
 	// 5. 保存角色
 	if err := s.roleRepo.Create(ctx, role); err != nil {
-		return nil, errors.WrapError(err, errors.Database, "保存角色失败")
+		return nil, errorx.WrapError(err, errorx.Database, "保存角色失败")
 	}
 
 	return role, nil
@@ -91,18 +91,18 @@ func (s *RoleService) UpdateRole(ctx context.Context, roleID int64, req *svc.Upd
 
 	// 2. 检查是否为系统角色
 	if role.IsSystem {
-		return nil, errors.NewError(errors.Validation, "系统角色不能被修改")
+		return nil, errorx.NewError(errorx.Validation, "系统角色不能被修改")
 	}
 
 	// 3. 更新字段
 	if req.Name != "" && req.Name != role.Name {
 		// 检查名称是否重复
 		existingRole, err := s.roleRepo.FindByName(ctx, req.Name)
-		if err != nil && !errors.IsNotFound(err) {
-			return nil, errors.WrapError(err, errors.Database, "检查角色名称失败")
+		if err != nil && !errorx.IsNotFound(err) {
+			return nil, errorx.WrapError(err, errorx.Database, "检查角色名称失败")
 		}
 		if existingRole != nil && existingRole.GetID() != roleID {
-			return nil, errors.NewError(errors.Validation, "角色名称已存在")
+			return nil, errorx.NewError(errorx.Validation, "角色名称已存在")
 		}
 		role.Name = req.Name
 	}
@@ -138,12 +138,12 @@ func (s *RoleService) DeleteRole(ctx context.Context, roleID int64) error {
 
 	// 2. 检查是否为系统角色
 	if role.IsSystem {
-		return errors.NewError(errors.Validation, "系统角色不能被删除")
+		return errorx.NewError(errorx.Validation, "系统角色不能被删除")
 	}
 
 	// 3. 检查是否正在使用中
 	if role.IsInUse() {
-		return errors.NewError(errors.Validation, "角色正在使用中，不能删除")
+		return errorx.NewError(errorx.Validation, "角色正在使用中，不能删除")
 	}
 
 	// 4. 删除角色
@@ -160,7 +160,7 @@ func (s *RoleService) AssignRoleToUser(ctx context.Context, roleID, userID int64
 
 	// 2. 检查角色是否激活
 	if role.Status != svc.RoleStatusActive {
-		return errors.NewError(errors.Validation, "只能分配激活状态的角色")
+		return errorx.NewError(errorx.Validation, "只能分配激活状态的角色")
 	}
 
 	// 3. 检查用户是否存在
@@ -200,7 +200,7 @@ func (s *RoleService) AssignRoleToGroup(ctx context.Context, roleID, groupID int
 
 	// 2. 检查角色是否激活
 	if role.Status != svc.RoleStatusActive {
-		return errors.NewError(errors.Validation, "只能分配激活状态的角色")
+		return errorx.NewError(errorx.Validation, "只能分配激活状态的角色")
 	}
 
 	// 3. 检查组织是否存在
@@ -228,7 +228,7 @@ func (s *RoleService) AddPermission(ctx context.Context, roleID int64, permissio
 
 	// 2. 检查是否为系统角色
 	if role.IsSystem {
-		return errors.NewError(errors.Validation, "系统角色权限不能被修改")
+		return errorx.NewError(errorx.Validation, "系统角色权限不能被修改")
 	}
 
 	// 3. 验证权限
@@ -251,7 +251,7 @@ func (s *RoleService) RemovePermission(ctx context.Context, roleID int64, permis
 
 	// 2. 检查是否为系统角色
 	if role.IsSystem {
-		return errors.NewError(errors.Validation, "系统角色权限不能被修改")
+		return errorx.NewError(errorx.Validation, "系统角色权限不能被修改")
 	}
 
 	// 3. 移除权限
@@ -278,7 +278,7 @@ func (s *RoleService) DeactivateRole(ctx context.Context, roleID int64) error {
 	}
 
 	if role.IsSystem {
-		return errors.NewError(errors.Validation, "系统角色不能被停用")
+		return errorx.NewError(errorx.Validation, "系统角色不能被停用")
 	}
 
 	role.Deactivate()
@@ -295,11 +295,11 @@ func (s *RoleService) CloneRole(ctx context.Context, roleID int64, newName strin
 
 	// 2. 检查新名称是否重复
 	existingRole, err := s.roleRepo.FindByName(ctx, newName)
-	if err != nil && !errors.IsNotFound(err) {
-		return nil, errors.WrapError(err, errors.Database, "检查角色名称失败")
+	if err != nil && !errorx.IsNotFound(err) {
+		return nil, errorx.WrapError(err, errorx.Database, "检查角色名称失败")
 	}
 	if existingRole != nil {
-		return nil, errors.NewError(errors.Validation, "角色名称已存在")
+		return nil, errorx.NewError(errorx.Validation, "角色名称已存在")
 	}
 
 	// 3. 克隆角色
@@ -310,7 +310,7 @@ func (s *RoleService) CloneRole(ctx context.Context, roleID int64, newName strin
 
 	// 4. 保存克隆的角色
 	if err := s.roleRepo.Create(ctx, clonedRole); err != nil {
-		return nil, errors.WrapError(err, errors.Database, "保存克隆角色失败")
+		return nil, errorx.WrapError(err, errorx.Database, "保存克隆角色失败")
 	}
 
 	return clonedRole, nil
@@ -425,16 +425,16 @@ func (s *RoleService) BatchAssignRole(ctx context.Context, req *svc.RoleAssignRe
 // validateCreateRoleRequest 验证创建角色请求
 func (s *RoleService) validateCreateRoleRequest(req *svc.CreateRoleRequest) error {
 	if req.Name == "" {
-		return errors.NewError(errors.Validation, "角色名称不能为空")
+		return errorx.NewError(errorx.Validation, "角色名称不能为空")
 	}
 	if len(req.Name) > 50 {
-		return errors.NewError(errors.Validation, "角色名称不能超过50个字符")
+		return errorx.NewError(errorx.Validation, "角色名称不能超过50个字符")
 	}
 	if len(req.Description) > 500 {
-		return errors.NewError(errors.Validation, "角色描述不能超过500个字符")
+		return errorx.NewError(errorx.Validation, "角色描述不能超过500个字符")
 	}
 	if len(req.Permissions) == 0 {
-		return errors.NewError(errors.Validation, "角色必须至少拥有一个权限")
+		return errorx.NewError(errorx.Validation, "角色必须至少拥有一个权限")
 	}
 	return nil
 }
@@ -443,7 +443,7 @@ func (s *RoleService) validateCreateRoleRequest(req *svc.CreateRoleRequest) erro
 func (s *RoleService) validatePermissions(permissions []string) error {
 	for _, permission := range permissions {
 		if !s.isValidPermission(permission) {
-			return errors.NewError(errors.Validation, "无效的权限: "+permission)
+			return errorx.NewError(errorx.Validation, "无效的权限: "+permission)
 		}
 	}
 	return nil

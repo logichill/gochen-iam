@@ -6,11 +6,11 @@ import (
 	groupsvc "gochen-iam/service/group"
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
-	api "gochen/app/api"
+	api "gochen/api/http"
 	appsvc "gochen/app/application"
-	"gochen/errors"
-	httpx "gochen/http"
-	hbasic "gochen/http/basic"
+	httpx "gochen/httpx"
+	hbasic "gochen/httpx/basic"
+	"gochen/runtime/errorx"
 )
 
 // RoleRoutes 角色路由注册器
@@ -18,7 +18,7 @@ type RoleRoutes struct {
 	roleService  *rolesvc.RoleService
 	userService  *usersvc.UserService
 	groupService *groupsvc.GroupService
-	utils        *hbasic.HttpUtils
+	utils        *hbasic.Utils
 	roleRepo     *rolerepo.RoleRepo
 }
 
@@ -28,7 +28,7 @@ func NewRoleRoutes(roleService *rolesvc.RoleService, userService *usersvc.UserSe
 		roleService:  roleService,
 		userService:  userService,
 		groupService: groupService,
-		utils:        &hbasic.HttpUtils{},
+		utils:        &hbasic.Utils{},
 		roleRepo:     roleRepo,
 	}
 }
@@ -98,7 +98,7 @@ func (rr *RoleRoutes) setupRoleCustomRoutes(roleGroup httpx.IRouteGroup) {
 // 以下只包含扩展功能的处理器
 
 // 角色权限管理处理器
-func (rr *RoleRoutes) getRolePermissions(ctx httpx.IHttpContext) error {
+func (rr *RoleRoutes) getRolePermissions(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -117,7 +117,7 @@ func (rr *RoleRoutes) getRolePermissions(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (rr *RoleRoutes) addRolePermission(ctx httpx.IHttpContext) error {
+func (rr *RoleRoutes) addRolePermission(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -131,7 +131,7 @@ func (rr *RoleRoutes) addRolePermission(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.Permission == "" {
-		err := errors.NewError(errors.Validation, "permission is required")
+		err := errorx.NewError(errorx.Validation, "permission is required")
 		return err
 	}
 
@@ -146,7 +146,7 @@ func (rr *RoleRoutes) addRolePermission(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (rr *RoleRoutes) removeRolePermission(ctx httpx.IHttpContext) error {
+func (rr *RoleRoutes) removeRolePermission(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -155,7 +155,7 @@ func (rr *RoleRoutes) removeRolePermission(ctx httpx.IHttpContext) error {
 
 	permission := ctx.GetParam("permission")
 	if permission == "" {
-		err := errors.NewError(errors.Validation, "permission is required")
+		err := errorx.NewError(errorx.Validation, "permission is required")
 		return err
 	}
 
@@ -171,7 +171,7 @@ func (rr *RoleRoutes) removeRolePermission(ctx httpx.IHttpContext) error {
 }
 
 // 角色用户管理处理器
-func (rr *RoleRoutes) getRoleUsers(ctx httpx.IHttpContext) error {
+func (rr *RoleRoutes) getRoleUsers(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -190,7 +190,7 @@ func (rr *RoleRoutes) getRoleUsers(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (rr *RoleRoutes) assignRoleToUsers(ctx httpx.IHttpContext) error {
+func (rr *RoleRoutes) assignRoleToUsers(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -202,7 +202,7 @@ func (rr *RoleRoutes) assignRoleToUsers(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if len(req.UserIDs) == 0 {
-		err := errors.NewError(errors.Validation, "user_ids cannot be empty")
+		err := errorx.NewError(errorx.Validation, "user_ids cannot be empty")
 		return err
 	}
 	req.RoleID = roleID
@@ -228,7 +228,7 @@ func (rr *RoleRoutes) assignRoleToUsers(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (rr *RoleRoutes) removeRoleFromUser(ctx httpx.IHttpContext) error {
+func (rr *RoleRoutes) removeRoleFromUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -252,7 +252,7 @@ func (rr *RoleRoutes) removeRoleFromUser(ctx httpx.IHttpContext) error {
 }
 
 // 角色操作处理器
-func (rr *RoleRoutes) activateRole(ctx httpx.IHttpContext) error {
+func (rr *RoleRoutes) activateRole(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -270,7 +270,7 @@ func (rr *RoleRoutes) activateRole(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (rr *RoleRoutes) deactivateRole(ctx httpx.IHttpContext) error {
+func (rr *RoleRoutes) deactivateRole(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -288,7 +288,7 @@ func (rr *RoleRoutes) deactivateRole(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (rr *RoleRoutes) cloneRole(ctx httpx.IHttpContext) error {
+func (rr *RoleRoutes) cloneRole(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -312,7 +312,7 @@ func (rr *RoleRoutes) cloneRole(ctx httpx.IHttpContext) error {
 }
 
 // 系统角色处理器
-func (rr *RoleRoutes) getSystemRoles(ctx httpx.IHttpContext) error {
+func (rr *RoleRoutes) getSystemRoles(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	roles, err := rr.roleService.GetSystemRoles(reqCtx)
 	if err != nil {
@@ -323,7 +323,7 @@ func (rr *RoleRoutes) getSystemRoles(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (rr *RoleRoutes) initSystemRoles(ctx httpx.IHttpContext) error {
+func (rr *RoleRoutes) initSystemRoles(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	if err := rr.roleService.InitializeSystemRoles(reqCtx); err != nil {
 		return err
@@ -336,7 +336,7 @@ func (rr *RoleRoutes) initSystemRoles(ctx httpx.IHttpContext) error {
 }
 
 // 角色统计处理器
-func (rr *RoleRoutes) getRoleStatistics(ctx httpx.IHttpContext) error {
+func (rr *RoleRoutes) getRoleStatistics(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	stats, err := rr.roleService.GetRoleStatistics(reqCtx)
 	if err != nil {

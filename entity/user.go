@@ -6,7 +6,7 @@ import (
 
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/errors"
+	"gochen/runtime/errorx"
 )
 
 // User 用户实体
@@ -35,28 +35,28 @@ func (*User) TableName() string {
 // Validate 验证用户数据（指针接收者）
 func (u *User) Validate() error {
 	if u.Username == "" {
-		return errors.NewError(errors.Validation, "用户名不能为空")
+		return errorx.NewError(errorx.Validation, "用户名不能为空")
 	}
 	if len(u.Username) < 3 || len(u.Username) > 50 {
-		return errors.NewError(errors.Validation, "用户名长度必须在3-50个字符之间")
+		return errorx.NewError(errorx.Validation, "用户名长度必须在3-50个字符之间")
 	}
 
 	if u.Email == "" {
-		return errors.NewError(errors.Validation, "邮箱不能为空")
+		return errorx.NewError(errorx.Validation, "邮箱不能为空")
 	}
 	if !isValidEmail(u.Email) {
-		return errors.NewError(errors.Validation, "邮箱格式不正确")
+		return errorx.NewError(errorx.Validation, "邮箱格式不正确")
 	}
 
 	if u.Password == "" {
-		return errors.NewError(errors.Validation, "密码不能为空")
+		return errorx.NewError(errorx.Validation, "密码不能为空")
 	}
 	if len(u.Password) < 6 {
-		return errors.NewError(errors.Validation, "密码长度不能少于6个字符")
+		return errorx.NewError(errorx.Validation, "密码长度不能少于6个字符")
 	}
 
 	if u.Status != "" && !isValidUserStatus(u.Status) {
-		return errors.NewError(errors.Validation, "用户状态无效")
+		return errorx.NewError(errorx.Validation, "用户状态无效")
 	}
 
 	return nil

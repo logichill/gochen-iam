@@ -7,7 +7,7 @@ import (
 	iamentity "gochen-iam/entity"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
-	"gochen/errors"
+	"gochen/runtime/errorx"
 )
 
 // TenantService 租户服务（普通 CRUD / 可审计模型）
@@ -30,9 +30,9 @@ func (s *TenantService) CreateTenant(ctx context.Context, req *svc.CreateTenantR
 
 	// 校验编码唯一
 	if _, err := s.tenantRepo.FindByKey(ctx, req.Key); err == nil {
-		return nil, errors.NewError(errors.Validation, "租户编码已存在")
-	} else if !errors.IsNotFound(err) {
-		return nil, errors.WrapError(err, errors.Database, "检查租户编码失败")
+		return nil, errorx.NewError(errorx.Validation, "租户编码已存在")
+	} else if !errorx.IsNotFound(err) {
+		return nil, errorx.WrapError(err, errorx.Database, "检查租户编码失败")
 	}
 
 	tenant := &iamentity.Tenant{
@@ -48,7 +48,7 @@ func (s *TenantService) CreateTenant(ctx context.Context, req *svc.CreateTenantR
 	}
 
 	if err := s.tenantRepo.Create(ctx, tenant); err != nil {
-		return nil, errors.WrapError(err, errors.Database, "保存租户失败")
+		return nil, errorx.WrapError(err, errorx.Database, "保存租户失败")
 	}
 
 	return tenant, nil
@@ -74,7 +74,7 @@ func (s *TenantService) UpdateTenant(ctx context.Context, tenantID int64, req *s
 	}
 
 	if err := s.tenantRepo.Update(ctx, tenant); err != nil {
-		return nil, errors.WrapError(err, errors.Database, "更新租户失败")
+		return nil, errorx.WrapError(err, errorx.Database, "更新租户失败")
 	}
 
 	return tenant, nil
@@ -89,7 +89,7 @@ func (s *TenantService) ActivateTenant(ctx context.Context, tenantID int64) erro
 
 	tenant.Activate()
 	if err := s.tenantRepo.Update(ctx, tenant); err != nil {
-		return errors.WrapError(err, errors.Database, "启用租户失败")
+		return errorx.WrapError(err, errorx.Database, "启用租户失败")
 	}
 	return nil
 }
@@ -103,7 +103,7 @@ func (s *TenantService) DeactivateTenant(ctx context.Context, tenantID int64) er
 
 	tenant.Deactivate()
 	if err := s.tenantRepo.Update(ctx, tenant); err != nil {
-		return errors.WrapError(err, errors.Database, "禁用租户失败")
+		return errorx.WrapError(err, errorx.Database, "禁用租户失败")
 	}
 	return nil
 }
@@ -118,7 +118,7 @@ func (s *TenantService) ListTenants(ctx context.Context) ([]*iamentity.Tenant, e
 	var tenants []*iamentity.Tenant
 	err := s.tenantRepo.Model().Find(ctx, &tenants)
 	if err != nil {
-		return nil, errors.WrapError(err, errors.Database, "查询租户列表失败")
+		return nil, errorx.WrapError(err, errorx.Database, "查询租户列表失败")
 	}
 	return tenants, nil
 }
@@ -127,13 +127,13 @@ func (s *TenantService) ListTenants(ctx context.Context) ([]*iamentity.Tenant, e
 
 func (s *TenantService) validateCreateTenantRequest(req *svc.CreateTenantRequest) error {
 	if req == nil {
-		return errors.NewError(errors.Validation, "请求不能为空")
+		return errorx.NewError(errorx.Validation, "请求不能为空")
 	}
 	if req.Key == "" {
-		return errors.NewError(errors.Validation, "租户编码不能为空")
+		return errorx.NewError(errorx.Validation, "租户编码不能为空")
 	}
 	if req.Name == "" {
-		return errors.NewError(errors.Validation, "租户名称不能为空")
+		return errorx.NewError(errorx.Validation, "租户名称不能为空")
 	}
 	return nil
 }

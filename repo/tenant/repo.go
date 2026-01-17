@@ -4,9 +4,9 @@ import (
 	"context"
 
 	iamentity "gochen-iam/entity"
-	"gochen/data/orm"
-	db "gochen/data/orm/repo"
-	"gochen/errors"
+	"gochen/runtime/errorx"
+	"gochen/storage/orm"
+	db "gochen/storage/orm/repo"
 )
 
 // TenantRepo 租户数据访问层
@@ -32,10 +32,10 @@ func (r *TenantRepo) GetByID(ctx context.Context, id int64) (*iamentity.Tenant, 
 	var tenant iamentity.Tenant
 	err := r.Model().First(ctx, &tenant, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
 	if err != nil {
-		if errors.IsNotFound(err) {
-			return nil, errors.NewError(errors.NotFound, "租户不存在")
+		if errorx.IsNotFound(err) {
+			return nil, errorx.NewError(errorx.NotFound, "租户不存在")
 		}
-		return nil, errors.WrapError(err, errors.Database, "查询租户失败")
+		return nil, errorx.WrapError(err, errorx.Database, "查询租户失败")
 	}
 	return &tenant, nil
 }
@@ -48,10 +48,10 @@ func (r *TenantRepo) FindByKey(ctx context.Context, key string) (*iamentity.Tena
 	)
 
 	if err != nil {
-		if errors.IsNotFound(err) {
-			return nil, errors.NewError(errors.NotFound, "租户不存在")
+		if errorx.IsNotFound(err) {
+			return nil, errorx.NewError(errorx.NotFound, "租户不存在")
 		}
-		return nil, errors.WrapError(err, errors.Database, "查询租户失败")
+		return nil, errorx.WrapError(err, errorx.Database, "查询租户失败")
 	}
 
 	return &tenant, nil

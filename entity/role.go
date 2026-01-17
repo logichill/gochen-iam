@@ -7,7 +7,7 @@ import (
 
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/errors"
+	"gochen/runtime/errorx"
 )
 
 // PermissionArray 权限数组类型
@@ -64,16 +64,16 @@ func (Role) TableName() string {
 // Validate 验证角色数据
 func (r *Role) Validate() error {
 	if r.Name == "" {
-		return errors.NewError(errors.Validation, "角色名称不能为空")
+		return errorx.NewError(errorx.Validation, "角色名称不能为空")
 	}
 	if len(r.Name) > 50 {
-		return errors.NewError(errors.Validation, "角色名称不能超过50个字符")
+		return errorx.NewError(errorx.Validation, "角色名称不能超过50个字符")
 	}
 	if len(r.Description) > 500 {
-		return errors.NewError(errors.Validation, "角色描述不能超过500个字符")
+		return errorx.NewError(errorx.Validation, "角色描述不能超过500个字符")
 	}
 	if r.Status != "" && !isValidRoleStatus(r.Status) {
-		return errors.NewError(errors.Validation, "角色状态无效")
+		return errorx.NewError(errorx.Validation, "角色状态无效")
 	}
 	return nil
 }

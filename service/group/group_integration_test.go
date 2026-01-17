@@ -14,8 +14,7 @@ import (
 	svc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
-	"gochen/errors"
-
+	"gochen/runtime/errorx"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -197,8 +196,8 @@ func TestGroupServiceCreateDuplicateName(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for duplicate name, got nil")
 	}
-	if appErr, ok := err.(*errors.AppError); ok {
-		if appErr.Code() != errors.Validation {
+	if appErr, ok := err.(*errorx.AppError); ok {
+		if appErr.Code() != errorx.Validation {
 			t.Errorf("expected validation error, got %s", appErr.Code())
 		}
 	}

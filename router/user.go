@@ -6,11 +6,11 @@ import (
 	groupsvc "gochen-iam/service/group"
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
-	api "gochen/app/api"
+	api "gochen/api/http"
 	appsvc "gochen/app/application"
-	"gochen/errors"
-	httpx "gochen/http"
-	hbasic "gochen/http/basic"
+	httpx "gochen/httpx"
+	hbasic "gochen/httpx/basic"
+	"gochen/runtime/errorx"
 )
 
 // UserRoutes 用户路由注册器
@@ -18,7 +18,7 @@ type UserRoutes struct {
 	userService  *usersvc.UserService
 	groupService *groupsvc.GroupService
 	roleService  *rolesvc.RoleService
-	utils        *hbasic.HttpUtils
+	utils        *hbasic.Utils
 	userRepo     *userrepo.UserRepo
 }
 
@@ -28,7 +28,7 @@ func NewUserRoutes(userService *usersvc.UserService, groupService *groupsvc.Grou
 		userService:  userService,
 		groupService: groupService,
 		roleService:  roleService,
-		utils:        &hbasic.HttpUtils{},
+		utils:        &hbasic.Utils{},
 		userRepo:     userRepo,
 	}
 }
@@ -109,7 +109,7 @@ func (ur *UserRoutes) setupSelfUserRoutes(userGroup httpx.IRouteGroup) {
 // 以下只包含扩展功能的处理器
 
 // 用户状态管理处理器
-func (ur *UserRoutes) activateUser(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) activateUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -127,7 +127,7 @@ func (ur *UserRoutes) activateUser(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ur *UserRoutes) deactivateUser(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) deactivateUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -145,7 +145,7 @@ func (ur *UserRoutes) deactivateUser(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ur *UserRoutes) lockUser(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) lockUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -163,7 +163,7 @@ func (ur *UserRoutes) lockUser(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ur *UserRoutes) unlockUser(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) unlockUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -182,7 +182,7 @@ func (ur *UserRoutes) unlockUser(ctx httpx.IHttpContext) error {
 }
 
 // 用户角色管理处理器
-func (ur *UserRoutes) getUserRoles(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) getUserRoles(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -200,7 +200,7 @@ func (ur *UserRoutes) getUserRoles(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ur *UserRoutes) assignUserRole(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) assignUserRole(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -214,7 +214,7 @@ func (ur *UserRoutes) assignUserRole(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.RoleID <= 0 {
-		err := errors.NewError(errors.Validation, "role_id must be greater than 0")
+		err := errorx.NewError(errorx.Validation, "role_id must be greater than 0")
 		return err
 	}
 
@@ -229,7 +229,7 @@ func (ur *UserRoutes) assignUserRole(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ur *UserRoutes) removeUserRole(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) removeUserRole(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -253,7 +253,7 @@ func (ur *UserRoutes) removeUserRole(ctx httpx.IHttpContext) error {
 }
 
 // 用户组织管理处理器
-func (ur *UserRoutes) getUserGroups(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) getUserGroups(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -271,7 +271,7 @@ func (ur *UserRoutes) getUserGroups(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ur *UserRoutes) assignUserToGroup(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) assignUserToGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -285,7 +285,7 @@ func (ur *UserRoutes) assignUserToGroup(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.GroupID <= 0 {
-		err := errors.NewError(errors.Validation, "group_id must be greater than 0")
+		err := errorx.NewError(errorx.Validation, "group_id must be greater than 0")
 		return err
 	}
 
@@ -300,7 +300,7 @@ func (ur *UserRoutes) assignUserToGroup(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ur *UserRoutes) removeUserFromGroupByUser(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) removeUserFromGroupByUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -324,7 +324,7 @@ func (ur *UserRoutes) removeUserFromGroupByUser(ctx httpx.IHttpContext) error {
 }
 
 // 用户权限处理器
-func (ur *UserRoutes) getUserPermissions(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) getUserPermissions(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -343,7 +343,7 @@ func (ur *UserRoutes) getUserPermissions(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ur *UserRoutes) checkUserPermission(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) checkUserPermission(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -357,7 +357,7 @@ func (ur *UserRoutes) checkUserPermission(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.Permission == "" {
-		err := errors.NewError(errors.Validation, "permission is required")
+		err := errorx.NewError(errorx.Validation, "permission is required")
 		return err
 	}
 
@@ -375,11 +375,11 @@ func (ur *UserRoutes) checkUserPermission(ctx httpx.IHttpContext) error {
 }
 
 // 当前用户处理器
-func (ur *UserRoutes) getCurrentUser(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) getCurrentUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID := ctx.GetContext().GetUserID()
 	if userID == 0 {
-		err := errors.NewError(errors.Unauthorized, "用户未认证")
+		err := errorx.NewError(errorx.Unauthorized, "用户未认证")
 		return err
 	}
 
@@ -395,11 +395,11 @@ func (ur *UserRoutes) getCurrentUser(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ur *UserRoutes) updateCurrentUser(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) updateCurrentUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID := ctx.GetContext().GetUserID()
 	if userID == 0 {
-		err := errors.NewError(errors.Unauthorized, "用户未认证")
+		err := errorx.NewError(errorx.Unauthorized, "用户未认证")
 		return err
 	}
 
@@ -420,11 +420,11 @@ func (ur *UserRoutes) updateCurrentUser(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ur *UserRoutes) changePassword(ctx httpx.IHttpContext) error {
+func (ur *UserRoutes) changePassword(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID := ctx.GetContext().GetUserID()
 	if userID == 0 {
-		err := errors.NewError(errors.Unauthorized, "用户未认证")
+		err := errorx.NewError(errorx.Unauthorized, "用户未认证")
 		return err
 	}
 

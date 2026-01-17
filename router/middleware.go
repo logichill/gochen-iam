@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
-	"gochen/errors"
-	httpx "gochen/http"
+	httpx "gochen/httpx"
+	"gochen/runtime/errorx"
 )
 
 type contextKey string
@@ -71,7 +71,7 @@ func GenerateToken(userID int64, username string, roles, permissions []string, s
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signedToken, err := token.SignedString([]byte(secretKey))
 	if err != nil {
-		return "", errors.WrapError(err, errors.Internal, "生成 token 失败")
+		return "", errorx.WrapError(err, errorx.Internal, "生成 token 失败")
 	}
 	return signedToken, nil
 }
@@ -92,9 +92,9 @@ func AdminOnlyMiddleware() httpx.Middleware {
 
 // UserOnlyMiddleware 仅用户中间件（已认证用户）
 func UserOnlyMiddleware() httpx.Middleware {
-	return func(ctx httpx.IHttpContext, next func() error) error {
+	return func(ctx httpx.IContext, next func() error) error {
 		if ctx.GetContext().GetUserID() == 0 {
-			return errors.NewError(errors.Unauthorized, "用户未认证")
+			return errorx.NewError(errorx.Unauthorized, "用户未认证")
 		}
 		return next()
 	}
@@ -102,10 +102,10 @@ func UserOnlyMiddleware() httpx.Middleware {
 
 // RoleMiddleware 角色验证中间件
 func RoleMiddleware(requiredRole string) httpx.Middleware {
-	return func(ctx httpx.IHttpContext, next func() error) error {
+	return func(ctx httpx.IContext, next func() error) error {
 		reqCtx := ctx.GetContext()
 		if reqCtx == nil || reqCtx.GetUserID() == 0 {
-			return errors.NewError(errors.Unauthorized, "用户未认证")
+			return errorx.NewError(errorx.Unauthorized, "用户未认证")
 		}
 
 		// 首先按常规从请求上下文中检查角色
@@ -129,7 +129,7 @@ func RoleMiddleware(requiredRole string) httpx.Middleware {
 // RequireAnyRole 检查是否拥有任一指定角色
 func RequireAnyRole(ctx httpx.IRequestContext, roles ...string) error {
 	if ctx == nil {
-		return errors.NewError(errors.Unauthorized, "用户未认证")
+		return errorx.NewError(errorx.Unauthorized, "用户未认证")
 	}
 	userRoles := GetRoles(ctx)
 	for _, role := range roles {
@@ -139,13 +139,13 @@ func RequireAnyRole(ctx httpx.IRequestContext, roles ...string) error {
 			}
 		}
 	}
-	return errors.NewError(errors.Forbidden, "缺少所需角色")
+	return errorx.NewError(errorx.Forbidden, "缺少所需角色")
 }
 
 // RequirePermission 检查是否拥有指定权限
 func RequirePermission(ctx httpx.IRequestContext, permission string) error {
 	if ctx == nil {
-		return errors.NewError(errors.Unauthorized, "用户未认证")
+		return errorx.NewError(errorx.Unauthorized, "用户未认证")
 	}
 	userPermissions := GetPermissions(ctx)
 	for _, p := range userPermissions {
@@ -153,7 +153,7 @@ func RequirePermission(ctx httpx.IRequestContext, permission string) error {
 			return nil
 		}
 	}
-	return errors.NewError(errors.Forbidden, "缺少所需权限")
+	return errorx.NewError(errorx.Forbidden, "缺少所需权限")
 }
 
 // GetRoles 从请求上下文获取角色列表
@@ -186,17 +186,17 @@ func GetPermissions(ctx httpx.IRequestContext) []string {
 func validateToken(tokenString, secretKey string) (*JWTClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.NewError(errors.Unauthorized, "不支持的签名方法")
+			return nil, errorx.NewError(errorx.Unauthorized, "不支持的签名方法")
 		}
 		return []byte(secretKey), nil
 	})
 	if err != nil {
-		return nil, errors.WrapError(err, errors.Unauthorized, "token 验证失败")
+		return nil, errorx.WrapError(err, errorx.Unauthorized, "token 验证失败")
 	}
 
 	if claims, ok := token.Claims.(*JWTClaims); ok && token.Valid {
 		return claims, nil
 	}
 
-	return nil, errors.NewError(errors.Unauthorized, "无效的 token")
+	return nil, errorx.NewError(errorx.Unauthorized, "无效的 token")
 }

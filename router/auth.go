@@ -5,9 +5,9 @@ import (
 	groupsvc "gochen-iam/service/group"
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
-	"gochen/errors"
-	httpx "gochen/http"
-	hbasic "gochen/http/basic"
+	httpx "gochen/httpx"
+	hbasic "gochen/httpx/basic"
+	"gochen/runtime/errorx"
 )
 
 // AuthRoutes 认证路由注册器
@@ -15,7 +15,7 @@ type AuthRoutes struct {
 	userService  *usersvc.UserService
 	groupService *groupsvc.GroupService
 	roleService  *rolesvc.RoleService
-	utils        *hbasic.HttpUtils
+	utils        *hbasic.Utils
 	authConfig   *AuthConfig
 }
 
@@ -25,7 +25,7 @@ func NewAuthRoutes(userService *usersvc.UserService, groupService *groupsvc.Grou
 		userService:  userService,
 		groupService: groupService,
 		roleService:  roleService,
-		utils:        &hbasic.HttpUtils{},
+		utils:        &hbasic.Utils{},
 		authConfig:   DefaultAuthConfig(),
 	}
 }
@@ -53,7 +53,7 @@ func (ar *AuthRoutes) GetPriority() int {
 }
 
 // 认证处理器方法
-func (ar *AuthRoutes) register(ctx httpx.IHttpContext) error {
+func (ar *AuthRoutes) register(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	req := &iamsvc.RegisterRequest{}
 
@@ -74,7 +74,7 @@ func (ar *AuthRoutes) register(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ar *AuthRoutes) login(ctx httpx.IHttpContext) error {
+func (ar *AuthRoutes) login(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	req := &iamsvc.LoginRequest{}
 
@@ -107,14 +107,14 @@ func (ar *AuthRoutes) login(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ar *AuthRoutes) logout(ctx httpx.IHttpContext) error {
+func (ar *AuthRoutes) logout(ctx httpx.IContext) error {
 	ar.utils.WriteSuccessResponse(ctx, map[string]interface{}{
 		"message": "logged_out",
 	})
 	return nil
 }
 
-func (ar *AuthRoutes) refreshToken(ctx httpx.IHttpContext) error {
+func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 	var req struct {
 		Token string `json:"token" binding:"required"`
 	}
@@ -122,7 +122,7 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IHttpContext) error {
 		return err
 	}
 	if req.Token == "" {
-		err := errors.NewError(errors.Validation, "token is required")
+		err := errorx.NewError(errorx.Validation, "token is required")
 		return err
 	}
 
@@ -137,7 +137,7 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ar *AuthRoutes) forgotPassword(ctx httpx.IHttpContext) error {
+func (ar *AuthRoutes) forgotPassword(ctx httpx.IContext) error {
 	var req struct {
 		Email string `json:"email" binding:"required,email"`
 	}
@@ -151,7 +151,7 @@ func (ar *AuthRoutes) forgotPassword(ctx httpx.IHttpContext) error {
 	return nil
 }
 
-func (ar *AuthRoutes) resetPassword(ctx httpx.IHttpContext) error {
+func (ar *AuthRoutes) resetPassword(ctx httpx.IContext) error {
 	var req struct {
 		Token       string `json:"token" binding:"required"`
 		NewPassword string `json:"new_password" binding:"required,min=6"`

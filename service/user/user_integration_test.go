@@ -14,8 +14,7 @@ import (
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
 
-	"gochen/errors"
-
+	"gochen/runtime/errorx"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -130,7 +129,7 @@ func TestUserServiceRegister(t *testing.T) {
 		name        string
 		req         *svc.RegisterRequest
 		expectError bool
-		errorCode   errors.ErrorCode
+		errorCode   errorx.ErrorCode
 	}{
 		{
 			name: "正常注册",
@@ -149,7 +148,7 @@ func TestUserServiceRegister(t *testing.T) {
 				Password: "password123",
 			},
 			expectError: true,
-			errorCode:   errors.Validation,
+			errorCode:   errorx.Validation,
 		},
 		{
 			name: "邮箱已存在",
@@ -159,7 +158,7 @@ func TestUserServiceRegister(t *testing.T) {
 				Password: "password123",
 			},
 			expectError: true,
-			errorCode:   errors.Validation,
+			errorCode:   errorx.Validation,
 		},
 		{
 			name: "用户名太短",
@@ -169,7 +168,7 @@ func TestUserServiceRegister(t *testing.T) {
 				Password: "password123",
 			},
 			expectError: true,
-			errorCode:   errors.Validation,
+			errorCode:   errorx.Validation,
 		},
 		{
 			name: "密码太短",
@@ -179,7 +178,7 @@ func TestUserServiceRegister(t *testing.T) {
 				Password: "12345",
 			},
 			expectError: true,
-			errorCode:   errors.Validation,
+			errorCode:   errorx.Validation,
 		},
 	}
 
@@ -192,7 +191,7 @@ func TestUserServiceRegister(t *testing.T) {
 					t.Error("expected error, got nil")
 					return
 				}
-				if appErr, ok := err.(*errors.AppError); ok {
+				if appErr, ok := err.(*errorx.AppError); ok {
 					if appErr.Code() != tt.errorCode {
 						t.Errorf("expected error code %s, got %s", tt.errorCode, appErr.Code())
 					}

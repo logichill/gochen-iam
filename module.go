@@ -12,9 +12,9 @@ import (
 	rolesvc "gochen-iam/service/role"
 	tenantsvc "gochen-iam/service/tenant"
 	usersvc "gochen-iam/service/user"
-	"gochen/di"
 	"gochen/eventing/bus"
 	"gochen/eventing/projection"
+	"gochen/runtime/di"
 )
 
 // Module IAM 领域模块（身份访问管理）

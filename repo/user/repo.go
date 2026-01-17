@@ -5,10 +5,10 @@ import (
 	"time"
 
 	iamentity "gochen-iam/entity"
-	"gochen/data/orm"
-	db "gochen/data/orm/repo"
 	"gochen/domain/crud"
-	"gochen/errors"
+	"gochen/runtime/errorx"
+	"gochen/storage/orm"
+	db "gochen/storage/orm/repo"
 )
 
 // UserRepo 用户数据访问层
@@ -36,10 +36,10 @@ func (r *UserRepo) GetByID(ctx context.Context, id int64) (*iamentity.User, erro
 	var user iamentity.User
 	err := r.Model().First(ctx, &user, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
 	if err != nil {
-		if errors.IsNotFound(err) {
-			return nil, errors.NewError(errors.NotFound, "用户不存在")
+		if errorx.IsNotFound(err) {
+			return nil, errorx.NewError(errorx.NotFound, "用户不存在")
 		}
-		return nil, errors.WrapError(err, errors.Database, "查询用户失败")
+		return nil, errorx.WrapError(err, errorx.Database, "查询用户失败")
 	}
 	return &user, nil
 }
@@ -54,10 +54,10 @@ func (r *UserRepo) GetWithRelations(ctx context.Context, id int64) (*iamentity.U
 	)
 
 	if err != nil {
-		if errors.IsNotFound(err) {
-			return nil, errors.NewError(errors.NotFound, "用户不存在")
+		if errorx.IsNotFound(err) {
+			return nil, errorx.NewError(errorx.NotFound, "用户不存在")
 		}
-		return nil, errors.WrapError(err, errors.Database, "查询用户失败")
+		return nil, errorx.WrapError(err, errorx.Database, "查询用户失败")
 	}
 
 	return &user, nil
@@ -73,10 +73,10 @@ func (r *UserRepo) FindByEmail(ctx context.Context, email string) (*iamentity.Us
 	)
 
 	if err != nil {
-		if errors.IsNotFound(err) {
-			return nil, errors.NewError(errors.NotFound, "用户不存在")
+		if errorx.IsNotFound(err) {
+			return nil, errorx.NewError(errorx.NotFound, "用户不存在")
 		}
-		return nil, errors.WrapError(err, errors.Database, "查询用户失败")
+		return nil, errorx.WrapError(err, errorx.Database, "查询用户失败")
 	}
 
 	return &user, nil
@@ -92,10 +92,10 @@ func (r *UserRepo) FindByUsername(ctx context.Context, username string) (*iament
 	)
 
 	if err != nil {
-		if errors.IsNotFound(err) {
-			return nil, errors.NewError(errors.NotFound, "用户不存在")
+		if errorx.IsNotFound(err) {
+			return nil, errorx.NewError(errorx.NotFound, "用户不存在")
 		}
-		return nil, errors.WrapError(err, errors.Database, "查询用户失败")
+		return nil, errorx.WrapError(err, errorx.Database, "查询用户失败")
 	}
 
 	return &user, nil
@@ -108,7 +108,7 @@ func (r *UserRepo) UpdateLastLogin(ctx context.Context, userID int64) error {
 	}, orm.WithWhere("id = ? AND deleted_at IS NULL", userID))
 
 	if err != nil {
-		return errors.WrapError(err, errors.Database, "更新最后登录时间失败")
+		return errorx.WrapError(err, errorx.Database, "更新最后登录时间失败")
 	}
 
 	return nil
@@ -124,7 +124,7 @@ func (r *UserRepo) FindByStatus(ctx context.Context, status string) ([]*iamentit
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.Database, "查询用户失败")
+		return nil, errorx.WrapError(err, errorx.Database, "查询用户失败")
 	}
 
 	return users, nil
@@ -141,7 +141,7 @@ func (r *UserRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamenti
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.Database, "查询组织用户失败")
+		return nil, errorx.WrapError(err, errorx.Database, "查询组织用户失败")
 	}
 
 	return users, nil
@@ -158,7 +158,7 @@ func (r *UserRepo) FindByRoleID(ctx context.Context, roleID int64) ([]*iamentity
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.Database, "查询角色用户失败")
+		return nil, errorx.WrapError(err, errorx.Database, "查询角色用户失败")
 	}
 
 	return users, nil
@@ -176,7 +176,7 @@ func (r *UserRepo) AssignToGroup(ctx context.Context, userID, groupID int64) err
 		Append(ctx, &iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}})
 
 	if err != nil {
-		return errors.WrapError(err, errors.Database, "分配用户到组织失败")
+		return errorx.WrapError(err, errorx.Database, "分配用户到组织失败")
 	}
 
 	return nil
@@ -194,7 +194,7 @@ func (r *UserRepo) RemoveFromGroup(ctx context.Context, userID, groupID int64) e
 		Delete(ctx, &iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}})
 
 	if err != nil {
-		return errors.WrapError(err, errors.Database, "从组织移除用户失败")
+		return errorx.WrapError(err, errorx.Database, "从组织移除用户失败")
 	}
 
 	return nil
@@ -212,7 +212,7 @@ func (r *UserRepo) AssignRole(ctx context.Context, userID, roleID int64) error {
 		Append(ctx, &iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}})
 
 	if err != nil {
-		return errors.WrapError(err, errors.Database, "分配角色失败")
+		return errorx.WrapError(err, errorx.Database, "分配角色失败")
 	}
 
 	return nil
@@ -230,7 +230,7 @@ func (r *UserRepo) RemoveRole(ctx context.Context, userID, roleID int64) error {
 		Delete(ctx, &iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}})
 
 	if err != nil {
-		return errors.WrapError(err, errors.Database, "移除角色失败")
+		return errorx.WrapError(err, errorx.Database, "移除角色失败")
 	}
 
 	return nil
@@ -251,7 +251,7 @@ func (r *UserRepo) CountByStatus(ctx context.Context) (map[string]int64, error) 
 	)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.Database, "统计用户状态失败")
+		return nil, errorx.WrapError(err, errorx.Database, "统计用户状态失败")
 	}
 
 	statusMap := make(map[string]int64)
@@ -282,7 +282,7 @@ func (r *UserRepo) SearchUsers(ctx context.Context, keyword string, limit int) (
 	err := r.Model().Find(ctx, &users, opts...)
 
 	if err != nil {
-		return nil, errors.WrapError(err, errors.Database, "搜索用户失败")
+		return nil, errorx.WrapError(err, errorx.Database, "搜索用户失败")
 	}
 
 	return users, nil

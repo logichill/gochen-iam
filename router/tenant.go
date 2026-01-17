@@ -4,16 +4,16 @@ import (
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
 	tenantsvc "gochen-iam/service/tenant"
-	api "gochen/app/api"
+	api "gochen/api/http"
 	appsvc "gochen/app/application"
-	httpx "gochen/http"
-	hbasic "gochen/http/basic"
+	httpx "gochen/httpx"
+	hbasic "gochen/httpx/basic"
 )
 
 // TenantRoutes 租户路由注册器
 type TenantRoutes struct {
 	tenantService *tenantsvc.TenantService
-	utils         *hbasic.HttpUtils
+	utils         *hbasic.Utils
 	tenantRepo    *tenantrepo.TenantRepo
 }
 
@@ -21,7 +21,7 @@ type TenantRoutes struct {
 func NewTenantRoutes(tenantService *tenantsvc.TenantService, tenantRepo *tenantrepo.TenantRepo) *TenantRoutes {
 	return &TenantRoutes{
 		tenantService: tenantService,
-		utils:         &hbasic.HttpUtils{},
+		utils:         &hbasic.Utils{},
 		tenantRepo:    tenantRepo,
 	}
 }
@@ -66,7 +66,7 @@ func (tr *TenantRoutes) setupTenantCustomRoutes(group httpx.IRouteGroup) {
 }
 
 // activateTenant 启用租户
-func (tr *TenantRoutes) activateTenant(ctx httpx.IHttpContext) error {
+func (tr *TenantRoutes) activateTenant(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	id, err := tr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -85,7 +85,7 @@ func (tr *TenantRoutes) activateTenant(ctx httpx.IHttpContext) error {
 }
 
 // deactivateTenant 禁用租户
-func (tr *TenantRoutes) deactivateTenant(ctx httpx.IHttpContext) error {
+func (tr *TenantRoutes) deactivateTenant(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	id, err := tr.utils.ParseID(ctx, "id")
 	if err != nil {

@@ -5,7 +5,7 @@ import (
 
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/errors"
+	"gochen/runtime/errorx"
 )
 
 // Tenant 租户实体（普通审计型聚合，不使用 Event Sourcing）
@@ -28,19 +28,19 @@ func (Tenant) TableName() string {
 // Validate 校验租户数据
 func (t *Tenant) Validate() error {
 	if t.Key == "" {
-		return errors.NewError(errors.Validation, "租户编码不能为空")
+		return errorx.NewError(errorx.Validation, "租户编码不能为空")
 	}
 	if len(t.Key) > 64 {
-		return errors.NewError(errors.Validation, "租户编码长度不能超过64个字符")
+		return errorx.NewError(errorx.Validation, "租户编码长度不能超过64个字符")
 	}
 	if t.Name == "" {
-		return errors.NewError(errors.Validation, "租户名称不能为空")
+		return errorx.NewError(errorx.Validation, "租户名称不能为空")
 	}
 	if len(t.Name) > 100 {
-		return errors.NewError(errors.Validation, "租户名称不能超过100个字符")
+		return errorx.NewError(errorx.Validation, "租户名称不能超过100个字符")
 	}
 	if len(t.Description) > 500 {
-		return errors.NewError(errors.Validation, "租户描述不能超过500个字符")
+		return errorx.NewError(errorx.Validation, "租户描述不能超过500个字符")
 	}
 	return nil
 }
