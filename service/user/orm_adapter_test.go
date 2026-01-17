@@ -116,7 +116,7 @@ func (m *testGormModel) Create(ctx context.Context, entities ...any) error {
 
 func (m *testGormModel) Save(ctx context.Context, entity any, opts ...orm.QueryOption) error {
 	db := m.apply(ctx, opts...)
-	if err := db.Model(m.meta.Model).Updates(entity).Error; err != nil {
+	if err := db.Updates(entity).Error; err != nil {
 		return convertTestError(err)
 	}
 	return nil
@@ -124,7 +124,7 @@ func (m *testGormModel) Save(ctx context.Context, entity any, opts ...orm.QueryO
 
 func (m *testGormModel) UpdateValues(ctx context.Context, values map[string]any, opts ...orm.QueryOption) error {
 	db := m.apply(ctx, opts...)
-	if err := db.Model(m.meta.Model).Updates(values).Error; err != nil {
+	if err := db.Updates(values).Error; err != nil {
 		return convertTestError(err)
 	}
 	return nil
@@ -132,7 +132,7 @@ func (m *testGormModel) UpdateValues(ctx context.Context, values map[string]any,
 
 func (m *testGormModel) Delete(ctx context.Context, opts ...orm.QueryOption) error {
 	db := m.apply(ctx, opts...)
-	if err := db.Delete(m.meta.Model).Error; err != nil {
+	if err := db.Delete(m.meta.NewModel()).Error; err != nil {
 		return convertTestError(err)
 	}
 	return nil
@@ -180,7 +180,14 @@ func (a *testGormAssociation) Clear(ctx context.Context) error {
 }
 
 func (m *testGormModel) apply(ctx context.Context, opts ...orm.QueryOption) *gorm.DB {
-	db := m.db.WithContext(ctx).Model(m.meta.Model)
+	db := m.db.WithContext(ctx)
+	if m.meta != nil {
+		if m.meta.Table != "" {
+			db = db.Table(m.meta.Table)
+		} else if model := m.meta.NewModel(); model != nil {
+			db = db.Model(model)
+		}
+	}
 	qo := orm.CollectQueryOptions(opts...)
 	for _, cond := range qo.Where {
 		db = db.Where(cond.Expr, cond.Args...)

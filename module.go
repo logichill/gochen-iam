@@ -88,18 +88,3 @@ func (m *Module) RegisterProjections(container di.IContainer) (*projection.Proje
 	// IAM 领域暂无投影
 	return nil, nil, nil
 }
-
-// Providers Facade 式调用入口
-func (m *Module) Providers(container di.IContainer) error {
-	return m.RegisterProviders(container)
-}
-
-// EventHandlers Facade 式调用入口
-func (m *Module) EventHandlers(ctx context.Context, eventBus bus.IEventBus, container di.IContainer) error {
-	return m.RegisterEventHandlers(ctx, eventBus, container)
-}
-
-// Projections Facade 式调用入口
-func (m *Module) Projections(container di.IContainer) (*projection.ProjectionManager, []string, error) {
-	return m.RegisterProjections(container)
-}
