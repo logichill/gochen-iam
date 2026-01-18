@@ -10,7 +10,7 @@ import (
 	api "gochen/api/http"
 	appsvc "gochen/app/application"
 	httpx "gochen/httpx"
-	hbasic "gochen/httpx/basic"
+	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
 )
 

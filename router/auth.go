@@ -6,7 +6,7 @@ import (
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
 	httpx "gochen/httpx"
-	hbasic "gochen/httpx/basic"
+	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
 )
 

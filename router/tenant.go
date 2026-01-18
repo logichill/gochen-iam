@@ -7,7 +7,7 @@ import (
 	api "gochen/api/http"
 	appsvc "gochen/app/application"
 	httpx "gochen/httpx"
-	hbasic "gochen/httpx/basic"
+	hbasic "gochen/httpx/nethttp"
 )
 
 // TenantRoutes 租户路由注册器
