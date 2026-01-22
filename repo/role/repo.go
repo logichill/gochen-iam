@@ -5,17 +5,24 @@ import (
 
 	iamentity "gochen-iam/entity"
 	"gochen/domain/crud"
+	"gochen/encoding/codegen"
 	"gochen/runtime/errorx"
 	"gochen/storage/orm"
 	db "gochen/storage/orm/repo"
 )
 
 // RoleRepo 角色数据访问层
-type RoleRepo struct{ *db.Repo[*iamentity.Role] }
+type RoleRepo struct {
+	*db.Repo[*iamentity.Role, int64]
+}
 
 // NewRoleRepository 创建角色Repository
 func NewRoleRepository(o orm.IOrm) (*RoleRepo, error) {
-	base, err := db.NewRepo[*iamentity.Role](o, "roles")
+	base, err := db.NewRepo[*iamentity.Role, int64](
+		o,
+		"roles",
+		db.WithIDGenerator[*iamentity.Role, int64](codegen.DefaultInt64Generator()),
+	)
 	if err != nil {
 		return nil, err
 	}

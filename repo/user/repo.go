@@ -12,11 +12,13 @@ import (
 )
 
 // UserRepo 用户数据访问层
-type UserRepo struct{ *db.Repo[*iamentity.User] }
+type UserRepo struct {
+	*db.Repo[*iamentity.User, int64]
+}
 
 // NewUserRepository 创建用户Repository
 func NewUserRepository(o orm.IOrm) (*UserRepo, error) {
-	base, err := db.NewRepo[*iamentity.User](o, "users")
+	base, err := db.NewRepo[*iamentity.User, int64](o, "users")
 	if err != nil {
 		return nil, err
 	}

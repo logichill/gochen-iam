@@ -5,17 +5,24 @@ import (
 
 	iamentity "gochen-iam/entity"
 	"gochen/domain/crud"
+	"gochen/encoding/codegen"
 	"gochen/runtime/errorx"
 	"gochen/storage/orm"
 	db "gochen/storage/orm/repo"
 )
 
 // GroupRepo 组织数据访问层
-type GroupRepo struct{ *db.Repo[*iamentity.Group] }
+type GroupRepo struct {
+	*db.Repo[*iamentity.Group, int64]
+}
 
 // NewGroupRepository 创建组织Repository
 func NewGroupRepository(o orm.IOrm) (*GroupRepo, error) {
-	base, err := db.NewRepo[*iamentity.Group](o, "groups")
+	base, err := db.NewRepo(
+		o,
+		"groups",
+		db.WithIDGenerator[*iamentity.Group](codegen.DefaultInt64Generator()),
+	)
 	if err != nil {
 		return nil, err
 	}

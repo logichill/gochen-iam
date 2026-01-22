@@ -4,17 +4,24 @@ import (
 	"context"
 
 	iamentity "gochen-iam/entity"
+	"gochen/encoding/codegen"
 	"gochen/runtime/errorx"
 	"gochen/storage/orm"
 	db "gochen/storage/orm/repo"
 )
 
 // TenantRepo 租户数据访问层
-type TenantRepo struct{ *db.Repo[*iamentity.Tenant] }
+type TenantRepo struct {
+	*db.Repo[*iamentity.Tenant, int64]
+}
 
 // NewTenantRepository 创建租户仓储
 func NewTenantRepository(o orm.IOrm) (*TenantRepo, error) {
-	base, err := db.NewRepo[*iamentity.Tenant](o, "tenants")
+	base, err := db.NewRepo[*iamentity.Tenant, int64](
+		o,
+		"tenants",
+		db.WithIDGenerator[*iamentity.Tenant, int64](codegen.DefaultInt64Generator()),
+	)
 	if err != nil {
 		return nil, err
 	}
