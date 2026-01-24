@@ -48,7 +48,7 @@ func (r *GroupRepo) GetByID(ctx context.Context, id int64) (*iamentity.Group, er
 func (r *GroupRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity.Group, error) {
 	var groups []*iamentity.Group
 	err := r.Model().Find(ctx, &groups,
-		orm.WithJoin("JOIN user_groups ON groups.id = user_groups.group_id"),
+		orm.WithJoin(orm.InnerJoin("user_groups", "", orm.On("groups.id", "user_groups.group_id"))),
 		orm.WithWhere("user_groups.user_id = ? AND groups.deleted_at IS NULL", userID),
 		orm.WithPreload("Parent"),
 		orm.WithPreload("DefaultRoles"),
@@ -356,7 +356,7 @@ func (r *GroupRepo) SearchGroups(ctx context.Context, keyword string, limit int)
 func (r *GroupRepo) FindByDefaultRoleID(ctx context.Context, roleID int64) ([]*iamentity.Group, error) {
 	var groups []*iamentity.Group
 	err := r.Model().Find(ctx, &groups,
-		orm.WithJoin("JOIN group_roles ON groups.id = group_roles.group_id"),
+		orm.WithJoin(orm.InnerJoin("group_roles", "", orm.On("groups.id", "group_roles.group_id"))),
 		orm.WithWhere("group_roles.role_id = ? AND groups.deleted_at IS NULL", roleID),
 		orm.WithPreload("Parent"),
 		orm.WithPreload("Users"),

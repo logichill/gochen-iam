@@ -140,7 +140,7 @@ func (r *UserRepo) FindByStatus(ctx context.Context, status string) ([]*iamentit
 func (r *UserRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamentity.User, error) {
 	var users []*iamentity.User
 	err := r.Model().Find(ctx, &users,
-		orm.WithJoin("JOIN user_groups ON users.id = user_groups.user_id"),
+		orm.WithJoin(orm.InnerJoin("user_groups", "", orm.On("users.id", "user_groups.user_id"))),
 		orm.WithWhere("user_groups.group_id = ? AND users.deleted_at IS NULL", groupID),
 		orm.WithPreload("Groups"),
 		orm.WithPreload("Roles"),
@@ -157,7 +157,7 @@ func (r *UserRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamenti
 func (r *UserRepo) FindByRoleID(ctx context.Context, roleID int64) ([]*iamentity.User, error) {
 	var users []*iamentity.User
 	err := r.Model().Find(ctx, &users,
-		orm.WithJoin("JOIN user_roles ON users.id = user_roles.user_id"),
+		orm.WithJoin(orm.InnerJoin("user_roles", "", orm.On("users.id", "user_roles.user_id"))),
 		orm.WithWhere("user_roles.role_id = ? AND users.deleted_at IS NULL", roleID),
 		orm.WithPreload("Groups"),
 		orm.WithPreload("Roles"),

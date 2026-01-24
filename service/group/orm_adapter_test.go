@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	ers "errors"
+	"fmt"
+	"strings"
 
 	"gochen/runtime/errorx"
 	database "gochen/storage/db"
@@ -196,7 +198,7 @@ func (m *groupTestGormModel) apply(ctx context.Context, opts ...orm.QueryOption)
 		db = db.Where(cond.Expr, cond.Args...)
 	}
 	for _, join := range qo.Joins {
-		db = db.Joins(join.Expr, join.Args...)
+		db = db.Joins(buildJoinExpr(join))
 	}
 	for _, preload := range qo.Preload {
 		db = db.Preload(preload)
@@ -224,6 +226,25 @@ func (m *groupTestGormModel) apply(ctx context.Context, opts ...orm.QueryOption)
 		db = db.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
 	return db
+}
+
+func buildJoinExpr(j orm.Join) string {
+	joinType := strings.TrimSpace(string(j.Type))
+	if joinType == "" {
+		joinType = string(orm.JoinInner)
+	}
+	target := j.Table
+	if strings.TrimSpace(j.Alias) != "" {
+		target = fmt.Sprintf("%s AS %s", j.Table, j.Alias)
+	}
+	expr := fmt.Sprintf("%s JOIN %s", joinType, target)
+	if len(j.On) > 0 {
+		expr += fmt.Sprintf(" ON %s = %s", j.On[0].Left, j.On[0].Right)
+		for i := 1; i < len(j.On); i++ {
+			expr += fmt.Sprintf(" AND %s = %s", j.On[i].Left, j.On[i].Right)
+		}
+	}
+	return expr
 }
 
 func convertGroupTestError(err error) error {

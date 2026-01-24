@@ -7,7 +7,7 @@ import (
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
 	api "gochen/api/http"
-	appsvc "gochen/app/application"
+	appcrud "gochen/app/crud"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
@@ -43,7 +43,7 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	adminGroup.Use(AdminOnlyMiddleware())
 
 	// 直接使用原生 shared 仓储接口（UserRepo 已实现 ICRUDRepository）
-	appService, err := appsvc.NewApplication(ur.userRepo, nil, nil)
+	appService, err := appcrud.NewApplication(ur.userRepo, nil, nil)
 	if err != nil {
 		panic(err)
 	}

@@ -7,7 +7,7 @@ import (
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
 	api "gochen/api/http"
-	appsvc "gochen/app/application"
+	appcrud "gochen/app/crud"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
@@ -42,7 +42,7 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	adminGroup := roleGroup.Group("")
 	adminGroup.Use(AdminOnlyMiddleware())
 
-	appService, err := appsvc.NewApplication(rr.roleRepo, nil, nil)
+	appService, err := appcrud.NewApplication(rr.roleRepo, nil, nil)
 	if err != nil {
 		panic(err)
 	}

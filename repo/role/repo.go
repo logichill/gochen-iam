@@ -148,7 +148,7 @@ func (r *RoleRepo) FindByPermission(ctx context.Context, permission string) ([]*
 func (r *RoleRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity.Role, error) {
 	var roles []*iamentity.Role
 	err := r.Model().Find(ctx, &roles,
-		orm.WithJoin("JOIN user_roles ON roles.id = user_roles.role_id"),
+		orm.WithJoin(orm.InnerJoin("user_roles", "", orm.On("roles.id", "user_roles.role_id"))),
 		orm.WithWhere("user_roles.user_id = ? AND roles.deleted_at IS NULL", userID),
 	)
 
@@ -163,7 +163,7 @@ func (r *RoleRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity
 func (r *RoleRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamentity.Role, error) {
 	var roles []*iamentity.Role
 	err := r.Model().Find(ctx, &roles,
-		orm.WithJoin("JOIN group_roles ON roles.id = group_roles.role_id"),
+		orm.WithJoin(orm.InnerJoin("group_roles", "", orm.On("roles.id", "group_roles.role_id"))),
 		orm.WithWhere("group_roles.group_id = ? AND roles.deleted_at IS NULL", groupID),
 	)
 
@@ -283,47 +283,92 @@ func (r *RoleRepo) GetRoleUsageStats(ctx context.Context) ([]map[string]interfac
 		Status     string `json:"status"`
 	}
 
-	var results []RoleStats
-	err := r.Model().Find(ctx, &results,
-		orm.WithSelect(`
-			roles.id,
-			roles.name,
-			roles.is_system,
-			roles.status,
-			COALESCE(user_counts.user_count, 0) as user_count,
-			COALESCE(group_counts.group_count, 0) as group_count
-		`),
-		orm.WithJoin(`
-			LEFT JOIN (
-				SELECT role_id, COUNT(*) as user_count 
-				FROM user_roles 
-				GROUP BY role_id
-			) user_counts ON roles.id = user_counts.role_id
-		`),
-		orm.WithJoin(`
-			LEFT JOIN (
-				SELECT role_id, COUNT(*) as group_count 
-				FROM group_roles 
-				GROUP BY role_id
-			) group_counts ON roles.id = group_counts.role_id
-		`),
-		orm.WithWhere("roles.deleted_at IS NULL"),
-	)
+	type roleBase struct {
+		ID       int64  `json:"id"`
+		Name     string `json:"name"`
+		IsSystem bool   `json:"is_system"`
+		Status   string `json:"status"`
+	}
 
-	if err != nil {
-		return nil, errorx.WrapError(err, errorx.Database, "获取角色使用统计失败")
+	var roles []roleBase
+	if err := r.Model().Find(ctx, &roles,
+		orm.WithSelect("id", "name", "is_system", "status"),
+		orm.WithWhere("deleted_at IS NULL"),
+	); err != nil {
+		return nil, errorx.WrapError(err, errorx.Database, "获取角色列表失败")
+	}
+
+	ids := make([]int64, 0, len(roles))
+	for i := range roles {
+		ids = append(ids, roles[i].ID)
+	}
+
+	type roleCount struct {
+		RoleID int64 `json:"role_id"`
+		Count  int64 `json:"count"`
+	}
+
+	userCounts := make(map[int64]int64, len(ids))
+	groupCounts := make(map[int64]int64, len(ids))
+
+	if len(ids) > 0 {
+		userRoleModel, err := r.Orm().Model(&orm.ModelMeta{
+			ModelFactory: orm.NewModelFactory[struct {
+				RoleID int64
+				UserID int64
+			}](),
+			Table: "user_roles",
+		})
+		if err != nil {
+			return nil, errorx.WrapError(err, errorx.Database, "初始化 user_roles 模型失败")
+		}
+
+		var rows []roleCount
+		if err := userRoleModel.Find(ctx, &rows,
+			orm.WithSelect("role_id", "COUNT(*) as count"),
+			orm.WithWhere("role_id IN ?", ids),
+			orm.WithGroupBy("role_id"),
+		); err != nil {
+			return nil, errorx.WrapError(err, errorx.Database, "统计角色用户数量失败")
+		}
+		for i := range rows {
+			userCounts[rows[i].RoleID] = rows[i].Count
+		}
+
+		groupRoleModel, err := r.Orm().Model(&orm.ModelMeta{
+			ModelFactory: orm.NewModelFactory[struct {
+				RoleID  int64
+				GroupID int64
+			}](),
+			Table: "group_roles",
+		})
+		if err != nil {
+			return nil, errorx.WrapError(err, errorx.Database, "初始化 group_roles 模型失败")
+		}
+		rows = nil
+		if err := groupRoleModel.Find(ctx, &rows,
+			orm.WithSelect("role_id", "COUNT(*) as count"),
+			orm.WithWhere("role_id IN ?", ids),
+			orm.WithGroupBy("role_id"),
+		); err != nil {
+			return nil, errorx.WrapError(err, errorx.Database, "统计角色组织数量失败")
+		}
+		for i := range rows {
+			groupCounts[rows[i].RoleID] = rows[i].Count
+		}
 	}
 
 	// 转换为通用格式
-	stats := make([]map[string]interface{}, len(results))
-	for i, result := range results {
+	stats := make([]map[string]interface{}, len(roles))
+	for i := range roles {
+		roleID := roles[i].ID
 		stats[i] = map[string]interface{}{
-			"id":          result.ID,
-			"name":        result.Name,
-			"user_count":  result.UserCount,
-			"group_count": result.GroupCount,
-			"is_system":   result.IsSystem,
-			"status":      result.Status,
+			"id":          roleID,
+			"name":        roles[i].Name,
+			"user_count":  userCounts[roleID],
+			"group_count": groupCounts[roleID],
+			"is_system":   roles[i].IsSystem,
+			"status":      roles[i].Status,
 		}
 	}
 

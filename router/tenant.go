@@ -5,7 +5,7 @@ import (
 	svc "gochen-iam/service"
 	tenantsvc "gochen-iam/service/tenant"
 	api "gochen/api/http"
-	appsvc "gochen/app/application"
+	appcrud "gochen/app/crud"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 )
@@ -34,7 +34,7 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	adminGroup := tenantGroup.Group("")
 	adminGroup.Use(AdminOnlyMiddleware())
 
-	appService, err := appsvc.NewApplication(tr.tenantRepo, nil, nil)
+	appService, err := appcrud.NewApplication(tr.tenantRepo, nil, nil)
 	if err != nil {
 		panic(err)
 	}
