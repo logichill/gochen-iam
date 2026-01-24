@@ -274,15 +274,6 @@ func (r *RoleRepo) CountByStatus(ctx context.Context) (map[string]int64, error) 
 
 // GetRoleUsageStats 获取角色使用统计
 func (r *RoleRepo) GetRoleUsageStats(ctx context.Context) ([]map[string]interface{}, error) {
-	type RoleStats struct {
-		ID         int64  `json:"id"`
-		Name       string `json:"name"`
-		UserCount  int64  `json:"user_count"`
-		GroupCount int64  `json:"group_count"`
-		IsSystem   bool   `json:"is_system"`
-		Status     string `json:"status"`
-	}
-
 	type roleBase struct {
 		ID       int64  `json:"id"`
 		Name     string `json:"name"`
