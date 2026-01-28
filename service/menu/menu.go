@@ -47,14 +47,14 @@ type CreateMenuItemRequest struct {
 }
 
 type UpdateMenuItemRequest struct {
-	ParentID  *int64 `json:"parent_id,omitempty"`
-	Title     string `json:"title,omitempty"`
-	Path      string `json:"path,omitempty"`
-	Icon      string `json:"icon,omitempty"`
-	Type      string `json:"type,omitempty"`
-	Order     *int   `json:"order,omitempty"`
-	Route     string `json:"route,omitempty"`
-	Component string `json:"component,omitempty"`
+	ParentID  *int64  `json:"parent_id,omitempty"`
+	Title     string  `json:"title,omitempty"`
+	Path      *string `json:"path,omitempty"`
+	Icon      *string `json:"icon,omitempty"`
+	Type      string  `json:"type,omitempty"`
+	Order     *int    `json:"order,omitempty"`
+	Route     *string `json:"route,omitempty"`
+	Component *string `json:"component,omitempty"`
 
 	Hidden    *bool `json:"hidden,omitempty"`
 	Disabled  *bool `json:"disabled,omitempty"`
@@ -90,6 +90,9 @@ func (s *MenuService) CreateMenuItem(ctx context.Context, req *CreateMenuItemReq
 	if err := item.Validate(); err != nil {
 		return nil, err
 	}
+	if err := s.validateParentNoCycle(ctx, 0, item.ParentID); err != nil {
+		return nil, err
+	}
 	if err := validateMenuPermissionCodes(req.AnyOfPermissions, req.AllOfPermissions); err != nil {
 		return nil, err
 	}
@@ -115,11 +118,11 @@ func (s *MenuService) UpdateMenuItem(ctx context.Context, id int64, req *UpdateM
 	if req.Title != "" {
 		item.Title = req.Title
 	}
-	if req.Path != "" {
-		item.Path = req.Path
+	if req.Path != nil {
+		item.Path = *req.Path
 	}
-	if req.Icon != "" {
-		item.Icon = req.Icon
+	if req.Icon != nil {
+		item.Icon = *req.Icon
 	}
 	if req.Type != "" {
 		item.Type = req.Type
@@ -127,11 +130,11 @@ func (s *MenuService) UpdateMenuItem(ctx context.Context, id int64, req *UpdateM
 	if req.Order != nil {
 		item.Order = *req.Order
 	}
-	if req.Route != "" {
-		item.Route = req.Route
+	if req.Route != nil {
+		item.Route = *req.Route
 	}
-	if req.Component != "" {
-		item.Component = req.Component
+	if req.Component != nil {
+		item.Component = *req.Component
 	}
 
 	if req.Hidden != nil {
@@ -159,6 +162,9 @@ func (s *MenuService) UpdateMenuItem(ctx context.Context, id int64, req *UpdateM
 
 	item.SetUpdatedAt(time.Now())
 	if err := item.Validate(); err != nil {
+		return nil, err
+	}
+	if err := s.validateParentNoCycle(ctx, id, item.ParentID); err != nil {
 		return nil, err
 	}
 	if err := s.menuRepo.Update(ctx, item); err != nil {
@@ -289,6 +295,41 @@ func (s *MenuService) GetMyMenuTree(ctx context.Context, reqCtx httpx.IRequestCo
 	return buildMenuTree(items, overrides, reqCtx), nil
 }
 
+func (s *MenuService) validateParentNoCycle(ctx context.Context, selfID int64, parentID *int64) error {
+	if parentID == nil {
+		return nil
+	}
+	if *parentID <= 0 {
+		return errorx.NewError(errorx.Validation, "parent_id 无效")
+	}
+	if selfID > 0 && *parentID == selfID {
+		return errorx.NewError(errorx.Validation, "parent_id 不能指向自身")
+	}
+
+	visited := map[int64]struct{}{}
+	if selfID > 0 {
+		visited[selfID] = struct{}{}
+	}
+
+	curID := *parentID
+	for curID > 0 {
+		if _, ok := visited[curID]; ok {
+			return errorx.NewError(errorx.Validation, "菜单 parent 链路存在环")
+		}
+		visited[curID] = struct{}{}
+
+		cur, err := s.menuRepo.GetByID(ctx, curID)
+		if err != nil {
+			return err
+		}
+		if cur.ParentID == nil {
+			break
+		}
+		curID = *cur.ParentID
+	}
+	return nil
+}
+
 func validateMenuPermissionCodes(anyOf []string, allOf []string) error {
 	for _, p := range anyOf {
 		if !iammw.IsValidPermissionCode(p) {
@@ -396,6 +437,11 @@ func toNode(item *iamentity.MenuItem) *MenuNode {
 }
 
 func sortMenuTree(nodes []*MenuNode) {
+	visited := map[int64]struct{}{}
+	sortMenuTreeRec(nodes, visited)
+}
+
+func sortMenuTreeRec(nodes []*MenuNode, visited map[int64]struct{}) {
 	sort.SliceStable(nodes, func(i, j int) bool {
 		if nodes[i].Order != nodes[j].Order {
 			return nodes[i].Order < nodes[j].Order
@@ -403,19 +449,39 @@ func sortMenuTree(nodes []*MenuNode) {
 		return nodes[i].Title < nodes[j].Title
 	})
 	for _, n := range nodes {
+		if n == nil {
+			continue
+		}
+		if _, ok := visited[n.ID]; ok {
+			continue
+		}
+		visited[n.ID] = struct{}{}
 		if len(n.Children) > 0 {
-			sortMenuTree(n.Children)
+			sortMenuTreeRec(n.Children, visited)
 		}
 	}
 }
 
 func filterMenuTree(nodes []*MenuNode, reqCtx httpx.IRequestContext) []*MenuNode {
+	visited := map[int64]struct{}{}
+	return filterMenuTreeRec(nodes, reqCtx, visited)
+}
+
+func filterMenuTreeRec(nodes []*MenuNode, reqCtx httpx.IRequestContext, visited map[int64]struct{}) []*MenuNode {
 	out := make([]*MenuNode, 0, len(nodes))
 	for _, n := range nodes {
+		if n == nil {
+			continue
+		}
+		if _, ok := visited[n.ID]; ok {
+			// 防御：出现环/重复引用时直接丢弃，避免递归栈溢出。
+			continue
+		}
+		visited[n.ID] = struct{}{}
 		if n.Disabled || n.Hidden {
 			continue
 		}
-		n.Children = filterMenuTree(n.Children, reqCtx)
+		n.Children = filterMenuTreeRec(n.Children, reqCtx, visited)
 		selfVisible := evaluateMenuVisibility(n, reqCtx)
 		if selfVisible || len(n.Children) > 0 {
 			out = append(out, n)

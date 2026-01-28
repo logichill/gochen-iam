@@ -35,6 +35,9 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	// 管理端：菜单定义与租户覆盖（管理员 + 细分权限）
 	adminGroup := menuGroup.Group("")
 	adminGroup.Use(AdminOnlyMiddleware())
+	// 说明：当前设计“仅允许 system_admin 管理菜单”。
+	// menu:read/menu:write/menu:publish 仍会通过 PermissionMiddleware 注册到 required permissions，用于权限治理与审计。
+	// 如需支持“非 system_admin 但具备 menu:* 权限的角色”管理菜单：移除 AdminOnlyMiddleware，仅保留 PermissionMiddleware。
 
 	adminReadGroup := adminGroup.Group("")
 	adminReadGroup.Use(PermissionMiddleware("menu:read"))

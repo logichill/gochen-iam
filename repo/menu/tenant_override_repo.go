@@ -56,12 +56,23 @@ func (r *MenuTenantOverrideRepo) ListByTenant(ctx context.Context, tenantID stri
 
 // UpsertByTenantAndMenuCode 以 (tenant_id, menu_code) 为 key 执行 upsert。
 func (r *MenuTenantOverrideRepo) UpsertByTenantAndMenuCode(ctx context.Context, o *iamentity.MenuTenantOverride) error {
-	existing, err := r.GetByTenantAndMenuCode(ctx, o.TenantID, o.MenuCode)
-	if err != nil && !errorx.IsNotFound(err) {
-		return err
+	// 注意：menu_tenant_overrides 存在 (tenant_id, menu_code) 唯一索引，
+	// 若底层删除为软删且索引不含 deleted_at，则“删了也不能重建”。
+	// 这里 upsert 需要能识别软删记录并恢复后更新。
+	var existing iamentity.MenuTenantOverride
+	err := r.Model().First(ctx, &existing,
+		orm.WithWhere("tenant_id = ? AND menu_code = ?", o.TenantID, o.MenuCode),
+	)
+	if err != nil {
+		if errorx.IsNotFound(err) {
+			return r.Create(ctx, o)
+		}
+		return errorx.WrapError(err, errorx.Database, "查询菜单覆盖失败")
 	}
-	if existing == nil {
-		return r.Create(ctx, o)
+
+	// 如已软删则恢复（避免唯一索引阻塞重建）
+	if existing.DeletedAt != nil {
+		existing.Restore()
 	}
 
 	// 覆盖可变字段
@@ -75,7 +86,8 @@ func (r *MenuTenantOverrideRepo) UpsertByTenantAndMenuCode(ctx context.Context, 
 	existing.Disabled = o.Disabled
 	existing.SetUpdatedAt(time.Now())
 
-	return r.Update(ctx, existing)
+	// 不能用 Update（其 where 含 deleted_at IS NULL）；直接按 id 保存即可。
+	return r.Model().Save(ctx, &existing, orm.WithWhere("id = ?", existing.GetID()))
 }
 
 func (r *MenuTenantOverrideRepo) DeleteByTenantAndMenuCode(ctx context.Context, tenantID, menuCode string) error {

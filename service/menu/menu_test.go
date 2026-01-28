@@ -101,3 +101,14 @@ func TestSortMenuTree_OrderThenTitle(t *testing.T) {
 		t.Fatalf("expected order a then b, got %s then %s", tree[0].Code, tree[1].Code)
 	}
 }
+
+func TestSortAndFilterMenuTree_CycleDoesNotStackOverflow(t *testing.T) {
+	// 构造一个人为的 children 环，确保 sort/filter 的递归防御有效。
+	a := &MenuNode{ID: 1, Code: "a", Title: "A", Order: 1}
+	b := &MenuNode{ID: 2, Code: "b", Title: "B", Order: 2}
+	a.Children = []*MenuNode{b}
+	b.Children = []*MenuNode{a}
+
+	sortMenuTree([]*MenuNode{a})
+	_ = filterMenuTree([]*MenuNode{a}, nil)
+}
