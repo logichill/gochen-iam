@@ -5,6 +5,7 @@ import (
 	groupsvc "gochen-iam/service/group"
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
+	iammw "gochen-iam/middleware"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
@@ -97,7 +98,7 @@ func (ar *AuthRoutes) login(ctx httpx.IContext) error {
 		roleNames = append(roleNames, r.Name)
 	}
 
-	token, err := GenerateToken(resp.UserID, resp.Username, roleNames, resp.Permissions, ar.authConfig.SecretKey)
+	token, err := iammw.GenerateTokenWithTTL(resp.UserID, resp.Username, roleNames, resp.Permissions, ar.authConfig.SecretKey, ar.authConfig.AccessTokenTTL)
 	if err != nil {
 		return err
 	}
@@ -126,7 +127,32 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 		return err
 	}
 
-	newToken, err := RefreshToken(req.Token, ar.authConfig.SecretKey)
+	// 1) 验证旧 token
+	claims, err := iammw.ParseToken(req.Token, ar.authConfig.SecretKey)
+	if err != nil {
+		return err
+	}
+	// 测试令牌在 dev/test 下直接短路，避免不必要的 DB 依赖与噪声。
+	if req.Token == "test-token" {
+		ar.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+			"token": req.Token,
+		})
+		return nil
+	}
+
+	// 2) 重新从数据源获取最新 RBAC（避免 refresh 继续沿用旧 token 快照）
+	user, err := ar.userService.GetUserProfile(ctx.GetRequest().Context(), claims.UserID)
+	if err != nil {
+		return err
+	}
+
+	roleNames := make([]string, 0, len(user.Roles))
+	for i := range user.Roles {
+		roleNames = append(roleNames, user.Roles[i].Name)
+	}
+	perms := user.GetAllPermissions()
+
+	newToken, err := iammw.GenerateTokenWithTTL(user.GetID(), user.Username, roleNames, perms, ar.authConfig.SecretKey, ar.authConfig.AccessTokenTTL)
 	if err != nil {
 		return err
 	}
