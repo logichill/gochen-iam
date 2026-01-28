@@ -217,6 +217,7 @@ var (
 			"user:read", "user:write", "user:delete",
 			"group:read", "group:write", "group:delete",
 			"role:read", "role:write", "role:delete",
+			"menu:read", "menu:write", "menu:publish",
 		},
 		IsSystem: true,
 		Status:   "active",

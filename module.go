@@ -2,11 +2,13 @@ package iam
 
 import (
 	grouprepo "gochen-iam/repo/group"
+	menurepo "gochen-iam/repo/menu"
 	rolerepo "gochen-iam/repo/role"
 	tenantrepo "gochen-iam/repo/tenant"
 	userrepo "gochen-iam/repo/user"
 	iamrouter "gochen-iam/router"
 	groupsvc "gochen-iam/service/group"
+	menusvc "gochen-iam/service/menu"
 	rolesvc "gochen-iam/service/role"
 	tenantsvc "gochen-iam/service/tenant"
 	usersvc "gochen-iam/service/user"
@@ -40,6 +42,8 @@ func (m *Module) registerProviders() error {
 		userrepo.NewUserRepository,
 		grouprepo.NewGroupRepository,
 		rolerepo.NewRoleRepository,
+		menurepo.NewMenuItemRepository,
+		menurepo.NewMenuTenantOverrideRepository,
 	}
 
 	for _, ctor := range repoCtors {
@@ -54,6 +58,7 @@ func (m *Module) registerProviders() error {
 		usersvc.NewUserService,
 		groupsvc.NewGroupService,
 		rolesvc.NewRoleService,
+		menusvc.NewMenuService,
 	}
 
 	for _, ctor := range svcCtors {
@@ -68,6 +73,7 @@ func (m *Module) registerProviders() error {
 		iamrouter.NewRoleRoutes,
 		iamrouter.NewGroupRoutes,
 		iamrouter.NewTenantRoutes,
+		iamrouter.NewMenuRoutes,
 	}
 
 	for _, ctor := range routeCtors {

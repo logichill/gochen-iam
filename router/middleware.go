@@ -62,6 +62,11 @@ func RequirePermission(ctx httpx.IRequestContext, permission string) error {
 	return iammw.RequirePermission(ctx, permission)
 }
 
+// PermissionMiddleware 权限验证中间件
+func PermissionMiddleware(requiredPermission string) httpx.Middleware {
+	return iammw.PermissionMiddleware(requiredPermission)
+}
+
 // GetRoles 从请求上下文获取角色列表
 func GetRoles(ctx httpx.IRequestContext) []string {
 	return authctx.GetRoles(ctx)

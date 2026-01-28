@@ -208,6 +208,13 @@ var (
 		"role:delete",
 	}
 
+	// 菜单权限（后台导航可见性配置）
+	MenuPermissions = []string{
+		"menu:read",
+		"menu:write",
+		"menu:publish",
+	}
+
 	// 所有权限
 	AllPermissions = append(
 		append(
@@ -219,7 +226,7 @@ var (
 					TaskPermissions...),
 				PointsPermissions...),
 			LevelPermissions...),
-		append(PlanPermissions, RolePermissions...)...,
+		append(append(PlanPermissions, RolePermissions...), MenuPermissions...)...,
 	)
 )
 
