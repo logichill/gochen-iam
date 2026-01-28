@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"gochen-iam/authctx"
+	"gochen-iam/auth"
 	httpx "gochen/httpx"
 	"gochen/runtime/errorx"
 )
@@ -21,12 +21,12 @@ func IsValidPermissionCode(permission string) bool {
 
 // GetRoles 从请求上下文中获取当前请求的角色列表
 func GetRoles(ctx httpx.IRequestContext) []string {
-	return authctx.GetRoles(ctx)
+	return auth.GetRoles(ctx)
 }
 
 // GetPermissions 从请求上下文中获取当前请求的权限列表
 func GetPermissions(ctx httpx.IRequestContext) []string {
-	return authctx.GetPermissions(ctx)
+	return auth.GetPermissions(ctx)
 }
 
 // HasAnyRole 判断上下文中是否包含任一指定角色
@@ -64,6 +64,10 @@ func HasPermission(ctx httpx.IRequestContext, permission string) bool {
 	// 管理员拥有所有权限
 	if HasAnyRole(ctx, "system_admin") {
 		return true
+	}
+	if set := auth.GetPermissionSet(ctx); set != nil {
+		_, ok := set[strings.ToLower(permission)]
+		return ok
 	}
 	perms := GetPermissions(ctx)
 	if len(perms) == 0 {

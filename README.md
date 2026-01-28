@@ -6,7 +6,7 @@
 - JWT 认证（`AuthMiddleware` / `OptionalAuthMiddleware`）
 - RBAC 授权（`RoleMiddleware` / `PermissionMiddleware`）
 - 权限治理（启动期自动收集 required permissions + 可选严格模式）
-- 后台菜单管理（`menu` 模块：落库 + tenant override + 基于权限的“导航可见性”过滤）
+- 后台菜单管理（`menu` 模块：落库 + 基于权限的“导航可见性”过滤）
 
 > 重要：菜单仅用于“导航可见性”，**不作为安全边界**。真正的安全边界应由服务端 API 的权限校验（如 `PermissionMiddleware`）保证。
 
@@ -104,34 +104,30 @@
 
 ## 菜单模块（menu）
 
-菜单模块用于后台系统的“导航结构”与“可见性配置”，支持 tenant override，并可绑定权限条件进行过滤。
+菜单模块用于后台系统的“导航结构”与“可见性配置”，可绑定权限条件进行过滤。
 
 ### 数据模型（落库）
 
 - `entity.MenuItem` → 表 `menu_items`
   - `code`：稳定唯一标识（unique）
+    - 注意：当前删除为软删（`deleted_at`），且 `code` 不可复用；已删除记录仍会占用 `code`（避免治理/审计混乱）。
   - `parent_id`：父菜单（可为空）
   - `title/path/icon/type/order/route/component`
   - `hidden/disabled/published`
   - `any_of_permissions`：满足任一权限即可显示
   - `all_of_permissions`：必须满足全部权限才显示
-- `entity.MenuTenantOverride` → 表 `menu_tenant_overrides`
-  - 唯一键：`(tenant_id, menu_code)`（联合唯一索引）
-  - 可覆盖字段：`title/path/icon/route/component/order/hidden/disabled`
-  - upsert 会自动识别软删记录并 **restore**，避免“删了也不能重建”的唯一索引坑
 
 ### 可见性规则（下发 `GET /menus/me`）
 
 当前实现逻辑：
 
 1. 仅选择 `published=true` 的菜单项
-2. 按 tenant（`IRequestContext.GetTenantID()`）加载 overrides，并对同 `menu_code` 的菜单项应用覆盖
-3. 过滤：
+2. 过滤：
    - `hidden=true` 或 `disabled=true`：直接过滤
    - `all_of_permissions`：必须全部满足
    - `any_of_permissions`：至少满足一个
    - 无请求上下文（`reqCtx=nil`）：仅展示无权限约束菜单
-4. 父节点无权限但子节点可见时：保留父节点以承载子树
+3. 父节点无权限但子节点可见时：保留父节点以承载子树
 
 > 再强调：菜单不作为安全边界；即使菜单不可见，也必须在 API 层继续做权限校验。
 
@@ -167,8 +163,6 @@
 - `GET /menus`（`menu:read`）
 - `POST /menus`、`PUT /menus/:id`、`DELETE /menus/:id`（`menu:write`）
 - `POST /menus/:id/publish`、`POST /menus/:id/unpublish`（`menu:publish`）
-- `GET /menus/tenants/:tenant_id/overrides`（`menu:read`）
-- `PUT /menus/tenants/:tenant_id/overrides/:menu_code`、`DELETE /menus/tenants/:tenant_id/overrides/:menu_code`（`menu:write`）
 
 对应权限码：
 
@@ -180,7 +174,7 @@
 
 ## 数据库迁移 / 建表
 
-本仓库本身不内置迁移脚本。典型做法是由上层应用在开发/测试环境通过 AutoMigrate 建表（例如 `alife/cmd/automigrate` 将 `&iamentity.MenuItem{}`、`&iamentity.MenuTenantOverride{}` 加入 models 列表）。
+本仓库本身不内置迁移脚本。典型做法是由上层应用在开发/测试环境通过 AutoMigrate 建表（例如 `alife/cmd/automigrate` 将 `&iamentity.MenuItem{}` 加入 models 列表）。
 
 生产环境建议使用显式迁移脚本（避免 AutoMigrate 的不确定性）。
 
@@ -190,4 +184,3 @@
 
 - 格式化：`gofmt -w ./...`
 - 测试：`go test ./...`
-

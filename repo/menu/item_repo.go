@@ -52,6 +52,18 @@ func (r *MenuItemRepo) GetByCode(ctx context.Context, code string) (*iamentity.M
 	return &item, nil
 }
 
+// GetByCodeWithDeleted 按 code 查询菜单（包含软删记录）。
+func (r *MenuItemRepo) GetByCodeWithDeleted(ctx context.Context, code string) (*iamentity.MenuItem, error) {
+	var item iamentity.MenuItem
+	if err := r.Model().First(ctx, &item, orm.WithWhere("code = ?", code)); err != nil {
+		if errorx.IsNotFound(err) {
+			return nil, errorx.NewError(errorx.NotFound, "菜单不存在")
+		}
+		return nil, errorx.WrapError(err, errorx.Database, "查询菜单失败")
+	}
+	return &item, nil
+}
+
 func (r *MenuItemRepo) ListAll(ctx context.Context) ([]*iamentity.MenuItem, error) {
 	var items []*iamentity.MenuItem
 	if err := r.Model().Find(ctx, &items, orm.WithWhere("deleted_at IS NULL")); err != nil {

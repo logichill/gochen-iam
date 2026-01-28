@@ -1,19 +1,19 @@
 package router
 
 import (
-	"gochen-iam/authctx"
+	"gochen-iam/auth"
 	iammw "gochen-iam/middleware"
 	httpx "gochen/httpx"
 )
 
 // WithRoles 将角色列表写入请求上下文。
 func WithRoles(ctx httpx.IRequestContext, roles []string) httpx.IRequestContext {
-	return authctx.WithRoles(ctx, roles)
+	return auth.WithRoles(ctx, roles)
 }
 
 // WithPermissions 将权限列表写入请求上下文。
 func WithPermissions(ctx httpx.IRequestContext, permissions []string) httpx.IRequestContext {
-	return authctx.WithPermissions(ctx, permissions)
+	return auth.WithPermissions(ctx, permissions)
 }
 
 // AuthConfig 认证配置（兼容：旧 import path）
@@ -69,10 +69,10 @@ func PermissionMiddleware(requiredPermission string) httpx.Middleware {
 
 // GetRoles 从请求上下文获取角色列表
 func GetRoles(ctx httpx.IRequestContext) []string {
-	return authctx.GetRoles(ctx)
+	return auth.GetRoles(ctx)
 }
 
 // GetPermissions 从请求上下文获取权限列表
 func GetPermissions(ctx httpx.IRequestContext) []string {
-	return authctx.GetPermissions(ctx)
+	return auth.GetPermissions(ctx)
 }

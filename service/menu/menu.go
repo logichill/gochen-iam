@@ -14,29 +14,27 @@ import (
 )
 
 type MenuService struct {
-	menuRepo     *menurepo.MenuItemRepo
-	overrideRepo *menurepo.MenuTenantOverrideRepo
-	logger       logging.ILogger
+	menuRepo *menurepo.MenuItemRepo
+	logger   logging.ILogger
 }
 
-func NewMenuService(menuRepo *menurepo.MenuItemRepo, overrideRepo *menurepo.MenuTenantOverrideRepo) *MenuService {
+func NewMenuService(menuRepo *menurepo.MenuItemRepo) *MenuService {
 	return &MenuService{
-		menuRepo:     menuRepo,
-		overrideRepo: overrideRepo,
-		logger:       logging.ComponentLogger("iam.service.menu"),
+		menuRepo: menuRepo,
+		logger:   logging.ComponentLogger("iam.service.menu"),
 	}
 }
 
 type CreateMenuItemRequest struct {
-	Code      string `json:"code"`
-	ParentID  *int64 `json:"parent_id,omitempty"`
-	Title     string `json:"title"`
-	Path      string `json:"path,omitempty"`
-	Icon      string `json:"icon,omitempty"`
-	Type      string `json:"type"`
-	Order     int    `json:"order"`
-	Route     string `json:"route,omitempty"`
-	Component string `json:"component,omitempty"`
+	Code      string `json:"code" binding:"required,max=100"`
+	ParentID  *int64 `json:"parent_id,omitempty" binding:"omitempty,gt=0"`
+	Title     string `json:"title" binding:"required,max=200"`
+	Path      string `json:"path,omitempty" binding:"omitempty,max=500"`
+	Icon      string `json:"icon,omitempty" binding:"omitempty,max=200"`
+	Type      string `json:"type" binding:"omitempty,oneof=group page link"`
+	Order     int    `json:"order" binding:"omitempty,gte=0"`
+	Route     string `json:"route,omitempty" binding:"omitempty,max=500"`
+	Component string `json:"component,omitempty" binding:"omitempty,max=500"`
 
 	Hidden    bool `json:"hidden"`
 	Disabled  bool `json:"disabled"`
@@ -48,13 +46,13 @@ type CreateMenuItemRequest struct {
 
 type UpdateMenuItemRequest struct {
 	ParentID  *int64  `json:"parent_id,omitempty"`
-	Title     string  `json:"title,omitempty"`
-	Path      *string `json:"path,omitempty"`
-	Icon      *string `json:"icon,omitempty"`
-	Type      string  `json:"type,omitempty"`
+	Title     string  `json:"title,omitempty" binding:"omitempty,max=200"`
+	Path      *string `json:"path,omitempty" binding:"omitempty,max=500"`
+	Icon      *string `json:"icon,omitempty" binding:"omitempty,max=200"`
+	Type      string  `json:"type,omitempty" binding:"omitempty,oneof=group page link"`
 	Order     *int    `json:"order,omitempty"`
-	Route     *string `json:"route,omitempty"`
-	Component *string `json:"component,omitempty"`
+	Route     *string `json:"route,omitempty" binding:"omitempty,max=500"`
+	Component *string `json:"component,omitempty" binding:"omitempty,max=500"`
 
 	Hidden    *bool `json:"hidden,omitempty"`
 	Disabled  *bool `json:"disabled,omitempty"`
@@ -97,9 +95,25 @@ func (s *MenuService) CreateMenuItem(ctx context.Context, req *CreateMenuItemReq
 		return nil, err
 	}
 
+	// menu_items.code 是唯一索引，且 Delete 为软删：
+	// 这里显式检查并返回更友好的错误信息（当前策略：code 不可复用）。
+	if existing, err := s.menuRepo.GetByCodeWithDeleted(ctx, item.Code); err == nil && existing != nil {
+		if existing.DeletedAt != nil {
+			return nil, errorx.NewError(errorx.Validation, "菜单 code 已被占用（已删除），当前策略不允许复用；请更换 code 或进行物理删除后重建")
+		}
+		return nil, errorx.NewError(errorx.Validation, "菜单 code 已存在")
+	} else if err != nil && !errorx.IsNotFound(err) {
+		return nil, err
+	}
+
 	if err := s.menuRepo.Create(ctx, item); err != nil {
 		return nil, errorx.WrapError(err, errorx.Database, "创建菜单失败")
 	}
+	s.logger.Info(ctx, "[MenuService] create menu",
+		logging.Int64("menu_id", item.GetID()),
+		logging.String("code", item.Code),
+		logging.String("title", item.Title),
+	)
 	return item, nil
 }
 
@@ -170,11 +184,26 @@ func (s *MenuService) UpdateMenuItem(ctx context.Context, id int64, req *UpdateM
 	if err := s.menuRepo.Update(ctx, item); err != nil {
 		return nil, errorx.WrapError(err, errorx.Database, "更新菜单失败")
 	}
+	s.logger.Info(ctx, "[MenuService] update menu",
+		logging.Int64("menu_id", item.GetID()),
+		logging.String("code", item.Code),
+	)
 	return item, nil
 }
 
 func (s *MenuService) DeleteMenuItem(ctx context.Context, id int64) error {
-	return s.menuRepo.Delete(ctx, id)
+	item, err := s.menuRepo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.menuRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+	s.logger.Info(ctx, "[MenuService] delete menu (soft)",
+		logging.Int64("menu_id", id),
+		logging.String("code", item.Code),
+	)
+	return nil
 }
 
 func (s *MenuService) PublishMenuItem(ctx context.Context, id int64, published bool) (*iamentity.MenuItem, error) {
@@ -187,67 +216,16 @@ func (s *MenuService) PublishMenuItem(ctx context.Context, id int64, published b
 	if err := s.menuRepo.Update(ctx, item); err != nil {
 		return nil, err
 	}
+	s.logger.Info(ctx, "[MenuService] publish menu",
+		logging.Int64("menu_id", item.GetID()),
+		logging.String("code", item.Code),
+		logging.Bool("published", published),
+	)
 	return item, nil
 }
 
 func (s *MenuService) ListMenuItems(ctx context.Context) ([]*iamentity.MenuItem, error) {
 	return s.menuRepo.ListAll(ctx)
-}
-
-type UpsertTenantOverrideRequest struct {
-	Title     *string `json:"title,omitempty"`
-	Path      *string `json:"path,omitempty"`
-	Icon      *string `json:"icon,omitempty"`
-	Route     *string `json:"route,omitempty"`
-	Component *string `json:"component,omitempty"`
-	Order     *int    `json:"order,omitempty"`
-	Hidden    *bool   `json:"hidden,omitempty"`
-	Disabled  *bool   `json:"disabled,omitempty"`
-}
-
-func (s *MenuService) UpsertTenantOverride(ctx context.Context, tenantID, menuCode string, req *UpsertTenantOverrideRequest) (*iamentity.MenuTenantOverride, error) {
-	if tenantID == "" {
-		return nil, errorx.NewError(errorx.Validation, "tenant_id is required")
-	}
-	if menuCode == "" {
-		return nil, errorx.NewError(errorx.Validation, "menu_code is required")
-	}
-	if req == nil {
-		return nil, errorx.NewError(errorx.Validation, "request is required")
-	}
-	// 确保 menu 存在
-	if _, err := s.menuRepo.GetByCode(ctx, menuCode); err != nil {
-		return nil, err
-	}
-
-	o := &iamentity.MenuTenantOverride{
-		TenantID:  tenantID,
-		MenuCode:  menuCode,
-		Title:     req.Title,
-		Path:      req.Path,
-		Icon:      req.Icon,
-		Route:     req.Route,
-		Component: req.Component,
-		Order:     req.Order,
-		Hidden:    req.Hidden,
-		Disabled:  req.Disabled,
-	}
-	o.SetUpdatedAt(time.Now())
-	if err := o.Validate(); err != nil {
-		return nil, err
-	}
-	if err := s.overrideRepo.UpsertByTenantAndMenuCode(ctx, o); err != nil {
-		return nil, err
-	}
-	return s.overrideRepo.GetByTenantAndMenuCode(ctx, tenantID, menuCode)
-}
-
-func (s *MenuService) ListTenantOverrides(ctx context.Context, tenantID string) ([]*iamentity.MenuTenantOverride, error) {
-	return s.overrideRepo.ListByTenant(ctx, tenantID)
-}
-
-func (s *MenuService) DeleteTenantOverride(ctx context.Context, tenantID, menuCode string) error {
-	return s.overrideRepo.DeleteByTenantAndMenuCode(ctx, tenantID, menuCode)
 }
 
 type MenuNode struct {
@@ -273,26 +251,13 @@ type MenuNode struct {
 	Children []*MenuNode `json:"children,omitempty"`
 }
 
-// GetMyMenuTree 返回当前用户可见的菜单树（按 tenant override + 权限过滤）。
+// GetMyMenuTree 返回当前用户可见的菜单树（按权限过滤）。
 func (s *MenuService) GetMyMenuTree(ctx context.Context, reqCtx httpx.IRequestContext) ([]*MenuNode, error) {
 	items, err := s.menuRepo.ListPublished(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	tenantID := ""
-	if reqCtx != nil {
-		tenantID = reqCtx.GetTenantID()
-	}
-	var overrides []*iamentity.MenuTenantOverride
-	if tenantID != "" {
-		overrides, err = s.overrideRepo.ListByTenant(ctx, tenantID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return buildMenuTree(items, overrides, reqCtx), nil
+	return buildMenuTree(items, reqCtx), nil
 }
 
 func (s *MenuService) validateParentNoCycle(ctx context.Context, selfID int64, parentID *int64) error {
@@ -344,16 +309,10 @@ func validateMenuPermissionCodes(anyOf []string, allOf []string) error {
 	return nil
 }
 
-func buildMenuTree(items []*iamentity.MenuItem, overrides []*iamentity.MenuTenantOverride, reqCtx httpx.IRequestContext) []*MenuNode {
-	overrideByCode := make(map[string]*iamentity.MenuTenantOverride, len(overrides))
-	for i := range overrides {
-		overrideByCode[overrides[i].MenuCode] = overrides[i]
-	}
-
+func buildMenuTree(items []*iamentity.MenuItem, reqCtx httpx.IRequestContext) []*MenuNode {
 	nodes := make(map[int64]*MenuNode, len(items))
 	for i := range items {
-		item := applyOverride(items[i], overrideByCode[items[i].Code])
-		nodes[item.ID] = toNode(item)
+		nodes[items[i].ID] = toNode(items[i])
 	}
 
 	var roots []*MenuNode
@@ -373,38 +332,6 @@ func buildMenuTree(items []*iamentity.MenuItem, overrides []*iamentity.MenuTenan
 	sortMenuTree(roots)
 	roots = filterMenuTree(roots, reqCtx)
 	return roots
-}
-
-func applyOverride(item *iamentity.MenuItem, o *iamentity.MenuTenantOverride) *iamentity.MenuItem {
-	if item == nil || o == nil {
-		return item
-	}
-	clone := *item
-	if o.Title != nil {
-		clone.Title = *o.Title
-	}
-	if o.Path != nil {
-		clone.Path = *o.Path
-	}
-	if o.Icon != nil {
-		clone.Icon = *o.Icon
-	}
-	if o.Route != nil {
-		clone.Route = *o.Route
-	}
-	if o.Component != nil {
-		clone.Component = *o.Component
-	}
-	if o.Order != nil {
-		clone.Order = *o.Order
-	}
-	if o.Hidden != nil {
-		clone.Hidden = *o.Hidden
-	}
-	if o.Disabled != nil {
-		clone.Disabled = *o.Disabled
-	}
-	return &clone
 }
 
 func toNode(item *iamentity.MenuItem) *MenuNode {

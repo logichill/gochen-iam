@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"gochen-iam/authctx"
+	"gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	"gochen/domain/crud"
 	hbasic "gochen/httpx/nethttp"
@@ -16,7 +16,7 @@ func TestBuildMenuTree_NoContext_ShowsOnlyUnrestricted(t *testing.T) {
 		{Entity: crud.Entity[int64]{ID: 2}, Code: "secure", Title: "Secure", Published: true, AllOfPermissions: iamentity.StringArray{"a:b"}},
 	}
 
-	tree := buildMenuTree(items, nil, nil)
+	tree := buildMenuTree(items, nil)
 	if len(tree) != 1 {
 		t.Fatalf("expected 1 root, got %d", len(tree))
 	}
@@ -52,10 +52,10 @@ func TestBuildMenuTree_WithPermissions_AnyAllAndParentRetention(t *testing.T) {
 
 	reqCtx := hbasic.NewRequestContext(context.Background())
 	reqCtx = hbasic.WithUserID(reqCtx, 1)
-	reqCtx = authctx.WithRoles(reqCtx, []string{"user"})
-	reqCtx = authctx.WithPermissions(reqCtx, []string{"a:b"})
+	reqCtx = auth.WithRoles(reqCtx, []string{"user"})
+	reqCtx = auth.WithPermissions(reqCtx, []string{"a:b"})
 
-	tree := buildMenuTree(items, nil, reqCtx)
+	tree := buildMenuTree(items, reqCtx)
 	if len(tree) != 1 {
 		t.Fatalf("expected 1 root, got %d", len(tree))
 	}
@@ -71,20 +71,14 @@ func TestBuildMenuTree_TenantOverride_AppliesAndFilters(t *testing.T) {
 	items := []*iamentity.MenuItem{
 		{Entity: crud.Entity[int64]{ID: 1}, Code: "root", Title: "Root", Published: true},
 	}
-	hidden := true
-	title := "NewRoot"
-	overrides := []*iamentity.MenuTenantOverride{
-		{TenantID: "t1", MenuCode: "root", Title: &title, Hidden: &hidden},
-	}
 
 	reqCtx := hbasic.NewRequestContext(context.Background())
 	reqCtx = hbasic.WithUserID(reqCtx, 1)
-	reqCtx = hbasic.WithTenantID(reqCtx, "t1")
-	reqCtx = authctx.WithRoles(reqCtx, []string{"user"})
+	reqCtx = auth.WithRoles(reqCtx, []string{"user"})
 
-	tree := buildMenuTree(items, overrides, reqCtx)
-	if len(tree) != 0 {
-		t.Fatalf("expected overridden hidden menu to be filtered out, got %d", len(tree))
+	tree := buildMenuTree(items, reqCtx)
+	if len(tree) != 1 || tree[0].Code != "root" {
+		t.Fatalf("expected root to be visible, got %#v", tree)
 	}
 }
 
@@ -93,7 +87,7 @@ func TestSortMenuTree_OrderThenTitle(t *testing.T) {
 		{Entity: crud.Entity[int64]{ID: 1}, Code: "b", Title: "B", Order: 2, Published: true},
 		{Entity: crud.Entity[int64]{ID: 2}, Code: "a", Title: "A", Order: 1, Published: true},
 	}
-	tree := buildMenuTree(items, nil, nil)
+	tree := buildMenuTree(items, nil)
 	if len(tree) != 2 {
 		t.Fatalf("expected 2 roots, got %d", len(tree))
 	}

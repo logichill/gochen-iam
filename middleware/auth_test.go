@@ -8,7 +8,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v4"
 
-	"gochen-iam/authctx"
+	"gochen-iam/auth"
 	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
 )
@@ -323,7 +323,7 @@ func TestDefaultAuthConfig_WithEnvSecret(t *testing.T) {
 
 func TestHasAnyRole(t *testing.T) {
 	ctx := hbasic.NewRequestContext(context.Background())
-	ctx = authctx.WithRoles(ctx, []string{"user"})
+	ctx = auth.WithRoles(ctx, []string{"user"})
 
 	if !HasAnyRole(ctx, "user") {
 		t.Error("expected HasAnyRole(user)=true")
@@ -338,7 +338,7 @@ func TestHasAnyRole(t *testing.T) {
 
 func TestRequireAnyRole(t *testing.T) {
 	ctx := hbasic.NewRequestContext(context.Background())
-	ctx = authctx.WithRoles(ctx, []string{"user"})
+	ctx = auth.WithRoles(ctx, []string{"user"})
 
 	if err := RequireAnyRole(ctx, "admin"); err == nil {
 		t.Error("expected RequireAnyRole(admin) to fail")
@@ -350,7 +350,7 @@ func TestRequireAnyRole(t *testing.T) {
 
 func TestHasPermission_AdminRoleOverrides(t *testing.T) {
 	ctx := hbasic.NewRequestContext(context.Background())
-	ctx = authctx.WithRoles(ctx, []string{"system_admin"})
+	ctx = auth.WithRoles(ctx, []string{"system_admin"})
 
 	if !HasPermission(ctx, "any:permission") {
 		t.Error("expected admin to have all permissions")
@@ -359,7 +359,7 @@ func TestHasPermission_AdminRoleOverrides(t *testing.T) {
 
 func TestRequirePermission(t *testing.T) {
 	ctx := hbasic.NewRequestContext(context.Background())
-	ctx = authctx.WithPermissions(ctx, []string{"a:read"})
+	ctx = auth.WithPermissions(ctx, []string{"a:read"})
 
 	if err := RequirePermission(ctx, "a:write"); err == nil {
 		t.Error("expected RequirePermission(a:write) to fail")
@@ -376,7 +376,7 @@ func TestRequirePermission(t *testing.T) {
 
 func TestRequirePermission_ReturnsForbidden(t *testing.T) {
 	ctx := hbasic.NewRequestContext(context.Background())
-	ctx = authctx.WithPermissions(ctx, []string{"a:read"})
+	ctx = auth.WithPermissions(ctx, []string{"a:read"})
 
 	err := RequirePermission(ctx, "a:write")
 	if err == nil {

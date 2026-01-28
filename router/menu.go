@@ -4,14 +4,13 @@ import (
 	menusvc "gochen-iam/service/menu"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
-	"gochen/runtime/errorx"
 )
 
 // MenuRoutes 菜单路由注册器。
 //
 // 约定：
 // - 菜单仅用于“导航可见性”，不作为安全边界；安全边界仍由 API 权限校验保证。
-// - /menus/me 返回基于当前请求上下文的菜单树（tenant override + 权限过滤）。
+// - /menus/me 返回基于当前请求上下文的菜单树（权限过滤）。
 type MenuRoutes struct {
 	menuService *menusvc.MenuService
 	utils       *hbasic.Utils
@@ -32,7 +31,7 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	meGroup.Use(UserOnlyMiddleware())
 	meGroup.GET("", mr.getMyMenuTree)
 
-	// 管理端：菜单定义与租户覆盖（管理员 + 细分权限）
+	// 管理端：菜单定义与发布（管理员 + 细分权限）
 	adminGroup := menuGroup.Group("")
 	adminGroup.Use(AdminOnlyMiddleware())
 	// 说明：当前设计“仅允许 system_admin 管理菜单”。
@@ -54,16 +53,6 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	adminPublishGroup.POST("/:id/publish", mr.publishMenuItem)
 	adminPublishGroup.POST("/:id/unpublish", mr.unpublishMenuItem)
 
-	// 租户覆盖（显式 tenant_id；用于管理员为不同租户配置差异）
-	tenantGroup := adminGroup.Group("/tenants/:tenant_id")
-	tenantReadGroup := tenantGroup.Group("")
-	tenantReadGroup.Use(PermissionMiddleware("menu:read"))
-	tenantReadGroup.GET("/overrides", mr.listTenantOverrides)
-
-	tenantWriteGroup := tenantGroup.Group("")
-	tenantWriteGroup.Use(PermissionMiddleware("menu:write"))
-	tenantWriteGroup.PUT("/overrides/:menu_code", mr.upsertTenantOverride)
-	tenantWriteGroup.DELETE("/overrides/:menu_code", mr.deleteTenantOverride)
 }
 
 func (mr *MenuRoutes) GetName() string { return "menu" }
@@ -142,56 +131,6 @@ func (mr *MenuRoutes) setMenuPublished(ctx httpx.IContext, published bool) error
 		return err
 	}
 	mr.utils.WriteSuccessResponse(ctx, item)
-	return nil
-}
-
-func (mr *MenuRoutes) listTenantOverrides(ctx httpx.IContext) error {
-	tenantID := ctx.GetParam("tenant_id")
-	if tenantID == "" {
-		return errorx.NewError(errorx.Validation, "tenant_id is required")
-	}
-	overrides, err := mr.menuService.ListTenantOverrides(ctx.GetRequest().Context(), tenantID)
-	if err != nil {
-		return err
-	}
-	mr.utils.WriteSuccessResponse(ctx, overrides)
-	return nil
-}
-
-func (mr *MenuRoutes) upsertTenantOverride(ctx httpx.IContext) error {
-	tenantID := ctx.GetParam("tenant_id")
-	if tenantID == "" {
-		return errorx.NewError(errorx.Validation, "tenant_id is required")
-	}
-	menuCode := ctx.GetParam("menu_code")
-	if menuCode == "" {
-		return errorx.NewError(errorx.Validation, "menu_code is required")
-	}
-	req := &menusvc.UpsertTenantOverrideRequest{}
-	if err := ctx.BindJSON(req); err != nil {
-		return err
-	}
-	o, err := mr.menuService.UpsertTenantOverride(ctx.GetRequest().Context(), tenantID, menuCode, req)
-	if err != nil {
-		return err
-	}
-	mr.utils.WriteSuccessResponse(ctx, o)
-	return nil
-}
-
-func (mr *MenuRoutes) deleteTenantOverride(ctx httpx.IContext) error {
-	tenantID := ctx.GetParam("tenant_id")
-	if tenantID == "" {
-		return errorx.NewError(errorx.Validation, "tenant_id is required")
-	}
-	menuCode := ctx.GetParam("menu_code")
-	if menuCode == "" {
-		return errorx.NewError(errorx.Validation, "menu_code is required")
-	}
-	if err := mr.menuService.DeleteTenantOverride(ctx.GetRequest().Context(), tenantID, menuCode); err != nil {
-		return err
-	}
-	mr.utils.WriteSuccessResponse(ctx, map[string]any{"tenant_id": tenantID, "menu_code": menuCode})
 	return nil
 }
 

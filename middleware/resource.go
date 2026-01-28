@@ -37,4 +37,3 @@ func RequireSameTenantOrAdmin(ctx httpx.IRequestContext, targetTenantID string) 
 	}
 	return RequireSameTenant(ctx, targetTenantID)
 }
-

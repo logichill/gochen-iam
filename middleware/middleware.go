@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"gochen-iam/authctx"
+	"gochen-iam/auth"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
@@ -90,7 +90,7 @@ func UserOnlyMiddleware() httpx.Middleware {
 // InjectAuthContext 将角色与权限信息注入 IRequestContext，供后续 RBAC 使用。
 func InjectAuthContext(reqCtx httpx.IRequestContext, userID int64, roles, permissions []string) httpx.IRequestContext {
 	reqCtx = hbasic.WithUserID(reqCtx, userID)
-	reqCtx = authctx.WithRoles(reqCtx, roles)
-	reqCtx = authctx.WithPermissions(reqCtx, permissions)
+	reqCtx = auth.WithRoles(reqCtx, roles)
+	reqCtx = auth.WithPermissions(reqCtx, permissions)
 	return reqCtx
 }

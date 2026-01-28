@@ -43,7 +43,6 @@ func (m *Module) registerProviders() error {
 		grouprepo.NewGroupRepository,
 		rolerepo.NewRoleRepository,
 		menurepo.NewMenuItemRepository,
-		menurepo.NewMenuTenantOverrideRepository,
 	}
 
 	for _, ctor := range repoCtors {

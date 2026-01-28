@@ -52,7 +52,6 @@ const (
 // 设计要点：
 // - 菜单不作为安全边界；安全边界仍由 API 权限校验保证；
 // - 菜单项可绑定 any/all 权限条件，用于导航可见性过滤；
-// - Tenant 级覆盖在 MenuTenantOverride 中实现。
 type MenuItem struct {
 	crud.Entity[int64]
 	domain.Timestamps

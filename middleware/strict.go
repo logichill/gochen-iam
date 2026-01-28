@@ -26,4 +26,3 @@ func ValidateStrictPermissionRegistryLoaded() error {
 	}
 	return nil
 }
-

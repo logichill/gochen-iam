@@ -30,4 +30,3 @@ func RequireSameTenant(ctx httpx.IRequestContext, targetTenantID string) error {
 	}
 	return nil
 }
-

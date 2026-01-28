@@ -7,7 +7,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v4"
 
-	"gochen-iam/authctx"
+	"gochen-iam/auth"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
@@ -176,8 +176,8 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 		}
 
 		// 注入角色与权限信息，供后续 RBAC 使用
-		reqCtx = authctx.WithRoles(reqCtx, claims.Roles)
-		reqCtx = authctx.WithPermissions(reqCtx, claims.Permissions)
+		reqCtx = auth.WithRoles(reqCtx, claims.Roles)
+		reqCtx = auth.WithPermissions(reqCtx, claims.Permissions)
 
 		ctx.SetContext(reqCtx)
 
@@ -219,8 +219,8 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 				reqCtx := ctx.GetContext()
 				reqCtx = hbasic.WithUserID(reqCtx, claims.UserID)
 
-				reqCtx = authctx.WithRoles(reqCtx, claims.Roles)
-				reqCtx = authctx.WithPermissions(reqCtx, claims.Permissions)
+				reqCtx = auth.WithRoles(reqCtx, claims.Roles)
+				reqCtx = auth.WithPermissions(reqCtx, claims.Permissions)
 
 				ctx.SetContext(reqCtx)
 			}
