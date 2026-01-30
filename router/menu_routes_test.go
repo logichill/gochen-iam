@@ -76,6 +76,8 @@ func TestMenuRoutes_RegisterRoutes(t *testing.T) {
 		"POST /menus",
 		"PUT /menus/:id",
 		"DELETE /menus/:id",
+		"POST /menus/:id/restore",
+		"DELETE /menus/:id/purge",
 		"POST /menus/:id/publish",
 		"POST /menus/:id/unpublish",
 	}

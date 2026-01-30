@@ -118,6 +118,18 @@ func (m *MenuItem) GetCreatedAt() time.Time  { return m.CreatedAt }
 func (m *MenuItem) GetUpdatedAt() time.Time  { return m.UpdatedAt }
 func (m *MenuItem) SetUpdatedAt(t time.Time) { m.UpdatedAt = t }
 func (m *MenuItem) IsDeleted() bool          { return m.DeletedAt != nil }
-func (m *MenuItem) MarkAsDeleted()           { now := time.Now(); m.DeletedAt = &now; m.UpdatedAt = now }
-func (m *MenuItem) Restore()                 { m.DeletedAt = nil; m.UpdatedAt = time.Now() }
 func (m *MenuItem) GetDeletedAt() *time.Time { return m.DeletedAt }
+
+// SoftDelete 实现 domain.ISoftDeletable（用于启用默认 ORM Repo 的软删能力）。
+func (m *MenuItem) SoftDelete(_ string, at time.Time) error {
+	m.DeletedAt = &at
+	m.UpdatedAt = at
+	return nil
+}
+
+// Restore 实现 domain.ISoftDeletable（用于启用默认 ORM Repo 的软删能力）。
+func (m *MenuItem) Restore() error {
+	m.DeletedAt = nil
+	m.UpdatedAt = time.Now()
+	return nil
+}

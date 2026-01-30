@@ -23,16 +23,44 @@ func NewMenuItemRepository(o orm.IOrm) (*MenuItemRepo, error) {
 }
 
 func (r *MenuItemRepo) Create(ctx context.Context, m *iamentity.MenuItem) error {
-	return r.Model().Create(ctx, m)
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+	return model.Create(ctx, m)
 }
 
 func (r *MenuItemRepo) Update(ctx context.Context, m *iamentity.MenuItem) error {
-	return r.Model().Save(ctx, m, orm.WithWhere("id = ? AND deleted_at IS NULL", m.GetID()))
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+	return model.Save(ctx, m, orm.WithWhere("id = ? AND deleted_at IS NULL", m.GetID()))
 }
 
 func (r *MenuItemRepo) GetByID(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var item iamentity.MenuItem
-	if err := r.Model().First(ctx, &item, orm.WithWhere("id = ? AND deleted_at IS NULL", id)); err != nil {
+	if err := model.First(ctx, &item, orm.WithWhere("id = ? AND deleted_at IS NULL", id)); err != nil {
+		if errorx.IsNotFound(err) {
+			return nil, errorx.NewError(errorx.NotFound, "菜单不存在")
+		}
+		return nil, errorx.WrapError(err, errorx.Database, "查询菜单失败")
+	}
+	return &item, nil
+}
+
+// GetByIDWithDeleted 按 id 查询菜单（包含软删记录）。
+func (r *MenuItemRepo) GetByIDWithDeleted(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var item iamentity.MenuItem
+	if err := model.First(ctx, &item, orm.WithWhere("id = ?", id)); err != nil {
 		if errorx.IsNotFound(err) {
 			return nil, errorx.NewError(errorx.NotFound, "菜单不存在")
 		}
@@ -42,8 +70,12 @@ func (r *MenuItemRepo) GetByID(ctx context.Context, id int64) (*iamentity.MenuIt
 }
 
 func (r *MenuItemRepo) GetByCode(ctx context.Context, code string) (*iamentity.MenuItem, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var item iamentity.MenuItem
-	if err := r.Model().First(ctx, &item, orm.WithWhere("code = ? AND deleted_at IS NULL", code)); err != nil {
+	if err := model.First(ctx, &item, orm.WithWhere("code = ? AND deleted_at IS NULL", code)); err != nil {
 		if errorx.IsNotFound(err) {
 			return nil, errorx.NewError(errorx.NotFound, "菜单不存在")
 		}
@@ -54,8 +86,12 @@ func (r *MenuItemRepo) GetByCode(ctx context.Context, code string) (*iamentity.M
 
 // GetByCodeWithDeleted 按 code 查询菜单（包含软删记录）。
 func (r *MenuItemRepo) GetByCodeWithDeleted(ctx context.Context, code string) (*iamentity.MenuItem, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var item iamentity.MenuItem
-	if err := r.Model().First(ctx, &item, orm.WithWhere("code = ?", code)); err != nil {
+	if err := model.First(ctx, &item, orm.WithWhere("code = ?", code)); err != nil {
 		if errorx.IsNotFound(err) {
 			return nil, errorx.NewError(errorx.NotFound, "菜单不存在")
 		}
@@ -65,19 +101,64 @@ func (r *MenuItemRepo) GetByCodeWithDeleted(ctx context.Context, code string) (*
 }
 
 func (r *MenuItemRepo) ListAll(ctx context.Context) ([]*iamentity.MenuItem, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var items []*iamentity.MenuItem
-	if err := r.Model().Find(ctx, &items, orm.WithWhere("deleted_at IS NULL")); err != nil {
+	if err := model.Find(ctx, &items, orm.WithWhere("deleted_at IS NULL")); err != nil {
 		return nil, errorx.WrapError(err, errorx.Database, "查询菜单列表失败")
 	}
 	return items, nil
 }
 
 func (r *MenuItemRepo) ListPublished(ctx context.Context) ([]*iamentity.MenuItem, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var items []*iamentity.MenuItem
-	if err := r.Model().Find(ctx, &items,
+	if err := model.Find(ctx, &items,
 		orm.WithWhere("deleted_at IS NULL AND published = ?", true),
 	); err != nil {
 		return nil, errorx.WrapError(err, errorx.Database, "查询菜单列表失败")
 	}
 	return items, nil
+}
+
+// RestoreByID 恢复软删菜单（deleted_at 置空）。
+func (r *MenuItemRepo) RestoreByID(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
+	item, err := r.GetByIDWithDeleted(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if item.DeletedAt == nil {
+		return item, nil
+	}
+
+	if err := item.Restore(); err != nil {
+		return nil, errorx.WrapError(err, errorx.Internal, "恢复菜单失败")
+	}
+
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// 显式置空 deleted_at，避免部分 ORM 适配器“零值/NULL 不更新”导致恢复失败。
+	if err := model.UpdateValues(ctx, map[string]any{
+		"deleted_at": item.DeletedAt,
+		"updated_at": item.UpdatedAt,
+	}, orm.WithWhere("id = ?", id)); err != nil {
+		return nil, errorx.WrapError(err, errorx.Database, "恢复菜单失败")
+	}
+	return item, nil
+}
+
+// PurgeByID 物理删除菜单（硬删）。
+func (r *MenuItemRepo) PurgeByID(ctx context.Context, id int64) error {
+	if err := r.Purge(ctx, id); err != nil {
+		return errorx.WrapError(err, errorx.Database, "物理删除菜单失败")
+	}
+	return nil
 }

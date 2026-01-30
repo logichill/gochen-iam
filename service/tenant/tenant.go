@@ -115,8 +115,12 @@ func (s *TenantService) GetTenant(ctx context.Context, tenantID int64) (*iamenti
 
 // ListTenants 获取租户列表
 func (s *TenantService) ListTenants(ctx context.Context) ([]*iamentity.Tenant, error) {
+	model, err := s.tenantRepo.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var tenants []*iamentity.Tenant
-	err := s.tenantRepo.Model().Find(ctx, &tenants)
+	err = model.Find(ctx, &tenants)
 	if err != nil {
 		return nil, errorx.WrapError(err, errorx.Database, "查询租户列表失败")
 	}

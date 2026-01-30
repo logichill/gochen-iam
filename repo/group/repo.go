@@ -33,8 +33,12 @@ func NewGroupRepository(o orm.IOrm) (*GroupRepo, error) {
 
 // GetByID 根据ID获取组织（过滤软删记录）
 func (r *GroupRepo) GetByID(ctx context.Context, id int64) (*iamentity.Group, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var group iamentity.Group
-	err := r.Model().First(ctx, &group, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
+	err = model.First(ctx, &group, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return nil, errorx.NewError(errorx.NotFound, "组织不存在")
@@ -46,8 +50,12 @@ func (r *GroupRepo) GetByID(ctx context.Context, id int64) (*iamentity.Group, er
 
 // FindByUserID 根据用户ID查找所属组织
 func (r *GroupRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity.Group, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var groups []*iamentity.Group
-	err := r.Model().Find(ctx, &groups,
+	err = model.Find(ctx, &groups,
 		orm.WithJoin(orm.InnerJoin("user_groups", "", orm.On("groups.id", "user_groups.group_id"))),
 		orm.WithWhere("user_groups.user_id = ? AND groups.deleted_at IS NULL", userID),
 		orm.WithPreload("Parent"),
@@ -64,8 +72,12 @@ func (r *GroupRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentit
 
 // FindChildren 查找子组织
 func (r *GroupRepo) FindChildren(ctx context.Context, parentID int64) ([]*iamentity.Group, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var groups []*iamentity.Group
-	err := r.Model().Find(ctx, &groups,
+	err = model.Find(ctx, &groups,
 		orm.WithWhere("parent_id = ? AND deleted_at IS NULL", parentID),
 		orm.WithPreload("Users"),
 		orm.WithPreload("DefaultRoles"),
@@ -80,8 +92,12 @@ func (r *GroupRepo) FindChildren(ctx context.Context, parentID int64) ([]*iament
 
 // FindRootGroups 查找根组织（没有父组织的组织）
 func (r *GroupRepo) FindRootGroups(ctx context.Context) ([]*iamentity.Group, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var groups []*iamentity.Group
-	err := r.Model().Find(ctx, &groups,
+	err = model.Find(ctx, &groups,
 		orm.WithWhere("parent_id IS NULL AND deleted_at IS NULL"),
 		orm.WithPreload("Children"),
 		orm.WithPreload("Users"),
@@ -97,8 +113,12 @@ func (r *GroupRepo) FindRootGroups(ctx context.Context) ([]*iamentity.Group, err
 
 // FindByLevel 根据层级查找组织
 func (r *GroupRepo) FindByLevel(ctx context.Context, level int) ([]*iamentity.Group, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var groups []*iamentity.Group
-	err := r.Model().Find(ctx, &groups,
+	err = model.Find(ctx, &groups,
 		orm.WithWhere("level = ? AND deleted_at IS NULL", level),
 		orm.WithPreload("Parent"),
 		orm.WithPreload("Users"),
@@ -113,8 +133,12 @@ func (r *GroupRepo) FindByLevel(ctx context.Context, level int) ([]*iamentity.Gr
 
 // FindByPath 根据路径查找组织
 func (r *GroupRepo) FindByPath(ctx context.Context, path string) (*iamentity.Group, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var group iamentity.Group
-	err := r.Model().First(ctx, &group,
+	err = model.First(ctx, &group,
 		orm.WithWhere("path = ? AND deleted_at IS NULL", path),
 		orm.WithPreload("Parent"),
 		orm.WithPreload("Children"),
@@ -196,7 +220,11 @@ func (r *GroupRepo) AddUserToGroup(ctx context.Context, groupID, userID int64) e
 		return err
 	}
 
-	err = r.Association(group, "Users").
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+	err = model.Association(group, "Users").
 		Append(ctx, &iamentity.User{Entity: crud.Entity[int64]{ID: userID}})
 
 	if err != nil {
@@ -214,7 +242,11 @@ func (r *GroupRepo) RemoveUserFromGroup(ctx context.Context, groupID, userID int
 		return err
 	}
 
-	err = r.Association(group, "Users").
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+	err = model.Association(group, "Users").
 		Delete(ctx, &iamentity.User{Entity: crud.Entity[int64]{ID: userID}})
 
 	if err != nil {
@@ -232,7 +264,11 @@ func (r *GroupRepo) AddDefaultRole(ctx context.Context, groupID, roleID int64) e
 		return err
 	}
 
-	err = r.Association(group, "DefaultRoles").
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+	err = model.Association(group, "DefaultRoles").
 		Append(ctx, &iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}})
 
 	if err != nil {
@@ -250,7 +286,11 @@ func (r *GroupRepo) RemoveDefaultRole(ctx context.Context, groupID, roleID int64
 		return err
 	}
 
-	err = r.Association(group, "DefaultRoles").
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+	err = model.Association(group, "DefaultRoles").
 		Delete(ctx, &iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}})
 
 	if err != nil {
@@ -263,8 +303,12 @@ func (r *GroupRepo) RemoveDefaultRole(ctx context.Context, groupID, roleID int64
 // GetGroupTree 获取组织树结构
 func (r *GroupRepo) GetGroupTree(ctx context.Context) ([]*iamentity.Group, error) {
 	// 获取所有组织
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var allGroups []*iamentity.Group
-	err := r.Model().Find(ctx, &allGroups,
+	err = model.Find(ctx, &allGroups,
 		orm.WithWhere("deleted_at IS NULL"),
 		orm.WithPreload("Users"),
 		orm.WithPreload("DefaultRoles"),
@@ -308,7 +352,11 @@ func (r *GroupRepo) CountByLevel(ctx context.Context) (map[int]int64, error) {
 	}
 
 	var results []LevelCount
-	err := r.Model().Find(ctx, &results,
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	err = model.Find(ctx, &results,
 		orm.WithSelect("level", "COUNT(*) as count"),
 		orm.WithWhere("deleted_at IS NULL"),
 		orm.WithGroupBy("level"),
@@ -328,6 +376,10 @@ func (r *GroupRepo) CountByLevel(ctx context.Context) (map[int]int64, error) {
 
 // SearchGroups 搜索组织（支持名称模糊搜索）
 func (r *GroupRepo) SearchGroups(ctx context.Context, keyword string, limit int) ([]*iamentity.Group, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var groups []*iamentity.Group
 	opts := []orm.QueryOption{
 		orm.WithWhere("deleted_at IS NULL"),
@@ -343,7 +395,7 @@ func (r *GroupRepo) SearchGroups(ctx context.Context, keyword string, limit int)
 		opts = append(opts, orm.WithLimit(limit))
 	}
 
-	err := r.Model().Find(ctx, &groups, opts...)
+	err = model.Find(ctx, &groups, opts...)
 
 	if err != nil {
 		return nil, errorx.WrapError(err, errorx.Database, "搜索组织失败")
@@ -354,8 +406,12 @@ func (r *GroupRepo) SearchGroups(ctx context.Context, keyword string, limit int)
 
 // FindByDefaultRoleID 根据默认角色ID查找组织
 func (r *GroupRepo) FindByDefaultRoleID(ctx context.Context, roleID int64) ([]*iamentity.Group, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var groups []*iamentity.Group
-	err := r.Model().Find(ctx, &groups,
+	err = model.Find(ctx, &groups,
 		orm.WithJoin(orm.InnerJoin("group_roles", "", orm.On("groups.id", "group_roles.group_id"))),
 		orm.WithWhere("group_roles.role_id = ? AND groups.deleted_at IS NULL", roleID),
 		orm.WithPreload("Parent"),

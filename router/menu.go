@@ -47,6 +47,8 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	adminWriteGroup.POST("", mr.createMenuItem)
 	adminWriteGroup.PUT("/:id", mr.updateMenuItem)
 	adminWriteGroup.DELETE("/:id", mr.deleteMenuItem)
+	adminWriteGroup.POST("/:id/restore", mr.restoreMenuItem)
+	adminWriteGroup.DELETE("/:id/purge", mr.purgeMenuItem)
 
 	adminPublishGroup := adminGroup.Group("")
 	adminPublishGroup.Use(PermissionMiddleware("menu:publish"))
@@ -107,6 +109,31 @@ func (mr *MenuRoutes) deleteMenuItem(ctx httpx.IContext) error {
 		return err
 	}
 	if err := mr.menuService.DeleteMenuItem(ctx.GetRequest().Context(), id); err != nil {
+		return err
+	}
+	mr.utils.WriteSuccessResponse(ctx, map[string]any{"id": id})
+	return nil
+}
+
+func (mr *MenuRoutes) restoreMenuItem(ctx httpx.IContext) error {
+	id, err := mr.utils.ParseID(ctx, "id")
+	if err != nil {
+		return err
+	}
+	item, err := mr.menuService.RestoreMenuItem(ctx.GetRequest().Context(), id)
+	if err != nil {
+		return err
+	}
+	mr.utils.WriteSuccessResponse(ctx, item)
+	return nil
+}
+
+func (mr *MenuRoutes) purgeMenuItem(ctx httpx.IContext) error {
+	id, err := mr.utils.ParseID(ctx, "id")
+	if err != nil {
+		return err
+	}
+	if err := mr.menuService.PurgeMenuItem(ctx.GetRequest().Context(), id); err != nil {
 		return err
 	}
 	mr.utils.WriteSuccessResponse(ctx, map[string]any{"id": id})

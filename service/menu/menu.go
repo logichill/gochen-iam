@@ -206,6 +206,35 @@ func (s *MenuService) DeleteMenuItem(ctx context.Context, id int64) error {
 	return nil
 }
 
+// RestoreMenuItem 恢复软删的菜单。
+func (s *MenuService) RestoreMenuItem(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
+	item, err := s.menuRepo.RestoreByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	s.logger.Info(ctx, "[MenuService] restore menu",
+		logging.Int64("menu_id", item.GetID()),
+		logging.String("code", item.Code),
+	)
+	return item, nil
+}
+
+// PurgeMenuItem 物理删除菜单（硬删）。
+func (s *MenuService) PurgeMenuItem(ctx context.Context, id int64) error {
+	item, err := s.menuRepo.GetByIDWithDeleted(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := s.menuRepo.PurgeByID(ctx, id); err != nil {
+		return err
+	}
+	s.logger.Info(ctx, "[MenuService] purge menu (hard)",
+		logging.Int64("menu_id", id),
+		logging.String("code", item.Code),
+	)
+	return nil
+}
+
 func (s *MenuService) PublishMenuItem(ctx context.Context, id int64, published bool) (*iamentity.MenuItem, error) {
 	item, err := s.menuRepo.GetByID(ctx, id)
 	if err != nil {

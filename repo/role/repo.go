@@ -33,8 +33,12 @@ func NewRoleRepository(o orm.IOrm) (*RoleRepo, error) {
 
 // GetByID 根据ID获取角色（过滤软删记录）
 func (r *RoleRepo) GetByID(ctx context.Context, id int64) (*iamentity.Role, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var role iamentity.Role
-	err := r.Model().First(ctx, &role, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
+	err = model.First(ctx, &role, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return nil, errorx.NewError(errorx.NotFound, "角色不存在")
@@ -46,8 +50,12 @@ func (r *RoleRepo) GetByID(ctx context.Context, id int64) (*iamentity.Role, erro
 
 // FindByName 根据角色名查找角色
 func (r *RoleRepo) FindByName(ctx context.Context, name string) (*iamentity.Role, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var role iamentity.Role
-	err := r.Model().First(ctx, &role,
+	err = model.First(ctx, &role,
 		orm.WithWhere("name = ? AND deleted_at IS NULL", name),
 		orm.WithPreload("Users"),
 		orm.WithPreload("Groups"),
@@ -69,8 +77,12 @@ func (r *RoleRepo) FindByNames(ctx context.Context, names []string) ([]*iamentit
 		return []*iamentity.Role{}, nil
 	}
 
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var roles []*iamentity.Role
-	err := r.Model().Find(ctx, &roles,
+	err = model.Find(ctx, &roles,
 		orm.WithWhere("name IN ? AND deleted_at IS NULL", names),
 		orm.WithPreload("Users"),
 		orm.WithPreload("Groups"),
@@ -85,8 +97,12 @@ func (r *RoleRepo) FindByNames(ctx context.Context, names []string) ([]*iamentit
 
 // FindByStatus 根据状态查找角色
 func (r *RoleRepo) FindByStatus(ctx context.Context, status string) ([]*iamentity.Role, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var roles []*iamentity.Role
-	err := r.Model().Find(ctx, &roles,
+	err = model.Find(ctx, &roles,
 		orm.WithWhere("status = ? AND deleted_at IS NULL", status),
 		orm.WithPreload("Users"),
 		orm.WithPreload("Groups"),
@@ -101,8 +117,12 @@ func (r *RoleRepo) FindByStatus(ctx context.Context, status string) ([]*iamentit
 
 // FindSystemRoles 查找系统角色
 func (r *RoleRepo) FindSystemRoles(ctx context.Context) ([]*iamentity.Role, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var roles []*iamentity.Role
-	err := r.Model().Find(ctx, &roles,
+	err = model.Find(ctx, &roles,
 		orm.WithWhere("is_system = ? AND deleted_at IS NULL", true),
 	)
 
@@ -115,8 +135,12 @@ func (r *RoleRepo) FindSystemRoles(ctx context.Context) ([]*iamentity.Role, erro
 
 // FindUserRoles 查找非系统角色（用户自定义角色）
 func (r *RoleRepo) FindUserRoles(ctx context.Context) ([]*iamentity.Role, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var roles []*iamentity.Role
-	err := r.Model().Find(ctx, &roles,
+	err = model.Find(ctx, &roles,
 		orm.WithWhere("is_system = ? AND deleted_at IS NULL", false),
 		orm.WithPreload("Users"),
 		orm.WithPreload("Groups"),
@@ -131,8 +155,12 @@ func (r *RoleRepo) FindUserRoles(ctx context.Context) ([]*iamentity.Role, error)
 
 // FindByPermission 根据权限查找角色
 func (r *RoleRepo) FindByPermission(ctx context.Context, permission string) ([]*iamentity.Role, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var roles []*iamentity.Role
-	err := r.Model().Find(ctx, &roles,
+	err = model.Find(ctx, &roles,
 		orm.WithWhere("JSON_CONTAINS(permissions, ?) AND deleted_at IS NULL", `"`+permission+`"`),
 		orm.WithPreload("Users"),
 	)
@@ -146,8 +174,12 @@ func (r *RoleRepo) FindByPermission(ctx context.Context, permission string) ([]*
 
 // FindByUserID 根据用户ID查找角色
 func (r *RoleRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity.Role, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var roles []*iamentity.Role
-	err := r.Model().Find(ctx, &roles,
+	err = model.Find(ctx, &roles,
 		orm.WithJoin(orm.InnerJoin("user_roles", "", orm.On("roles.id", "user_roles.role_id"))),
 		orm.WithWhere("user_roles.user_id = ? AND roles.deleted_at IS NULL", userID),
 	)
@@ -161,8 +193,12 @@ func (r *RoleRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity
 
 // FindByGroupID 根据组织ID查找默认角色
 func (r *RoleRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamentity.Role, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var roles []*iamentity.Role
-	err := r.Model().Find(ctx, &roles,
+	err = model.Find(ctx, &roles,
 		orm.WithJoin(orm.InnerJoin("group_roles", "", orm.On("roles.id", "group_roles.role_id"))),
 		orm.WithWhere("group_roles.group_id = ? AND roles.deleted_at IS NULL", groupID),
 	)
@@ -182,7 +218,11 @@ func (r *RoleRepo) AssignToUser(ctx context.Context, roleID, userID int64) error
 		return err
 	}
 
-	err = r.Association(role, "Users").
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+	err = model.Association(role, "Users").
 		Append(ctx, &iamentity.User{Entity: crud.Entity[int64]{ID: userID}})
 
 	if err != nil {
@@ -200,7 +240,11 @@ func (r *RoleRepo) RemoveFromUser(ctx context.Context, roleID, userID int64) err
 		return err
 	}
 
-	err = r.Association(role, "Users").
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+	err = model.Association(role, "Users").
 		Delete(ctx, &iamentity.User{Entity: crud.Entity[int64]{ID: userID}})
 
 	if err != nil {
@@ -218,7 +262,11 @@ func (r *RoleRepo) AssignToGroup(ctx context.Context, roleID, groupID int64) err
 		return err
 	}
 
-	err = r.Association(role, "Groups").
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+	err = model.Association(role, "Groups").
 		Append(ctx, &iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}})
 
 	if err != nil {
@@ -236,7 +284,11 @@ func (r *RoleRepo) RemoveFromGroup(ctx context.Context, roleID, groupID int64) e
 		return err
 	}
 
-	err = r.Association(role, "Groups").
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+	err = model.Association(role, "Groups").
 		Delete(ctx, &iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}})
 
 	if err != nil {
@@ -254,7 +306,11 @@ func (r *RoleRepo) CountByStatus(ctx context.Context) (map[string]int64, error) 
 	}
 
 	var results []StatusCount
-	err := r.Model().Find(ctx, &results,
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	err = model.Find(ctx, &results,
 		orm.WithSelect("status", "COUNT(*) as count"),
 		orm.WithWhere("deleted_at IS NULL"),
 		orm.WithGroupBy("status"),
@@ -282,7 +338,11 @@ func (r *RoleRepo) GetRoleUsageStats(ctx context.Context) ([]map[string]interfac
 	}
 
 	var roles []roleBase
-	if err := r.Model().Find(ctx, &roles,
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := model.Find(ctx, &roles,
 		orm.WithSelect("id", "name", "is_system", "status"),
 		orm.WithWhere("deleted_at IS NULL"),
 	); err != nil {
@@ -303,7 +363,12 @@ func (r *RoleRepo) GetRoleUsageStats(ctx context.Context) ([]map[string]interfac
 	groupCounts := make(map[int64]int64, len(ids))
 
 	if len(ids) > 0 {
-		userRoleModel, err := r.Orm().Model(&orm.ModelMeta{
+		engine := r.Orm()
+		if session, ok := orm.SessionFromContext(ctx); ok && session != nil {
+			engine = session
+		}
+
+		userRoleModel, err := engine.Model(&orm.ModelMeta{
 			ModelFactory: orm.NewModelFactory[struct {
 				RoleID int64
 				UserID int64
@@ -326,7 +391,7 @@ func (r *RoleRepo) GetRoleUsageStats(ctx context.Context) ([]map[string]interfac
 			userCounts[rows[i].RoleID] = rows[i].Count
 		}
 
-		groupRoleModel, err := r.Orm().Model(&orm.ModelMeta{
+		groupRoleModel, err := engine.Model(&orm.ModelMeta{
 			ModelFactory: orm.NewModelFactory[struct {
 				RoleID  int64
 				GroupID int64
@@ -368,6 +433,10 @@ func (r *RoleRepo) GetRoleUsageStats(ctx context.Context) ([]map[string]interfac
 
 // SearchRoles 搜索角色（支持名称、描述模糊搜索）
 func (r *RoleRepo) SearchRoles(ctx context.Context, keyword string, limit int) ([]*iamentity.Role, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var roles []*iamentity.Role
 	opts := []orm.QueryOption{
 		orm.WithWhere("deleted_at IS NULL"),
@@ -383,7 +452,7 @@ func (r *RoleRepo) SearchRoles(ctx context.Context, keyword string, limit int) (
 		opts = append(opts, orm.WithLimit(limit))
 	}
 
-	err := r.Model().Find(ctx, &roles, opts...)
+	err = model.Find(ctx, &roles, opts...)
 
 	if err != nil {
 		return nil, errorx.WrapError(err, errorx.Database, "搜索角色失败")

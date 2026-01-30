@@ -30,18 +30,30 @@ func NewTenantRepository(o orm.IOrm) (*TenantRepo, error) {
 
 // Create 覆盖通用创建
 func (r *TenantRepo) Create(ctx context.Context, t *iamentity.Tenant) error {
-	return r.Model().Create(ctx, t)
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+	return model.Create(ctx, t)
 }
 
 // Update 覆盖通用更新
 func (r *TenantRepo) Update(ctx context.Context, t *iamentity.Tenant) error {
-	return r.Model().Save(ctx, t, orm.WithWhere("id = ? AND deleted_at IS NULL", t.GetID()))
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+	return model.Save(ctx, t, orm.WithWhere("id = ? AND deleted_at IS NULL", t.GetID()))
 }
 
 // GetByID 根据ID获取租户（过滤软删记录）
 func (r *TenantRepo) GetByID(ctx context.Context, id int64) (*iamentity.Tenant, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var tenant iamentity.Tenant
-	err := r.Model().First(ctx, &tenant, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
+	err = model.First(ctx, &tenant, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
 	if err != nil {
 		if errorx.IsNotFound(err) {
 			return nil, errorx.NewError(errorx.NotFound, "租户不存在")
@@ -53,8 +65,12 @@ func (r *TenantRepo) GetByID(ctx context.Context, id int64) (*iamentity.Tenant, 
 
 // FindByKey 根据业务编码查找租户
 func (r *TenantRepo) FindByKey(ctx context.Context, key string) (*iamentity.Tenant, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	var tenant iamentity.Tenant
-	err := r.Model().First(ctx, &tenant,
+	err = model.First(ctx, &tenant,
 		orm.WithWhere("key = ? AND deleted_at IS NULL", key),
 	)
 
