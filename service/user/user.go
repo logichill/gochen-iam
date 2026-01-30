@@ -2,9 +2,10 @@ package user
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 
 	iamentity "gochen-iam/entity"
 
@@ -67,10 +68,15 @@ func (s *UserService) Register(ctx context.Context, req *svc.RegisterRequest) (*
 	}
 
 	// 4. 创建用户实体
+	hashedPassword, err := s.hashPassword(req.Password)
+	if err != nil {
+		return nil, errorx.WrapError(err, errorx.Internal, "密码加密失败")
+	}
+
 	user := &iamentity.User{
 		Username: req.Username,
 		Email:    req.Email,
-		Password: s.hashPassword(req.Password),
+		Password: hashedPassword,
 		Status:   svc.UserStatusActive,
 	}
 	user.SetUpdatedAt(time.Now())
@@ -162,7 +168,11 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *svc
 	}
 
 	// 4. 更新密码
-	user.Password = s.hashPassword(req.NewPassword)
+	hashedPassword, err := s.hashPassword(req.NewPassword)
+	if err != nil {
+		return errorx.WrapError(err, errorx.Internal, "密码加密失败")
+	}
+	user.Password = hashedPassword
 	user.SetUpdatedAt(time.Now())
 
 	return s.userRepo.Update(ctx, user)
@@ -376,21 +386,30 @@ func (s *UserService) validateRegisterRequest(req *svc.RegisterRequest) error {
 	if req.Password == "" {
 		return errorx.NewError(errorx.Validation, "密码不能为空")
 	}
-	if len(req.Password) < svc.MinPasswordLength {
-		return errorx.NewError(errorx.Validation, "密码长度不能少于6个字符")
+	if len(req.Password) < 8 {
+		return errorx.NewError(errorx.Validation, "密码长度不能少于8个字符")
 	}
+	// 可选：添加更强的密码策略
+	// - 至少包含一个大写字母
+	// - 至少包含一个小写字母
+	// - 至少包含一个数字
 	return nil
 }
 
 // hashPassword 加密密码
-func (s *UserService) hashPassword(password string) string {
-	hash := sha256.Sum256([]byte(password))
-	return fmt.Sprintf("%x", hash)
+// 使用 bcrypt 算法，自动加盐，防止彩虹表攻击
+func (s *UserService) hashPassword(password string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("hash password: %w", err)
+	}
+	return string(hash), nil
 }
 
 // verifyPassword 验证密码
 func (s *UserService) verifyPassword(password, hashedPassword string) bool {
-	return s.hashPassword(password) == hashedPassword
+	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+	return err == nil
 }
 
 // generateToken 生成访问令牌 (简化实现，实际应使用JWT)
