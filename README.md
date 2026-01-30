@@ -14,18 +14,23 @@
 
 ## 快速接入（概念）
 
-`gochen-iam` 以 gochen 领域模块方式提供能力：在 `module.go` 中注册 Repo/Service/Routes 的 constructors，上层应用通过 DI 容器解析并统一注册路由。
+`gochen-iam` 以 gochen 领域模块方式提供能力：在 `module.go` 中实现 `server.IModule` 的 `Init(options)+Start(ctx)`，把 providers 注册、路由挂载与启动期校验都收敛在模块内部；上层应用只需要提供运行环境与 options 并调用模块入口。
 
 - Providers 注册：`module.go`
-- 路由注册器：`router/*.go`（实现 `httpx.IRouteRegistrar`）
+- 路由注册器：`router/*.go`（具备 `RegisterRoutes/GetName/GetPriority` 方法）
 
-上层应用（如 `alife`）需要做两件事：
+上层应用（如 `alife`）通常只需要做两件事：
 
-1. 在路由层装配认证中间件（通常是全局中间件）：
+1. 通过 gochen 的模块级 `server.Server` 注册模块工厂，并在 ServerConfig 中配置：
+   - BasePath 与全局中间件（挂载在 base group 上）
+   - IAM 模块的挂载前缀与模块级中间件（例如默认 `"/iam"` 前缀）
+2. 在路由层装配认证中间件（通常是全局中间件）：
    - `gochen-iam/middleware.AuthMiddleware`（必需鉴权）
    - 或 `gochen-iam/middleware.OptionalAuthMiddleware`（可选鉴权）
-2. 路由装配完成后（**所有 `PermissionMiddleware(...)` 都已执行注册**）：
-   - 如果启用了严格权限字典：调用 `gochen-iam/middleware.ValidateStrictPermissionRegistryLoaded()`
+
+说明：
+- 若你使用 `gochen-iam` 的 `Module.Start(ctx)` 挂载路由，模块会在挂载完成后自动执行严格权限字典校验（如开启）。
+- 若你选择自行装配路由（不通过模块 Start），仍需在“所有 `PermissionMiddleware(...)` 都已执行注册”后手动调用 `middleware.ValidateStrictPermissionRegistry()`。
 
 ---
 
@@ -88,8 +93,12 @@
 
 开启 `AUTH_STRICT_PERMISSION_REGISTRY=true`（或 `1`）后：
 
-- 建议在应用启动、路由装配完成后调用 `middleware.ValidateStrictPermissionRegistryLoaded()`
+- 建议在应用启动、路由装配完成后调用 `middleware.ValidateStrictPermissionRegistry()`
 - 若 registry 为空，会直接报错，避免“以为严格、实际没加载”导致的治理失效
+
+严格权限字典模式（AUTH_STRICT_PERMISSION_REGISTRY）的启动期校验已迁移到模块层：`gochen-iam/module.go` 的 `RegisterRoutes(ctx)`。
+该校验通过 `error` 通道 fail-close，不再依赖“路由注册器内 panic”来表达启动失败。
+当严格模式开启且 registry 为空时，它会直接阻止应用继续启动（fail-close）。
 
 ---
 
@@ -162,6 +171,8 @@
 
 - `GET /menus`（`menu:read`）
 - `POST /menus`、`PUT /menus/:id`、`DELETE /menus/:id`（`menu:write`）
+- `POST /menus/:id/restore`（`menu:write`，恢复软删）
+- `DELETE /menus/:id/purge`（`menu:write`，物理删除）
 - `POST /menus/:id/publish`、`POST /menus/:id/unpublish`（`menu:publish`）
 
 对应权限码：

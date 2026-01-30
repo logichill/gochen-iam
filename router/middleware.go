@@ -76,3 +76,6 @@ func GetRoles(ctx httpx.IRequestContext) []string {
 func GetPermissions(ctx httpx.IRequestContext) []string {
 	return auth.GetPermissions(ctx)
 }
+
+// StrictPermissionRegistryNotLoadedError 已废弃：严格权限字典模式校验已迁移到模块层
+// （gochen-iam/module.go 的 RegisterRoutes(ctx)），并通过 error 通道 fail-close。
