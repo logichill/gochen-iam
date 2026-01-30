@@ -19,6 +19,12 @@ var requiredPermissionsRegistry = struct {
 	perms: map[string][]requiredPermissionMeta{},
 }
 
+func requiredPermissionsCount() int {
+	requiredPermissionsRegistry.mu.RLock()
+	defer requiredPermissionsRegistry.mu.RUnlock()
+	return len(requiredPermissionsRegistry.perms)
+}
+
 func registerRequiredPermission(permission string) {
 	if permission == "" {
 		return

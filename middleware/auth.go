@@ -137,6 +137,12 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 			}
 		}
 
+		// 严格权限字典：运行期兜底 fail-close（防止上层装配期校验遗漏/被吞掉）。
+		// 注意：放在 SkipPaths 后，保证 health/无需鉴权路由仍可用。
+		if err := EnsureStrictPermissionRegistryLoaded(); err != nil {
+			return err
+		}
+
 		// 获取 token（必需鉴权：无 token 直接拒绝；如需可选鉴权请使用 OptionalAuthMiddleware）
 		token := extractToken(ctx, config)
 		if token == "" {
@@ -193,6 +199,19 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 	}
 
 	return func(ctx httpx.IContext, next func() error) error {
+		// 检查是否需要跳过认证
+		path := ctx.GetPath()
+		for _, skipPath := range config.SkipPaths {
+			if strings.HasPrefix(path, skipPath) {
+				return next()
+			}
+		}
+
+		// 严格权限字典：运行期兜底 fail-close（防止上层装配期校验遗漏/被吞掉）。
+		if err := EnsureStrictPermissionRegistryLoaded(); err != nil {
+			return err
+		}
+
 		reqCtx := ctx.GetContext()
 		tenantID := ctx.GetHeader(config.TenantHeader)
 		if tenantID == "" && config.AllowTenantQuery {

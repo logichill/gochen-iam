@@ -419,19 +419,19 @@ func TestPermissionMiddleware_InvalidPermission_NotRegistered(t *testing.T) {
 	}
 }
 
-func TestValidateStrictPermissionRegistryLoaded_StrictEmpty(t *testing.T) {
+func TestValidateStrictPermissionRegistry_StrictEmpty(t *testing.T) {
 	os.Setenv("AUTH_STRICT_PERMISSION_REGISTRY", "true")
 	defer os.Unsetenv("AUTH_STRICT_PERMISSION_REGISTRY")
 
 	resetRequiredPermissionsRegistryForTest()
 	defer resetRequiredPermissionsRegistryForTest()
 
-	if err := ValidateStrictPermissionRegistryLoaded(); err == nil {
+	if err := ValidateStrictPermissionRegistry(); err == nil {
 		t.Fatalf("expected error when strict enabled and registry empty")
 	}
 }
 
-func TestValidateStrictPermissionRegistryLoaded_StrictNonEmpty(t *testing.T) {
+func TestValidateStrictPermissionRegistry_StrictNonEmpty(t *testing.T) {
 	os.Setenv("AUTH_STRICT_PERMISSION_REGISTRY", "true")
 	defer os.Unsetenv("AUTH_STRICT_PERMISSION_REGISTRY")
 
@@ -439,7 +439,7 @@ func TestValidateStrictPermissionRegistryLoaded_StrictNonEmpty(t *testing.T) {
 	defer resetRequiredPermissionsRegistryForTest()
 
 	_ = PermissionMiddleware("task:read")
-	if err := ValidateStrictPermissionRegistryLoaded(); err != nil {
+	if err := ValidateStrictPermissionRegistry(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
