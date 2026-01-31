@@ -2,8 +2,6 @@ package iam
 
 import (
 	"context"
-	"reflect"
-	"sort"
 
 	iammw "gochen-iam/middleware"
 	grouprepo "gochen-iam/repo/group"
@@ -46,8 +44,6 @@ func (m *Module) Init(opts server.ModuleInitOptions) error {
 	return m.registerProviders()
 }
 
-type routeRegistrar = server.RouteRegistrar
-
 // RegisterRoutes 仅挂载 HTTP 路由与执行启动期校验，不进入运行期。
 func (m *Module) RegisterRoutes(ctx context.Context) error {
 	if m == nil {
@@ -61,25 +57,27 @@ func (m *Module) RegisterRoutes(ctx context.Context) error {
 		return nil
 	}
 
-	registrars, err := m.resolveRouteRegistrars()
-	if err != nil {
-		return err
-	}
-	sort.Slice(registrars, func(i, j int) bool {
-		pi, pj := registrars[i].GetPriority(), registrars[j].GetPriority()
-		if pi == pj {
-			return registrars[i].GetName() < registrars[j].GetName()
-		}
-		return pi < pj
-	})
-
-	for _, r := range registrars {
-		if r == nil {
-			continue
-		}
-		if err := server.SafeRegisterRoutes(r, group); err != nil {
-			return err
-		}
+	// 方案 B：不再通过 registrar 子对象/容器扫描来挂载路由。
+	// 直接在模块内从容器解析依赖并挂载路由。
+	if err := m.container.Invoke(func(
+		userService *usersvc.UserService,
+		groupService *groupsvc.GroupService,
+		roleService *rolesvc.RoleService,
+		tenantService *tenantsvc.TenantService,
+		menuService *menusvc.MenuService,
+		userRepo *userrepo.UserRepo,
+		groupRepo *grouprepo.GroupRepo,
+		roleRepo *rolerepo.RoleRepo,
+		tenantRepo *tenantrepo.TenantRepo,
+	) {
+		iamrouter.NewAuthRoutes(userService, groupService, roleService).RegisterRoutes(group)
+		iamrouter.NewUserRoutes(userService, groupService, roleService, userRepo).RegisterRoutes(group)
+		iamrouter.NewRoleRoutes(roleService, userService, groupService, roleRepo).RegisterRoutes(group)
+		iamrouter.NewGroupRoutes(groupService, userService, roleService, groupRepo).RegisterRoutes(group)
+		iamrouter.NewTenantRoutes(tenantService, tenantRepo).RegisterRoutes(group)
+		iamrouter.NewMenuRoutes(menuService).RegisterRoutes(group)
+	}); err != nil {
+		return errorx.WrapError(err, errorx.Dependency, "failed to build iam routes")
 	}
 
 	// 启动期 fail-close：严格权限字典模式校验（走 error 通道）。
@@ -146,35 +144,4 @@ func (m *Module) registerProviders() error {
 	}
 
 	return nil
-}
-
-func (m *Module) resolveRouteRegistrars() ([]routeRegistrar, error) {
-	if m == nil || m.container == nil {
-		return nil, nil
-	}
-
-	types := []reflect.Type{
-		server.ElemType((*iamrouter.AuthRoutes)(nil)),
-		server.ElemType((*iamrouter.UserRoutes)(nil)),
-		server.ElemType((*iamrouter.RoleRoutes)(nil)),
-		server.ElemType((*iamrouter.GroupRoutes)(nil)),
-		server.ElemType((*iamrouter.TenantRoutes)(nil)),
-		server.ElemType((*iamrouter.MenuRoutes)(nil)),
-	}
-
-	out := make([]routeRegistrar, 0, len(types))
-	for _, t := range types {
-		inst, err := server.ResolveByType(m.container, t)
-		if err != nil {
-			return nil, err
-		}
-		r, ok := inst.(routeRegistrar)
-		if !ok || server.IsTypedNil(r) {
-			return nil, errorx.NewInternalError("resolved route registrar has invalid type").
-				WithContext("type", t.String()).
-				WithContext("value_type", server.TypeString(inst))
-		}
-		out = append(out, r)
-	}
-	return out, nil
 }
