@@ -1,6 +1,9 @@
 package router
 
 import (
+	"context"
+	"fmt"
+
 	rolerepo "gochen-iam/repo/role"
 	svc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
@@ -11,6 +14,7 @@ import (
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
+	"gochen/runtime/logging"
 )
 
 // RoleRoutes 角色路由注册器
@@ -44,7 +48,10 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 
 	appService, err := appcrud.NewApplication(rr.roleRepo, nil, nil)
 	if err != nil {
-		panic(err)
+		// 记录错误并 panic，SafeRegisterRoutes 会捕获并转换为 error
+		logging.GetLogger().Error(context.Background(), "创建角色 CRUD 应用服务失败",
+			logging.Error(err))
+		panic(fmt.Errorf("create role CRUD application: %w", err))
 	}
 	_ = api.NewApiBuilder(appService, nil).
 		Route(func(cfg *api.RouteConfig[int64]) {

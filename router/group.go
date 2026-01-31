@@ -1,6 +1,8 @@
 package router
 
 import (
+	"context"
+	"fmt"
 	"strconv"
 
 	grouprepo "gochen-iam/repo/group"
@@ -12,6 +14,7 @@ import (
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
+	"gochen/runtime/logging"
 )
 
 // GroupRoutes 组织路由注册器
@@ -44,7 +47,10 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 
 	appService, err := appcrud.NewApplication(gr.groupRepo, nil, nil)
 	if err != nil {
-		panic(err)
+		// 记录错误并 panic，SafeRegisterRoutes 会捕获并转换为 error
+		logging.GetLogger().Error(context.Background(), "创建组织 CRUD 应用服务失败",
+			logging.Error(err))
+		panic(fmt.Errorf("create group CRUD application: %w", err))
 	}
 	_ = api.NewApiBuilder(appService, nil).
 		Route(func(cfg *api.RouteConfig[int64]) {

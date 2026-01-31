@@ -1,6 +1,9 @@
 package router
 
 import (
+	"context"
+	"fmt"
+
 	userrepo "gochen-iam/repo/user"
 	iamsvc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
@@ -11,6 +14,7 @@ import (
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
+	"gochen/runtime/logging"
 )
 
 // UserRoutes 用户路由注册器
@@ -45,7 +49,10 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	// 直接使用原生 shared 仓储接口（UserRepo 已实现 ICRUDRepository）
 	appService, err := appcrud.NewApplication(ur.userRepo, nil, nil)
 	if err != nil {
-		panic(err)
+		// 记录错误并 panic，SafeRegisterRoutes 会捕获并转换为 error
+		logging.GetLogger().Error(context.Background(), "创建用户 CRUD 应用服务失败",
+			logging.Error(err))
+		panic(fmt.Errorf("create user CRUD application: %w", err))
 	}
 
 	_ = api.NewApiBuilder(appService, nil).
