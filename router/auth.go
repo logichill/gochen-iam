@@ -31,7 +31,7 @@ func NewAuthRoutes(userService *usersvc.UserService, groupService *groupsvc.Grou
 	}
 }
 
-// RegisterRoutes 实现IRouteRegistrar接口
+// RegisterRoutes 注册路由。
 func (ar *AuthRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	authGroup := group.Group("/auth")
 

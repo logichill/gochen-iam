@@ -2,7 +2,6 @@ package router
 
 import (
 	"context"
-	"fmt"
 
 	rolerepo "gochen-iam/repo/role"
 	svc "gochen-iam/service"
@@ -37,7 +36,7 @@ func NewRoleRoutes(roleService *rolesvc.RoleService, userService *usersvc.UserSe
 	}
 }
 
-// RegisterRoutes 实现IRouteRegistrar接口
+// RegisterRoutes 注册路由。
 func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	// 角色基础CRUD - 使用 shared/httpx/api 构建器
 	roleGroup := group.Group("/roles")
@@ -48,10 +47,10 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 
 	appService, err := appcrud.NewApplication(rr.roleRepo, nil, nil)
 	if err != nil {
-		// 记录错误并 panic，SafeRegisterRoutes 会捕获并转换为 error
+		// 记录错误并返回：模块层已不再使用 panic 控制流。
 		logging.GetLogger().Error(context.Background(), "创建角色 CRUD 应用服务失败",
 			logging.Error(err))
-		panic(fmt.Errorf("create role CRUD application: %w", err))
+		return
 	}
 	_ = api.NewApiBuilder(appService, nil).
 		Route(func(cfg *api.RouteConfig[int64]) {

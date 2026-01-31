@@ -2,7 +2,6 @@ package router
 
 import (
 	"context"
-	"fmt"
 
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
@@ -30,7 +29,7 @@ func NewTenantRoutes(tenantService *tenantsvc.TenantService, tenantRepo *tenantr
 	}
 }
 
-// RegisterRoutes 实现 IRouteRegistrar 接口
+// RegisterRoutes 注册路由
 func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	tenantGroup := group.Group("/tenants")
 
@@ -40,10 +39,10 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 
 	appService, err := appcrud.NewApplication(tr.tenantRepo, nil, nil)
 	if err != nil {
-		// 记录错误并 panic，SafeRegisterRoutes 会捕获并转换为 error
+		// 记录错误并返回：模块层已不再使用 panic 控制流。
 		logging.GetLogger().Error(context.Background(), "创建租户 CRUD 应用服务失败",
 			logging.Error(err))
-		panic(fmt.Errorf("create tenant CRUD application: %w", err))
+		return
 	}
 	_ = api.NewApiBuilder(appService, nil).
 		Route(func(cfg *api.RouteConfig[int64]) {
