@@ -448,20 +448,13 @@ func (s *RoleService) validatePermissions(permissions []string) error {
 		}
 	}
 
-	// 可选：严格模式下仅允许“系统已声明的权限”（由 PermissionMiddleware 自动收集）。
-	// 目的：治理权限拼写错误与脏数据；默认关闭以保持兼容。
-	if iammw.IsStrictPermissionRegistryEnabled() {
-		allowed := iammw.RequiredPermissions()
-		if len(allowed) > 0 {
-			allowedSet := make(map[string]struct{}, len(allowed))
-			for _, p := range allowed {
-				allowedSet[p] = struct{}{}
-			}
-			for _, p := range permissions {
-				if _, ok := allowedSet[p]; !ok {
-					return errorx.NewError(errorx.Validation, "未知权限: "+p)
-				}
-			}
+	// 严格权限字典：仅允许“系统已声明的权限”（由 PermissionMiddleware 自动收集）。
+	if err := iammw.EnsureStrictPermissionRegistryLoaded(); err != nil {
+		return err
+	}
+	for _, p := range permissions {
+		if !iammw.HasRequiredPermission(p) {
+			return errorx.NewError(errorx.Validation, "未知权限: "+p)
 		}
 	}
 	return nil

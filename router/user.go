@@ -8,6 +8,7 @@ import (
 	groupsvc "gochen-iam/service/group"
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
+	iammw "gochen-iam/middleware"
 	api "gochen/api/http"
 	appcrud "gochen/app/crud"
 	httpx "gochen/httpx"
@@ -43,7 +44,7 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 
 	// 管理操作（包括基础 CRUD 和对任意用户的管理）仅对管理员开放
 	adminGroup := userGroup.Group("")
-	adminGroup.Use(AdminOnlyMiddleware())
+	adminGroup.Use(iammw.AdminOnlyMiddleware())
 
 	// 直接使用原生 shared 仓储接口（UserRepo 已实现 ICRUDRepository）
 	appService, err := appcrud.NewApplication(ur.userRepo, nil, nil)
@@ -103,7 +104,7 @@ func (ur *UserRoutes) setupAdminUserRoutes(userGroup httpx.IRouteGroup) {
 // setupSelfUserRoutes 设置当前用户自助操作路由
 func (ur *UserRoutes) setupSelfUserRoutes(userGroup httpx.IRouteGroup) {
 	meGroup := userGroup.Group("/me")
-	meGroup.Use(UserOnlyMiddleware())
+	meGroup.Use(iammw.UserOnlyMiddleware())
 
 	meGroup.GET("", ur.getCurrentUser)
 	meGroup.PUT("", ur.updateCurrentUser)

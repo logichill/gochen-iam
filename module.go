@@ -10,6 +10,7 @@ import (
 	tenantrepo "gochen-iam/repo/tenant"
 	userrepo "gochen-iam/repo/user"
 	iamrouter "gochen-iam/router"
+	iamservice "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
 	menusvc "gochen-iam/service/menu"
 	rolesvc "gochen-iam/service/role"
@@ -81,6 +82,7 @@ func (m *Module) RegisterRoutes(ctx context.Context) error {
 	}
 
 	// 启动期 fail-close：严格权限字典模式校验（走 error 通道）。
+	iammw.RegisterRequiredPermissions(iamservice.AllPermissions...)
 	if err := iammw.ValidateStrictPermissionRegistry(); err != nil {
 		return errorx.WrapError(err, errorx.Internal, "strict permission registry validation failed")
 	}

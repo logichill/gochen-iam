@@ -91,6 +91,28 @@ func RequiredPermissionsWithRedactedCallsites() map[string][]string {
 	return out
 }
 
+// RegisterRequiredPermissions 允许模块在启动期一次性注册“系统已声明的权限”集合。
+//
+// 说明：
+// - 严格权限字典模式下，角色写入/校验会基于该 registry 做 fail-close；
+// - 该函数用于不依赖路由装配细节也能完成权限字典初始化（例如权限常量集中定义的场景）。
+func RegisterRequiredPermissions(permissions ...string) {
+	for _, p := range permissions {
+		registerRequiredPermission(p)
+	}
+}
+
+// HasRequiredPermission 判断权限是否已在启动期注册到 required permissions registry。
+func HasRequiredPermission(permission string) bool {
+	if permission == "" {
+		return false
+	}
+	requiredPermissionsRegistry.mu.RLock()
+	defer requiredPermissionsRegistry.mu.RUnlock()
+	_, ok := requiredPermissionsRegistry.perms[permission]
+	return ok
+}
+
 func redactCallsite(callsite string) string {
 	if callsite == "" || callsite == "unknown" {
 		return "unknown"

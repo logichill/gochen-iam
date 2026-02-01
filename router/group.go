@@ -8,6 +8,7 @@ import (
 	groupsvc "gochen-iam/service/group"
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
+	iammw "gochen-iam/middleware"
 	api "gochen/api/http"
 	appcrud "gochen/app/crud"
 	httpx "gochen/httpx"
@@ -42,7 +43,7 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	groupGroup := group.Group("/groups")
 
 	adminGroup := groupGroup.Group("")
-	adminGroup.Use(AdminOnlyMiddleware())
+	adminGroup.Use(iammw.AdminOnlyMiddleware())
 
 	appService, err := appcrud.NewApplication(gr.groupRepo, nil, nil)
 	if err != nil {

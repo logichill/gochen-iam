@@ -1,6 +1,7 @@
 package router
 
 import (
+	iammw "gochen-iam/middleware"
 	menusvc "gochen-iam/service/menu"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
@@ -28,22 +29,22 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 
 	// 当前用户可见菜单（必须已登录）
 	meGroup := menuGroup.Group("/me")
-	meGroup.Use(UserOnlyMiddleware())
+	meGroup.Use(iammw.UserOnlyMiddleware())
 	meGroup.GET("", mr.getMyMenuTree)
 
 	// 管理端：菜单定义与发布（管理员 + 细分权限）
 	adminGroup := menuGroup.Group("")
-	adminGroup.Use(AdminOnlyMiddleware())
+	adminGroup.Use(iammw.AdminOnlyMiddleware())
 	// 说明：当前设计“仅允许 system_admin 管理菜单”。
 	// menu:read/menu:write/menu:publish 仍会通过 PermissionMiddleware 注册到 required permissions，用于权限治理与审计。
 	// 如需支持“非 system_admin 但具备 menu:* 权限的角色”管理菜单：移除 AdminOnlyMiddleware，仅保留 PermissionMiddleware。
 
 	adminReadGroup := adminGroup.Group("")
-	adminReadGroup.Use(PermissionMiddleware("menu:read"))
+	adminReadGroup.Use(iammw.PermissionMiddleware("menu:read"))
 	adminReadGroup.GET("", mr.listMenuItems)
 
 	adminWriteGroup := adminGroup.Group("")
-	adminWriteGroup.Use(PermissionMiddleware("menu:write"))
+	adminWriteGroup.Use(iammw.PermissionMiddleware("menu:write"))
 	adminWriteGroup.POST("", mr.createMenuItem)
 	adminWriteGroup.PUT("/:id", mr.updateMenuItem)
 	adminWriteGroup.DELETE("/:id", mr.deleteMenuItem)
@@ -51,7 +52,7 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	adminWriteGroup.DELETE("/:id/purge", mr.purgeMenuItem)
 
 	adminPublishGroup := adminGroup.Group("")
-	adminPublishGroup.Use(PermissionMiddleware("menu:publish"))
+	adminPublishGroup.Use(iammw.PermissionMiddleware("menu:publish"))
 	adminPublishGroup.POST("/:id/publish", mr.publishMenuItem)
 	adminPublishGroup.POST("/:id/unpublish", mr.unpublishMenuItem)
 

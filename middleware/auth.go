@@ -3,6 +3,7 @@ package middleware
 import (
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
@@ -39,19 +40,9 @@ type AuthConfig struct {
 }
 
 // DefaultAuthConfig 默认认证配置
-// 生产环境必须设置 AUTH_SECRET 环境变量
+// 必须设置 AUTH_SECRET 环境变量
 func DefaultAuthConfig() *AuthConfig {
 	secret := os.Getenv("AUTH_SECRET")
-	if secret == "" {
-		// 仅在开发/测试环境允许使用默认密钥
-		if isDevEnv() {
-			secret = "your-secret-key"
-		} else {
-			// 生产环境不提供默认值，强制要求配置
-			// 调用方应在启动时检查并处理此情况
-			secret = ""
-		}
-	}
 
 	ttl := defaultAccessTokenTTL
 	if v := os.Getenv(envAccessTokenTTL); v != "" {
@@ -84,16 +75,13 @@ func DefaultAuthConfig() *AuthConfig {
 }
 
 // isDevEnv 检查是否为开发/测试环境
-// 通过 GO_ENV 或 APP_ENV 环境变量判断（GO_ENV 优先）
+// 通过 APP_ENV 环境变量判断
 func isDevEnv() bool {
-	env := os.Getenv("GO_ENV")
-	if env == "" {
-		env = os.Getenv("APP_ENV")
-	}
+	env := os.Getenv("APP_ENV")
 	return env == "development" || env == "dev" || env == "test" || env == "testing"
 }
 
-// IsDevEnv 对外暴露统一的 dev/test 环境判定（兼容 GO_ENV/APP_ENV）。
+// IsDevEnv 对外暴露统一的 dev/test 环境判定。
 func IsDevEnv() bool { return isDevEnv() }
 
 // ValidateAuthConfig 验证认证配置是否完整
@@ -103,13 +91,7 @@ func ValidateAuthConfig(config *AuthConfig) error {
 		config = DefaultAuthConfig()
 	}
 	if config.SecretKey == "" {
-		if !isDevEnv() {
-			return errorx.NewError(errorx.Internal, "生产环境必须设置 AUTH_SECRET 环境变量")
-		}
-	}
-	// 生产环境禁止启用测试令牌，避免固定口令拿到高权限。
-	if !isDevEnv() && (os.Getenv("ALLOW_TEST_TOKEN") == "true" || os.Getenv("ALLOW_TEST_TOKEN") == "1") {
-		return errorx.NewError(errorx.Internal, "生产环境禁止启用 ALLOW_TEST_TOKEN")
+		return errorx.NewError(errorx.Internal, "必须设置 AUTH_SECRET 环境变量")
 	}
 	// 生产环境禁止允许 query token，避免 token 泄露到 URL/日志链路。
 	if !isDevEnv() && config.AllowQueryToken {
@@ -127,8 +109,17 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 	if config == nil {
 		config = DefaultAuthConfig()
 	}
+	var validateOnce sync.Once
+	var validateErr error
 
 	return func(ctx httpx.IContext, next func() error) error {
+		validateOnce.Do(func() {
+			validateErr = ValidateAuthConfig(config)
+		})
+		if validateErr != nil {
+			return validateErr
+		}
+
 		// 检查是否需要跳过认证
 		path := ctx.GetPath()
 		for _, skipPath := range config.SkipPaths {
@@ -197,8 +188,17 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 	if config == nil {
 		config = DefaultAuthConfig()
 	}
+	var validateOnce sync.Once
+	var validateErr error
 
 	return func(ctx httpx.IContext, next func() error) error {
+		validateOnce.Do(func() {
+			validateErr = ValidateAuthConfig(config)
+		})
+		if validateErr != nil {
+			return validateErr
+		}
+
 		// 检查是否需要跳过认证
 		path := ctx.GetPath()
 		for _, skipPath := range config.SkipPaths {
@@ -333,27 +333,6 @@ func GenerateTokenWithTTL(userID int64, username string, roles, permissions []st
 
 // ParseToken 解析并验证 JWT 令牌
 func ParseToken(tokenStr, secretKey string) (*JWTClaims, error) {
-	// 测试令牌支持：仅在明确启用时生效（开发/测试环境）
-	// 生产环境必须确保 ALLOW_TEST_TOKEN 未设置或为 false
-	if tokenStr == "test-token" && isTestTokenAllowed() {
-		return &JWTClaims{
-			UserID:   1,
-			Username: "admin",
-			Roles:    []string{"system_admin", "user"},
-			Permissions: []string{
-				"system:read", "system:write", "system:delete",
-				"user:read", "user:write", "user:delete",
-				"group:read", "group:write", "group:delete",
-				"role:read", "role:write", "role:delete",
-				"story:admin", "mcp:invoke",
-			},
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-				IssuedAt:  jwt.NewNumericDate(time.Now()),
-			},
-		}, nil
-	}
-
 	if secretKey == "" {
 		return nil, errorx.NewError(errorx.Unauthorized, "认证配置错误")
 	}
@@ -378,11 +357,6 @@ func ParseToken(tokenStr, secretKey string) (*JWTClaims, error) {
 
 // RefreshToken 刷新token
 func RefreshToken(token, secretKey string) (string, error) {
-	// 测试令牌：仅在允许时直接返回
-	if token == "test-token" && isTestTokenAllowed() {
-		return token, nil
-	}
-
 	// 解析旧token
 	claims, err := ParseToken(token, secretKey)
 	if err != nil {
@@ -391,15 +365,4 @@ func RefreshToken(token, secretKey string) (string, error) {
 
 	// 生成新token
 	return GenerateToken(claims.UserID, claims.Username, claims.Roles, claims.Permissions, secretKey)
-}
-
-// isTestTokenAllowed 检查是否允许使用测试令牌
-// 通过环境变量 ALLOW_TEST_TOKEN 控制，默认不允许
-// 生产环境必须确保此变量未设置或为 false
-func isTestTokenAllowed() bool {
-	if !isDevEnv() {
-		return false
-	}
-	v := os.Getenv("ALLOW_TEST_TOKEN")
-	return v == "true" || v == "1"
 }

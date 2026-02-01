@@ -17,7 +17,7 @@ type AuthRoutes struct {
 	groupService *groupsvc.GroupService
 	roleService  *rolesvc.RoleService
 	utils        *hbasic.Utils
-	authConfig   *AuthConfig
+	authConfig   *iammw.AuthConfig
 }
 
 // NewAuthRoutes 创建认证路由注册器
@@ -27,7 +27,7 @@ func NewAuthRoutes(userService *usersvc.UserService, groupService *groupsvc.Grou
 		groupService: groupService,
 		roleService:  roleService,
 		utils:        &hbasic.Utils{},
-		authConfig:   DefaultAuthConfig(),
+		authConfig:   iammw.DefaultAuthConfig(),
 	}
 }
 
@@ -131,13 +131,6 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 	claims, err := iammw.ParseToken(req.Token, ar.authConfig.SecretKey)
 	if err != nil {
 		return err
-	}
-	// 测试令牌在 dev/test 下直接短路，避免不必要的 DB 依赖与噪声。
-	if req.Token == "test-token" {
-		ar.utils.WriteSuccessResponse(ctx, map[string]interface{}{
-			"token": req.Token,
-		})
-		return nil
 	}
 
 	// 2) 重新从数据源获取最新 RBAC（避免 refresh 继续沿用旧 token 快照）

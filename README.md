@@ -52,9 +52,8 @@
 
 `middleware.DefaultAuthConfig()` 会读取以下环境变量：
 
-- `AUTH_SECRET`：生产环境必须提供（开发/测试可使用默认值）
+- `AUTH_SECRET`：必须提供
 - `AUTH_ACCESS_TOKEN_TTL`：访问 token TTL（如 `24h`）
-- `ALLOW_TEST_TOKEN`：是否允许 `test-token`（仅 dev/test 环境允许）
 - `AUTH_ALLOW_QUERY_TOKEN`：是否允许从 query 读取 token（仅 dev/test 环境允许；生产强制禁用）
 - `AUTH_REQUIRE_TENANT`：是否强制要求 `tenant_id`
 - `AUTH_ALLOW_TENANT_QUERY`：是否允许从 query 读取 `tenant_id`
@@ -89,16 +88,12 @@
 - `middleware.RequiredPermissionsWithCallsites()`：附带 callsite（调试用途）
 - `middleware.RequiredPermissionsWithRedactedCallsites()`：callsite 脱敏（仅保留 `file.go:line`）
 
-### 严格权限字典（可选）
+### 严格权限字典（默认）
 
-开启 `AUTH_STRICT_PERMISSION_REGISTRY=true`（或 `1`）后：
+gochen-iam 默认启用严格权限字典：仅允许为角色写入“系统已声明的权限”（由 `PermissionMiddleware(...)` 在装配期自动收集）。
 
-- 建议在应用启动、路由装配完成后调用 `middleware.ValidateStrictPermissionRegistry()`
-- 若 registry 为空，会直接报错，避免“以为严格、实际没加载”导致的治理失效
-
-严格权限字典模式（AUTH_STRICT_PERMISSION_REGISTRY）的启动期校验已迁移到模块层：`gochen-iam/module.go` 的 `RegisterRoutes(ctx)`。
-该校验通过 `error` 通道 fail-close，不再依赖“路由注册器内 panic”来表达启动失败。
-当严格模式开启且 registry 为空时，它会直接阻止应用继续启动（fail-close）。
+启动期校验在模块层执行：`gochen-iam/module.go` 的 `RegisterRoutes(ctx)` 会在路由装配完成后调用 `middleware.ValidateStrictPermissionRegistry()` 并通过 `error` 通道 fail-close。
+当 registry 为空时，会直接阻止应用继续启动。
 
 ---
 

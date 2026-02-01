@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 
+	iammw "gochen-iam/middleware"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
 	tenantsvc "gochen-iam/service/tenant"
@@ -35,7 +36,7 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 
 	// 租户管理仅对管理员开放
 	adminGroup := tenantGroup.Group("")
-	adminGroup.Use(AdminOnlyMiddleware())
+	adminGroup.Use(iammw.AdminOnlyMiddleware())
 
 	appService, err := appcrud.NewApplication(tr.tenantRepo, nil, nil)
 	if err != nil {

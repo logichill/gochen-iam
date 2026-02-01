@@ -92,104 +92,28 @@ func TestParseToken_ExpiredJWT(t *testing.T) {
 	}
 }
 
-func TestParseToken_TestToken_Allowed(t *testing.T) {
-	// 设置环境变量允许测试令牌
-	os.Setenv("GO_ENV", "testing")
-	os.Setenv("ALLOW_TEST_TOKEN", "true")
-	defer func() {
-		os.Unsetenv("GO_ENV")
-		os.Unsetenv("ALLOW_TEST_TOKEN")
-	}()
-
-	claims, err := ParseToken("test-token", "any-secret")
-	if err != nil {
-		t.Fatalf("ParseToken failed: %v", err)
-	}
-
-	if claims.UserID != 1 {
-		t.Errorf("expected UserID 1, got %d", claims.UserID)
-	}
-	if claims.Username != "admin" {
-		t.Errorf("expected Username admin, got %s", claims.Username)
-	}
-}
-
-func TestParseToken_TestToken_NotAllowed(t *testing.T) {
-	// 确保环境变量未设置
-	os.Unsetenv("ALLOW_TEST_TOKEN")
-
-	_, err := ParseToken("test-token", "any-secret")
-	if err == nil {
-		t.Error("expected error when test token is not allowed, got nil")
-	}
-}
-
-func TestIsTestTokenAllowed(t *testing.T) {
-	tests := []struct {
-		name     string
-		envValue string
-		expected bool
-	}{
-		{"empty", "", false},
-		{"true", "true", true},
-		{"1", "1", true},
-		{"false", "false", false},
-		{"0", "0", false},
-		{"random", "random", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			os.Setenv("GO_ENV", "testing")
-			defer os.Unsetenv("GO_ENV")
-			if tt.envValue == "" {
-				os.Unsetenv("ALLOW_TEST_TOKEN")
-			} else {
-				os.Setenv("ALLOW_TEST_TOKEN", tt.envValue)
-			}
-			defer os.Unsetenv("ALLOW_TEST_TOKEN")
-
-			result := isTestTokenAllowed()
-			if result != tt.expected {
-				t.Errorf("isTestTokenAllowed() = %v, expected %v", result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestIsDevEnv(t *testing.T) {
 	tests := []struct {
 		name     string
-		goEnv    string
 		appEnv   string
 		expected bool
 	}{
-		{"empty", "", "", false},
-		{"go_env_development", "development", "", true},
-		{"go_env_dev", "dev", "", true},
-		{"go_env_test", "test", "", true},
-		{"go_env_testing", "testing", "", true},
-		{"app_env_development", "", "development", true},
-		{"app_env_dev", "", "dev", true},
-		{"app_env_test", "", "test", true},
-		{"app_env_testing", "", "testing", true},
-		{"production", "production", "", false},
-		{"prod", "prod", "", false},
-		{"go_env_takes_precedence", "development", "production", true},
+		{"empty", "", false},
+		{"app_env_development", "development", true},
+		{"app_env_dev", "dev", true},
+		{"app_env_test", "test", true},
+		{"app_env_testing", "testing", true},
+		{"production", "production", false},
+		{"prod", "prod", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Unsetenv("GO_ENV")
 			os.Unsetenv("APP_ENV")
-			if tt.goEnv != "" {
-				os.Setenv("GO_ENV", tt.goEnv)
-			}
 			if tt.appEnv != "" {
 				os.Setenv("APP_ENV", tt.appEnv)
 			}
 			defer func() {
-				os.Unsetenv("GO_ENV")
 				os.Unsetenv("APP_ENV")
 			}()
 
@@ -202,10 +126,10 @@ func TestIsDevEnv(t *testing.T) {
 }
 
 func TestValidateAuthConfig_Production_NoSecret(t *testing.T) {
-	os.Setenv("GO_ENV", "production")
+	os.Setenv("APP_ENV", "production")
 	os.Unsetenv("AUTH_SECRET")
 	defer func() {
-		os.Unsetenv("GO_ENV")
+		os.Unsetenv("APP_ENV")
 	}()
 
 	config := &AuthConfig{SecretKey: ""}
@@ -216,8 +140,8 @@ func TestValidateAuthConfig_Production_NoSecret(t *testing.T) {
 }
 
 func TestValidateAuthConfig_Production_WithSecret(t *testing.T) {
-	os.Setenv("GO_ENV", "production")
-	defer os.Unsetenv("GO_ENV")
+	os.Setenv("APP_ENV", "production")
+	defer os.Unsetenv("APP_ENV")
 
 	config := &AuthConfig{SecretKey: "my-secret-key"}
 	err := ValidateAuthConfig(config)
@@ -226,29 +150,14 @@ func TestValidateAuthConfig_Production_WithSecret(t *testing.T) {
 	}
 }
 
-func TestValidateAuthConfig_Production_TestTokenEnabled(t *testing.T) {
-	os.Setenv("GO_ENV", "production")
-	os.Setenv("ALLOW_TEST_TOKEN", "true")
-	defer func() {
-		os.Unsetenv("GO_ENV")
-		os.Unsetenv("ALLOW_TEST_TOKEN")
-	}()
-
-	config := &AuthConfig{SecretKey: "my-secret-key"}
-	err := ValidateAuthConfig(config)
-	if err == nil {
-		t.Error("expected error in production when ALLOW_TEST_TOKEN is enabled, got nil")
-	}
-}
-
 func TestValidateAuthConfig_Development_NoSecret(t *testing.T) {
-	os.Setenv("GO_ENV", "development")
-	defer os.Unsetenv("GO_ENV")
+	os.Setenv("APP_ENV", "development")
+	defer os.Unsetenv("APP_ENV")
 
 	config := &AuthConfig{SecretKey: ""}
 	err := ValidateAuthConfig(config)
-	if err != nil {
-		t.Errorf("unexpected error in development: %v", err)
+	if err == nil {
+		t.Error("expected error in development without AUTH_SECRET, got nil")
 	}
 }
 
@@ -265,8 +174,8 @@ func TestExtractToken_FromQuery_DisabledByDefault(t *testing.T) {
 }
 
 func TestExtractToken_FromQuery_AllowedInDev(t *testing.T) {
-	os.Setenv("GO_ENV", "testing")
-	defer os.Unsetenv("GO_ENV")
+	os.Setenv("APP_ENV", "testing")
+	defer os.Unsetenv("APP_ENV")
 
 	cfg := &AuthConfig{TokenHeader: "Authorization", TokenPrefix: "Bearer ", AllowQueryToken: true}
 	if got := extractTokenFromHeadersAndQuery(nil, func(key string) string {
@@ -286,24 +195,21 @@ func TestGenerateToken_EmptySecret(t *testing.T) {
 	}
 }
 
-func TestDefaultAuthConfig_Development(t *testing.T) {
+func TestDefaultAuthConfig_Development_NoSecret(t *testing.T) {
 	os.Unsetenv("AUTH_SECRET")
-	os.Setenv("GO_ENV", "development")
-	defer os.Unsetenv("GO_ENV")
+	os.Setenv("APP_ENV", "development")
+	defer os.Unsetenv("APP_ENV")
 
 	config := DefaultAuthConfig()
-	if config.SecretKey == "" {
-		t.Error("expected default secret key in development, got empty")
-	}
-	if config.SecretKey != "your-secret-key" {
-		t.Errorf("expected default secret key 'your-secret-key', got '%s'", config.SecretKey)
+	if config.SecretKey != "" {
+		t.Errorf("expected empty secret key in development without AUTH_SECRET, got '%s'", config.SecretKey)
 	}
 }
 
 func TestDefaultAuthConfig_Production_NoSecret(t *testing.T) {
 	os.Unsetenv("AUTH_SECRET")
-	os.Setenv("GO_ENV", "production")
-	defer os.Unsetenv("GO_ENV")
+	os.Setenv("APP_ENV", "production")
+	defer os.Unsetenv("APP_ENV")
 
 	config := DefaultAuthConfig()
 	if config.SecretKey != "" {
@@ -420,9 +326,6 @@ func TestPermissionMiddleware_InvalidPermission_NotRegistered(t *testing.T) {
 }
 
 func TestValidateStrictPermissionRegistry_StrictEmpty(t *testing.T) {
-	os.Setenv("AUTH_STRICT_PERMISSION_REGISTRY", "true")
-	defer os.Unsetenv("AUTH_STRICT_PERMISSION_REGISTRY")
-
 	resetRequiredPermissionsRegistryForTest()
 	defer resetRequiredPermissionsRegistryForTest()
 
@@ -432,9 +335,6 @@ func TestValidateStrictPermissionRegistry_StrictEmpty(t *testing.T) {
 }
 
 func TestValidateStrictPermissionRegistry_StrictNonEmpty(t *testing.T) {
-	os.Setenv("AUTH_STRICT_PERMISSION_REGISTRY", "true")
-	defer os.Unsetenv("AUTH_STRICT_PERMISSION_REGISTRY")
-
 	resetRequiredPermissionsRegistryForTest()
 	defer resetRequiredPermissionsRegistryForTest()
 

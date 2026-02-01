@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 
+	iammw "gochen-iam/middleware"
 	rolerepo "gochen-iam/repo/role"
 	svc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
@@ -43,7 +44,7 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 
 	// 角色管理属于管理员权限
 	adminGroup := roleGroup.Group("")
-	adminGroup.Use(AdminOnlyMiddleware())
+	adminGroup.Use(iammw.AdminOnlyMiddleware())
 
 	appService, err := appcrud.NewApplication(rr.roleRepo, nil, nil)
 	if err != nil {
