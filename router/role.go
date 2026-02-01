@@ -1,8 +1,6 @@
 package router
 
 import (
-	"context"
-
 	iammw "gochen-iam/middleware"
 	rolerepo "gochen-iam/repo/role"
 	svc "gochen-iam/service"
@@ -14,7 +12,6 @@ import (
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
-	"gochen/runtime/logging"
 )
 
 // RoleRoutes 角色路由注册器
@@ -38,7 +35,10 @@ func NewRoleRoutes(roleService *rolesvc.RoleService, userService *usersvc.UserSe
 }
 
 // RegisterRoutes 注册路由。
-func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) {
+func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
+	if group == nil {
+		return errorx.NewInvalidInputError("route group cannot be nil")
+	}
 	// 角色基础CRUD - 使用 shared/httpx/api 构建器
 	roleGroup := group.Group("/roles")
 
@@ -48,21 +48,27 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 
 	appService, err := appcrud.NewApplication(rr.roleRepo, nil, nil)
 	if err != nil {
-		// 记录错误并返回：模块层已不再使用 panic 控制流。
-		logging.GetLogger().Error(context.Background(), "创建角色 CRUD 应用服务失败",
-			logging.Error(err))
-		return
+		if e, ok := err.(errorx.IError); ok {
+			return e.Wrap("create role crud application").WithContext("route", "iam.role")
+		}
+		return errorx.WrapError(err, errorx.Internal, "failed to create role crud application").WithContext("route", "iam.role")
 	}
-	_ = api.NewApiBuilder(appService, nil).
+	if err := api.NewApiBuilder(appService, nil).
 		Route(func(cfg *api.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000
 		}).
-		Build(adminGroup)
+		Build(adminGroup); err != nil {
+		if e, ok := err.(errorx.IError); ok {
+			return e.Wrap("build role crud routes").WithContext("route", "iam.role")
+		}
+		return errorx.WrapError(err, errorx.Internal, "failed to build role crud routes").WithContext("route", "iam.role")
+	}
 
 	// 角色扩展功能
 	rr.setupRoleCustomRoutes(adminGroup)
+	return nil
 }
 
 // GetName 获取注册器名称

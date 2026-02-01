@@ -70,13 +70,22 @@ func (m *Module) RegisterRoutes(ctx context.Context) error {
 		groupRepo *grouprepo.GroupRepo,
 		roleRepo *rolerepo.RoleRepo,
 		tenantRepo *tenantrepo.TenantRepo,
-	) {
+	) error {
 		iamrouter.NewAuthRoutes(userService, groupService, roleService).RegisterRoutes(group)
-		iamrouter.NewUserRoutes(userService, groupService, roleService, userRepo).RegisterRoutes(group)
-		iamrouter.NewRoleRoutes(roleService, userService, groupService, roleRepo).RegisterRoutes(group)
-		iamrouter.NewGroupRoutes(groupService, userService, roleService, groupRepo).RegisterRoutes(group)
-		iamrouter.NewTenantRoutes(tenantService, tenantRepo).RegisterRoutes(group)
+		if err := iamrouter.NewUserRoutes(userService, groupService, roleService, userRepo).RegisterRoutes(group); err != nil {
+			return err
+		}
+		if err := iamrouter.NewRoleRoutes(roleService, userService, groupService, roleRepo).RegisterRoutes(group); err != nil {
+			return err
+		}
+		if err := iamrouter.NewGroupRoutes(groupService, userService, roleService, groupRepo).RegisterRoutes(group); err != nil {
+			return err
+		}
+		if err := iamrouter.NewTenantRoutes(tenantService, tenantRepo).RegisterRoutes(group); err != nil {
+			return err
+		}
 		iamrouter.NewMenuRoutes(menuService).RegisterRoutes(group)
+		return nil
 	}); err != nil {
 		return errorx.WrapError(err, errorx.Dependency, "failed to build iam routes")
 	}

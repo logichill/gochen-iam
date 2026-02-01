@@ -1,20 +1,18 @@
 package router
 
 import (
-	"context"
 	"strconv"
 
+	iammw "gochen-iam/middleware"
 	grouprepo "gochen-iam/repo/group"
 	groupsvc "gochen-iam/service/group"
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
-	iammw "gochen-iam/middleware"
 	api "gochen/api/http"
 	appcrud "gochen/app/crud"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
-	"gochen/runtime/logging"
 )
 
 // GroupRoutes 组织路由注册器
@@ -38,7 +36,10 @@ func NewGroupRoutes(groupService *groupsvc.GroupService, userService *usersvc.Us
 }
 
 // RegisterRoutes 注册路由。
-func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) {
+func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
+	if group == nil {
+		return errorx.NewInvalidInputError("route group cannot be nil")
+	}
 	// 组织基础CRUD - 使用 shared/httpx/api 构建器
 	groupGroup := group.Group("/groups")
 
@@ -47,21 +48,27 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 
 	appService, err := appcrud.NewApplication(gr.groupRepo, nil, nil)
 	if err != nil {
-		// 记录错误并返回：模块层已不再使用 panic 控制流。
-		logging.GetLogger().Error(context.Background(), "创建组织 CRUD 应用服务失败",
-			logging.Error(err))
-		return
+		if e, ok := err.(errorx.IError); ok {
+			return e.Wrap("create group crud application").WithContext("route", "iam.group")
+		}
+		return errorx.WrapError(err, errorx.Internal, "failed to create group crud application").WithContext("route", "iam.group")
 	}
-	_ = api.NewApiBuilder(appService, nil).
+	if err := api.NewApiBuilder(appService, nil).
 		Route(func(cfg *api.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000
 		}).
-		Build(adminGroup)
+		Build(adminGroup); err != nil {
+		if e, ok := err.(errorx.IError); ok {
+			return e.Wrap("build group crud routes").WithContext("route", "iam.group")
+		}
+		return errorx.WrapError(err, errorx.Internal, "failed to build group crud routes").WithContext("route", "iam.group")
+	}
 
 	// 组织扩展功能
 	gr.setupGroupCustomRoutes(adminGroup)
+	return nil
 }
 
 // GetName 获取注册器名称

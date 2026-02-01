@@ -1,8 +1,6 @@
 package router
 
 import (
-	"context"
-
 	iammw "gochen-iam/middleware"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
@@ -11,7 +9,7 @@ import (
 	appcrud "gochen/app/crud"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
-	"gochen/runtime/logging"
+	"gochen/runtime/errorx"
 )
 
 // TenantRoutes 租户路由注册器
@@ -31,7 +29,10 @@ func NewTenantRoutes(tenantService *tenantsvc.TenantService, tenantRepo *tenantr
 }
 
 // RegisterRoutes 注册路由
-func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) {
+func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
+	if group == nil {
+		return errorx.NewInvalidInputError("route group cannot be nil")
+	}
 	tenantGroup := group.Group("/tenants")
 
 	// 租户管理仅对管理员开放
@@ -40,20 +41,26 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 
 	appService, err := appcrud.NewApplication(tr.tenantRepo, nil, nil)
 	if err != nil {
-		// 记录错误并返回：模块层已不再使用 panic 控制流。
-		logging.GetLogger().Error(context.Background(), "创建租户 CRUD 应用服务失败",
-			logging.Error(err))
-		return
+		if e, ok := err.(errorx.IError); ok {
+			return e.Wrap("create tenant crud application").WithContext("route", "iam.tenant")
+		}
+		return errorx.WrapError(err, errorx.Internal, "failed to create tenant crud application").WithContext("route", "iam.tenant")
 	}
-	_ = api.NewApiBuilder(appService, nil).
+	if err := api.NewApiBuilder(appService, nil).
 		Route(func(cfg *api.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 100
 		}).
-		Build(adminGroup)
+		Build(adminGroup); err != nil {
+		if e, ok := err.(errorx.IError); ok {
+			return e.Wrap("build tenant crud routes").WithContext("route", "iam.tenant")
+		}
+		return errorx.WrapError(err, errorx.Internal, "failed to build tenant crud routes").WithContext("route", "iam.tenant")
+	}
 
 	tr.setupTenantCustomRoutes(adminGroup)
+	return nil
 }
 
 // GetName 获取注册器名称

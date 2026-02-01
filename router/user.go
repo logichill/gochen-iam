@@ -1,20 +1,17 @@
 package router
 
 import (
-	"context"
-
+	iammw "gochen-iam/middleware"
 	userrepo "gochen-iam/repo/user"
 	iamsvc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
 	rolesvc "gochen-iam/service/role"
 	usersvc "gochen-iam/service/user"
-	iammw "gochen-iam/middleware"
 	api "gochen/api/http"
 	appcrud "gochen/app/crud"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 	"gochen/runtime/errorx"
-	"gochen/runtime/logging"
 )
 
 // UserRoutes 用户路由注册器
@@ -38,7 +35,10 @@ func NewUserRoutes(userService *usersvc.UserService, groupService *groupsvc.Grou
 }
 
 // RegisterRoutes 注册路由。
-func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) {
+func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
+	if group == nil {
+		return errorx.NewInvalidInputError("route group cannot be nil")
+	}
 	// 用户基础CRUD - 使用 shared/httpx/api 构建器
 	userGroup := group.Group("/users")
 
@@ -49,23 +49,29 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) {
 	// 直接使用原生 shared 仓储接口（UserRepo 已实现 ICRUDRepository）
 	appService, err := appcrud.NewApplication(ur.userRepo, nil, nil)
 	if err != nil {
-		// 记录错误并返回：模块层已不再使用 panic 控制流。
-		logging.GetLogger().Error(context.Background(), "创建用户 CRUD 应用服务失败",
-			logging.Error(err))
-		return
+		if e, ok := err.(errorx.IError); ok {
+			return e.Wrap("create user crud application").WithContext("route", "iam.user")
+		}
+		return errorx.WrapError(err, errorx.Internal, "failed to create user crud application").WithContext("route", "iam.user")
 	}
 
-	_ = api.NewApiBuilder(appService, nil).
+	if err := api.NewApiBuilder(appService, nil).
 		Route(func(cfg *api.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000
 		}).
-		Build(adminGroup)
+		Build(adminGroup); err != nil {
+		if e, ok := err.(errorx.IError); ok {
+			return e.Wrap("build user crud routes").WithContext("route", "iam.user")
+		}
+		return errorx.WrapError(err, errorx.Internal, "failed to build user crud routes").WithContext("route", "iam.user")
+	}
 
 	// 用户扩展功能
 	ur.setupAdminUserRoutes(adminGroup)
 	ur.setupSelfUserRoutes(userGroup)
+	return nil
 }
 
 // GetName 获取注册器名称
