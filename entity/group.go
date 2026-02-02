@@ -8,7 +8,7 @@ import (
 
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/runtime/errorx"
+	"gochen/errorx"
 )
 
 // Group 组织实体

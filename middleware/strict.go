@@ -3,7 +3,7 @@ package middleware
 import (
 	"sync/atomic"
 
-	"gochen/runtime/errorx"
+	"gochen/errorx"
 )
 
 var strictRegistryValidated uint32

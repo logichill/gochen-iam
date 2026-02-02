@@ -7,7 +7,7 @@ import (
 	iamentity "gochen-iam/entity"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
-	"gochen/runtime/errorx"
+	"gochen/errorx"
 )
 
 // TenantService 租户服务（普通 CRUD / 可审计模型）

@@ -7,9 +7,9 @@ import (
 	tenantsvc "gochen-iam/service/tenant"
 	api "gochen/api/http"
 	appcrud "gochen/app/crud"
+	"gochen/errorx"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
-	"gochen/runtime/errorx"
 )
 
 // TenantRoutes 租户路由注册器

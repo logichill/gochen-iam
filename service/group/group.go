@@ -9,7 +9,7 @@ import (
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	"gochen/runtime/errorx"
+	"gochen/errorx"
 	"gochen/runtime/logging"
 )
 

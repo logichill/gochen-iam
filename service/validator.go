@@ -9,7 +9,7 @@ import (
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
-	"gochen/runtime/errorx"
+	"gochen/errorx"
 )
 
 // BusinessValidator 业务规则验证器

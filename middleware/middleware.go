@@ -2,9 +2,9 @@ package middleware
 
 import (
 	"gochen-iam/auth"
+	"gochen/errorx"
 	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
-	"gochen/runtime/errorx"
 )
 
 // RoleMiddleware 角色验证中间件

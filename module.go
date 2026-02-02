@@ -16,8 +16,8 @@ import (
 	rolesvc "gochen-iam/service/role"
 	tenantsvc "gochen-iam/service/tenant"
 	usersvc "gochen-iam/service/user"
+	"gochen/errorx"
 	"gochen/runtime/di"
-	"gochen/runtime/errorx"
 	"gochen/server"
 )
 

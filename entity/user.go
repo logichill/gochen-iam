@@ -6,7 +6,7 @@ import (
 
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/runtime/errorx"
+	"gochen/errorx"
 )
 
 // User 用户实体

@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"gochen-iam/auth"
+	"gochen/errorx"
 	httpx "gochen/httpx"
-	"gochen/runtime/errorx"
 )
 
 var permissionCodePattern = regexp.MustCompile(`^[A-Za-z0-9_]+:[A-Za-z0-9_]+$`)

@@ -14,7 +14,7 @@ import (
 	svc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
-	"gochen/runtime/errorx"
+	"gochen/errorx"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )

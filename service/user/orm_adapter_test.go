@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"gochen/runtime/errorx"
+	"gochen/errorx"
 	database "gochen/storage/db"
 	"gochen/storage/orm"
 

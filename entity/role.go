@@ -7,7 +7,7 @@ import (
 
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/runtime/errorx"
+	"gochen/errorx"
 )
 
 // PermissionArray 权限数组类型

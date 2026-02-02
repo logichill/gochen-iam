@@ -6,7 +6,7 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen/domain/crud"
 	"gochen/encoding/codegen"
-	"gochen/runtime/errorx"
+	"gochen/errorx"
 	"gochen/storage/orm"
 	db "gochen/storage/orm/repo"
 )

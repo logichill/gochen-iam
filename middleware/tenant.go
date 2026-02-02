@@ -1,8 +1,8 @@
 package middleware
 
 import (
+	"gochen/errorx"
 	httpx "gochen/httpx"
-	"gochen/runtime/errorx"
 )
 
 // RequireTenant 要求请求上下文中已注入 tenant_id（通常来自 Header: X-Tenant-ID）。

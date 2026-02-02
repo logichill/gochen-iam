@@ -9,8 +9,8 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 
 	"gochen-iam/auth"
+	"gochen/errorx"
 	hbasic "gochen/httpx/nethttp"
-	"gochen/runtime/errorx"
 )
 
 func TestParseToken_ValidJWT(t *testing.T) {

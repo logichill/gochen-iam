@@ -1,8 +1,8 @@
 package middleware
 
 import (
+	"gochen/errorx"
 	httpx "gochen/httpx"
-	"gochen/runtime/errorx"
 )
 
 // IsAdmin 判断是否为系统管理员（system_admin）。

@@ -8,7 +8,7 @@ import (
 
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/runtime/errorx"
+	"gochen/errorx"
 )
 
 // StringArray 字符串数组类型（用于 JSON 序列化到 DB text 字段）。
@@ -121,7 +121,7 @@ func (m *MenuItem) IsDeleted() bool          { return m.DeletedAt != nil }
 func (m *MenuItem) GetDeletedAt() *time.Time { return m.DeletedAt }
 
 // SoftDelete 实现 domain.ISoftDeletable（用于启用默认 ORM Repo 的软删能力）。
-func (m *MenuItem) SoftDelete(_ string, at time.Time) error {
+func (m *MenuItem) SoftDelete(at time.Time) error {
 	m.DeletedAt = &at
 	m.UpdatedAt = at
 	return nil

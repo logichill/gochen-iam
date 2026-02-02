@@ -5,7 +5,7 @@ import (
 
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/runtime/errorx"
+	"gochen/errorx"
 )
 
 // Tenant 租户实体（普通审计型聚合，不使用 Event Sourcing）
