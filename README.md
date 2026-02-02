@@ -34,6 +34,10 @@
 
 ---
 
+## 工程效率
+
+- 代码检索/重复扫描：统一忽略 `.cache/.gocache`（仓库提供 `.ignore`；若你使用不读取 ignore 文件的工具，请在命令中显式加 `--ignore-dirs .cache,.gocache`）
+
 ## 认证（JWT）
 
 ### 中间件
