@@ -46,7 +46,15 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		}
 		return errorx.WrapError(err, errorx.Internal, "failed to create tenant crud application").WithContext("route", "iam.tenant")
 	}
-	if err := api.NewApiBuilder(appService, nil).
+
+	builder, err := api.NewApiBuilder(appService, nil)
+	if err != nil {
+		if e, ok := err.(errorx.IError); ok {
+			return e.Wrap("create tenant api builder").WithContext("route", "iam.tenant")
+		}
+		return errorx.WrapError(err, errorx.Internal, "failed to create tenant api builder").WithContext("route", "iam.tenant")
+	}
+	if err := builder.
 		Route(func(cfg *api.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10

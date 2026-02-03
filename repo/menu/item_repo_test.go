@@ -121,7 +121,10 @@ func TestMenuItemRepo_GetByIDWithDeleted_UsesTxSessionModel(t *testing.T) {
 		t.Fatalf("NewMenuItemRepository: %v", err)
 	}
 
-	txCtx := orm.WithTxSession(context.Background(), &fakeSession{parent: o}, true)
+	txCtx, err := orm.WithTxSession(context.Background(), &fakeSession{parent: o}, true)
+	if err != nil {
+		t.Fatalf("WithTxSession: %v", err)
+	}
 	if _, err := r.GetByIDWithDeleted(txCtx, 1); err != nil {
 		t.Fatalf("GetByIDWithDeleted: %v", err)
 	}
@@ -155,7 +158,10 @@ func TestMenuItemRepo_RestoreByID_UsesTxSessionModel(t *testing.T) {
 		t.Fatalf("NewMenuItemRepository: %v", err)
 	}
 
-	txCtx := orm.WithTxSession(context.Background(), &fakeSession{parent: o}, true)
+	txCtx, err := orm.WithTxSession(context.Background(), &fakeSession{parent: o}, true)
+	if err != nil {
+		t.Fatalf("WithTxSession: %v", err)
+	}
 	if _, err := r.RestoreByID(txCtx, 1); err != nil {
 		t.Fatalf("RestoreByID: %v", err)
 	}

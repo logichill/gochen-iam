@@ -228,7 +228,10 @@ func TestDefaultAuthConfig_WithEnvSecret(t *testing.T) {
 }
 
 func TestHasAnyRole(t *testing.T) {
-	ctx := hbasic.NewRequestContext(context.Background())
+	ctx, err := hbasic.NewRequestContext(context.Background())
+	if err != nil {
+		t.Fatalf("NewRequestContext: %v", err)
+	}
 	ctx = auth.WithRoles(ctx, []string{"user"})
 
 	if !HasAnyRole(ctx, "user") {
@@ -243,7 +246,10 @@ func TestHasAnyRole(t *testing.T) {
 }
 
 func TestRequireAnyRole(t *testing.T) {
-	ctx := hbasic.NewRequestContext(context.Background())
+	ctx, err := hbasic.NewRequestContext(context.Background())
+	if err != nil {
+		t.Fatalf("NewRequestContext: %v", err)
+	}
 	ctx = auth.WithRoles(ctx, []string{"user"})
 
 	if err := RequireAnyRole(ctx, "admin"); err == nil {
@@ -255,7 +261,10 @@ func TestRequireAnyRole(t *testing.T) {
 }
 
 func TestHasPermission_AdminRoleOverrides(t *testing.T) {
-	ctx := hbasic.NewRequestContext(context.Background())
+	ctx, err := hbasic.NewRequestContext(context.Background())
+	if err != nil {
+		t.Fatalf("NewRequestContext: %v", err)
+	}
 	ctx = auth.WithRoles(ctx, []string{"system_admin"})
 
 	if !HasPermission(ctx, "any:permission") {
@@ -264,7 +273,10 @@ func TestHasPermission_AdminRoleOverrides(t *testing.T) {
 }
 
 func TestRequirePermission(t *testing.T) {
-	ctx := hbasic.NewRequestContext(context.Background())
+	ctx, err := hbasic.NewRequestContext(context.Background())
+	if err != nil {
+		t.Fatalf("NewRequestContext: %v", err)
+	}
 	ctx = auth.WithPermissions(ctx, []string{"a:read"})
 
 	if err := RequirePermission(ctx, "a:write"); err == nil {
@@ -281,10 +293,13 @@ func TestRequirePermission(t *testing.T) {
 }
 
 func TestRequirePermission_ReturnsForbidden(t *testing.T) {
-	ctx := hbasic.NewRequestContext(context.Background())
+	ctx, err := hbasic.NewRequestContext(context.Background())
+	if err != nil {
+		t.Fatalf("NewRequestContext: %v", err)
+	}
 	ctx = auth.WithPermissions(ctx, []string{"a:read"})
 
-	err := RequirePermission(ctx, "a:write")
+	err = RequirePermission(ctx, "a:write")
 	if err == nil {
 		t.Fatal("expected error")
 	}

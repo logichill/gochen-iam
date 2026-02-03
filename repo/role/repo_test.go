@@ -130,7 +130,10 @@ func TestRoleRepo_GetRoleUsageStats_UsesTxSessionEngineModels(t *testing.T) {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
 
-	txCtx := orm.WithTxSession(context.Background(), &fakeSession{parent: o}, true)
+	txCtx, err := orm.WithTxSession(context.Background(), &fakeSession{parent: o}, true)
+	if err != nil {
+		t.Fatalf("WithTxSession: %v", err)
+	}
 	if _, err := r.GetRoleUsageStats(txCtx); err != nil {
 		t.Fatalf("GetRoleUsageStats: %v", err)
 	}

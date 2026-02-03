@@ -4,12 +4,14 @@ import (
 	"context"
 	"testing"
 
-	httpx "gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 )
 
 func TestWithPermissions_InjectsPermissionSet(t *testing.T) {
-	var ctx httpx.IRequestContext = hbasic.NewRequestContext(context.Background())
+	ctx, err := hbasic.NewRequestContext(context.Background())
+	if err != nil {
+		t.Fatalf("NewRequestContext: %v", err)
+	}
 	ctx = WithPermissions(ctx, []string{"a:b", "c:d"})
 
 	set := GetPermissionSet(ctx)

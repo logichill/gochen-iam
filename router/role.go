@@ -53,7 +53,15 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		}
 		return errorx.WrapError(err, errorx.Internal, "failed to create role crud application").WithContext("route", "iam.role")
 	}
-	if err := api.NewApiBuilder(appService, nil).
+
+	builder, err := api.NewApiBuilder(appService, nil)
+	if err != nil {
+		if e, ok := err.(errorx.IError); ok {
+			return e.Wrap("create role api builder").WithContext("route", "iam.role")
+		}
+		return errorx.WrapError(err, errorx.Internal, "failed to create role api builder").WithContext("route", "iam.role")
+	}
+	if err := builder.
 		Route(func(cfg *api.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10

@@ -82,7 +82,10 @@ func TestTenantRepo_GetByID_UsesTxSessionModel(t *testing.T) {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}
 
-	txCtx := orm.WithTxSession(context.Background(), &fakeSession{parent: o}, true)
+	txCtx, err := orm.WithTxSession(context.Background(), &fakeSession{parent: o}, true)
+	if err != nil {
+		t.Fatalf("WithTxSession: %v", err)
+	}
 	if _, err := r.GetByID(txCtx, 1); err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}

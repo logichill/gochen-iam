@@ -169,7 +169,15 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return errorx.NewError(errorx.Validation, "tenant_id is required")
 		}
 		if tenantID != "" {
-			reqCtx = hbasic.WithTenantID(reqCtx, tenantID)
+			derived, err := hbasic.WithTenantID(reqCtx, tenantID)
+			if err != nil {
+				recordAuthzDenied(ctx, AuditRecord{
+					Decision: "deny",
+					Reason:   "invalid tenant_id",
+				})
+				return err
+			}
+			reqCtx = derived
 		}
 
 		// 注入角色与权限信息，供后续 RBAC 使用
@@ -225,7 +233,15 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return errorx.NewError(errorx.Validation, "tenant_id is required")
 		}
 		if tenantID != "" {
-			reqCtx = hbasic.WithTenantID(reqCtx, tenantID)
+			derived, err := hbasic.WithTenantID(reqCtx, tenantID)
+			if err != nil {
+				recordAuthzDenied(ctx, AuditRecord{
+					Decision: "deny",
+					Reason:   "invalid tenant_id",
+				})
+				return err
+			}
+			reqCtx = derived
 			ctx.SetContext(reqCtx)
 		}
 

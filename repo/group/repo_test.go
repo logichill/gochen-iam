@@ -102,7 +102,10 @@ func TestGroupRepo_GetByID_UsesTxSessionModel(t *testing.T) {
 		t.Fatalf("NewGroupRepository: %v", err)
 	}
 
-	txCtx := orm.WithTxSession(context.Background(), &fakeSession{parent: o}, true)
+	txCtx, err := orm.WithTxSession(context.Background(), &fakeSession{parent: o}, true)
+	if err != nil {
+		t.Fatalf("WithTxSession: %v", err)
+	}
 	if _, err := r.GetByID(txCtx, 1); err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
@@ -125,7 +128,10 @@ func TestGroupRepo_AddUserToGroup_UsesTxSessionAssociation(t *testing.T) {
 		t.Fatalf("NewGroupRepository: %v", err)
 	}
 
-	txCtx := orm.WithTxSession(context.Background(), &fakeSession{parent: o}, true)
+	txCtx, err := orm.WithTxSession(context.Background(), &fakeSession{parent: o}, true)
+	if err != nil {
+		t.Fatalf("WithTxSession: %v", err)
+	}
 	if err := r.AddUserToGroup(txCtx, 1, 2); err != nil {
 		t.Fatalf("AddUserToGroup: %v", err)
 	}

@@ -55,7 +55,15 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errorx.WrapError(err, errorx.Internal, "failed to create user crud application").WithContext("route", "iam.user")
 	}
 
-	if err := api.NewApiBuilder(appService, nil).
+	builder, err := api.NewApiBuilder(appService, nil)
+	if err != nil {
+		if e, ok := err.(errorx.IError); ok {
+			return e.Wrap("create user api builder").WithContext("route", "iam.user")
+		}
+		return errorx.WrapError(err, errorx.Internal, "failed to create user api builder").WithContext("route", "iam.user")
+	}
+
+	if err := builder.
 		Route(func(cfg *api.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10

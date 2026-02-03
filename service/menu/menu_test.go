@@ -50,7 +50,10 @@ func TestBuildMenuTree_WithPermissions_AnyAllAndParentRetention(t *testing.T) {
 		},
 	}
 
-	reqCtx := hbasic.NewRequestContext(context.Background())
+	reqCtx, err := hbasic.NewRequestContext(context.Background())
+	if err != nil {
+		t.Fatalf("NewRequestContext: %v", err)
+	}
 	reqCtx = hbasic.WithUserID(reqCtx, 1)
 	reqCtx = auth.WithRoles(reqCtx, []string{"user"})
 	reqCtx = auth.WithPermissions(reqCtx, []string{"a:b"})
@@ -72,7 +75,10 @@ func TestBuildMenuTree_TenantOverride_AppliesAndFilters(t *testing.T) {
 		{Entity: crud.Entity[int64]{ID: 1}, Code: "root", Title: "Root", Published: true},
 	}
 
-	reqCtx := hbasic.NewRequestContext(context.Background())
+	reqCtx, err := hbasic.NewRequestContext(context.Background())
+	if err != nil {
+		t.Fatalf("NewRequestContext: %v", err)
+	}
 	reqCtx = hbasic.WithUserID(reqCtx, 1)
 	reqCtx = auth.WithRoles(reqCtx, []string{"user"})
 
