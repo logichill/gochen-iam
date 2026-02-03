@@ -3,7 +3,7 @@ package auth
 import (
 	"strings"
 
-	httpx "gochen/httpx"
+	"gochen/httpx"
 )
 
 type contextKey string

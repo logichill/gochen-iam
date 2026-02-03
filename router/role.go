@@ -10,8 +10,8 @@ import (
 	api "gochen/api/http"
 	appcrud "gochen/app/crud"
 	"gochen/errorx"
-	httpx "gochen/httpx"
-	hbasic "gochen/httpx/nethttp"
+	"gochen/httpx"
+	"gochen/httpx/nethttp"
 )
 
 // RoleRoutes 角色路由注册器
@@ -19,7 +19,7 @@ type RoleRoutes struct {
 	roleService  *rolesvc.RoleService
 	userService  *usersvc.UserService
 	groupService *groupsvc.GroupService
-	utils        *hbasic.Utils
+	utils        *nethttp.Utils
 	roleRepo     *rolerepo.RoleRepo
 }
 
@@ -29,7 +29,7 @@ func NewRoleRoutes(roleService *rolesvc.RoleService, userService *usersvc.UserSe
 		roleService:  roleService,
 		userService:  userService,
 		groupService: groupService,
-		utils:        &hbasic.Utils{},
+		utils:        &nethttp.Utils{},
 		roleRepo:     roleRepo,
 	}
 }
