@@ -246,12 +246,12 @@ func TestUserServiceLogin(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		req         *svc.LoginRequest
+		req         *svc.AuthenticateRequest
 		expectError bool
 	}{
 		{
 			name: "正常登录",
-			req: &svc.LoginRequest{
+			req: &svc.AuthenticateRequest{
 				Username: "loginuser",
 				Password: "password123",
 			},
@@ -259,7 +259,7 @@ func TestUserServiceLogin(t *testing.T) {
 		},
 		{
 			name: "用户名不存在",
-			req: &svc.LoginRequest{
+			req: &svc.AuthenticateRequest{
 				Username: "nonexistent",
 				Password: "password123",
 			},
@@ -267,7 +267,7 @@ func TestUserServiceLogin(t *testing.T) {
 		},
 		{
 			name: "密码错误",
-			req: &svc.LoginRequest{
+			req: &svc.AuthenticateRequest{
 				Username: "loginuser",
 				Password: "wrongpassword",
 			},
@@ -277,7 +277,7 @@ func TestUserServiceLogin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := env.userService.Login(env.backgroundCtx, tt.req)
+			resp, err := env.userService.Authenticate(env.backgroundCtx, tt.req)
 
 			if tt.expectError {
 				if err == nil {
@@ -298,6 +298,89 @@ func TestUserServiceLogin(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+
+	registerReq := &svc.RegisterRequest{
+		Username: "snapshot_user",
+		Email:    "snapshot@example.com",
+		Password: "password123",
+	}
+	user, err := env.userService.Register(env.backgroundCtx, registerReq)
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+
+	activeRole := env.createTestRole(t, "role_active", []string{"perm:active"})
+	inactiveRole := env.createTestRole(t, "role_inactive", []string{"perm:inactive"})
+	deletedRole := env.createTestRole(t, "role_deleted", []string{"perm:deleted"})
+
+	if err := env.userService.AssignRole(env.backgroundCtx, user.GetID(), activeRole.GetID()); err != nil {
+		t.Fatalf("assign active role: %v", err)
+	}
+	if err := env.userService.AssignRole(env.backgroundCtx, user.GetID(), inactiveRole.GetID()); err != nil {
+		t.Fatalf("assign inactive role: %v", err)
+	}
+	if err := env.userService.AssignRole(env.backgroundCtx, user.GetID(), deletedRole.GetID()); err != nil {
+		t.Fatalf("assign deleted role: %v", err)
+	}
+
+	inactiveRole.Status = svc.RoleStatusInactive
+	inactiveRole.SetUpdatedAt(time.Now())
+	if err := env.roleRepo.Update(env.backgroundCtx, inactiveRole); err != nil {
+		t.Fatalf("deactivate role: %v", err)
+	}
+	if err := env.roleRepo.Delete(env.backgroundCtx, deletedRole.GetID()); err != nil {
+		t.Fatalf("soft delete role: %v", err)
+	}
+
+	authResp, err := env.userService.Authenticate(env.backgroundCtx, &svc.AuthenticateRequest{
+		Username: registerReq.Username,
+		Password: registerReq.Password,
+	})
+	if err != nil {
+		t.Fatalf("authenticate: %v", err)
+	}
+
+	snapshotResp, err := env.userService.GetAuthSnapshot(env.backgroundCtx, user.GetID())
+	if err != nil {
+		t.Fatalf("get auth snapshot: %v", err)
+	}
+
+	assertContains := func(list []string, want string, label string) {
+		t.Helper()
+		for _, item := range list {
+			if item == want {
+				return
+			}
+		}
+		t.Fatalf("expected %s contains %q, got %v", label, want, list)
+	}
+	assertNotContains := func(list []string, unwanted string, label string) {
+		t.Helper()
+		for _, item := range list {
+			if item == unwanted {
+				t.Fatalf("expected %s not contains %q, got %v", label, unwanted, list)
+			}
+		}
+	}
+
+	assertContains(authResp.Roles, "role_active", "auth roles")
+	assertNotContains(authResp.Roles, "role_inactive", "auth roles")
+	assertNotContains(authResp.Roles, "role_deleted", "auth roles")
+	assertContains(authResp.Permissions, "perm:active", "auth permissions")
+	assertNotContains(authResp.Permissions, "perm:inactive", "auth permissions")
+	assertNotContains(authResp.Permissions, "perm:deleted", "auth permissions")
+
+	assertContains(snapshotResp.Roles, "role_active", "snapshot roles")
+	assertNotContains(snapshotResp.Roles, "role_inactive", "snapshot roles")
+	assertNotContains(snapshotResp.Roles, "role_deleted", "snapshot roles")
+	assertContains(snapshotResp.Permissions, "perm:active", "snapshot permissions")
+	assertNotContains(snapshotResp.Permissions, "perm:inactive", "snapshot permissions")
+	assertNotContains(snapshotResp.Permissions, "perm:deleted", "snapshot permissions")
 }
 
 // TestUserServiceChangePassword 测试修改密码
@@ -327,18 +410,18 @@ func TestUserServiceChangePassword(t *testing.T) {
 	}
 
 	// 验证旧密码无法登录
-	loginReq := &svc.LoginRequest{
+	loginReq := &svc.AuthenticateRequest{
 		Username: "pwduser",
 		Password: "oldpassword",
 	}
-	_, err = env.userService.Login(env.backgroundCtx, loginReq)
+	_, err = env.userService.Authenticate(env.backgroundCtx, loginReq)
 	if err == nil {
 		t.Error("expected login to fail with old password")
 	}
 
 	// 验证新密码可以登录
 	loginReq.Password = "newpassword123"
-	resp, err := env.userService.Login(env.backgroundCtx, loginReq)
+	resp, err := env.userService.Authenticate(env.backgroundCtx, loginReq)
 	if err != nil {
 		t.Errorf("login with new password failed: %v", err)
 	}

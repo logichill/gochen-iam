@@ -3,6 +3,8 @@ package user
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -99,9 +101,12 @@ func (s *UserService) Register(ctx context.Context, req *svc.RegisterRequest) (*
 	return user, nil
 }
 
-// Login 用户登录
-func (s *UserService) Login(ctx context.Context, req *svc.LoginRequest) (*svc.LoginResponse, error) {
+// Authenticate 用户认证（不包含 token；token 由协议层按配置生成）。
+func (s *UserService) Authenticate(ctx context.Context, req *svc.AuthenticateRequest) (*svc.AuthenticateResult, error) {
 	// 1. 验证请求数据
+	if req == nil {
+		return nil, errorx.New(errorx.Validation, "请求不能为空")
+	}
 	if req.Username == "" || req.Password == "" {
 		return nil, errorx.New(errorx.Validation, "用户名和密码不能为空")
 	}
@@ -136,17 +141,96 @@ func (s *UserService) Login(ctx context.Context, req *svc.LoginRequest) (*svc.Lo
 		)
 	}
 
-	// 6. 生成登录响应
-	response := &svc.LoginResponse{
+	// 6. 返回认证结果（不包含 token）
+	roles, permissions, err := s.resolveEffectiveRolesAndPermissions(ctx, user.GetID())
+	if err != nil {
+		return nil, err
+	}
+
+	return &svc.AuthenticateResult{
 		UserID:      user.GetID(),
 		Username:    user.Username,
 		Email:       user.Email,
-		Token:       s.generateToken(user), // TODO: 实现JWT token生成
-		ExpiresAt:   time.Now().Add(24 * time.Hour),
-		Permissions: user.GetAllPermissions(),
+		Roles:       roles,
+		Permissions: permissions,
+	}, nil
+}
+
+// GetAuthSnapshot 返回用于签发/刷新 token 的最新身份快照（角色 + 权限）。
+//
+// 说明：
+// - 仅返回“有效角色”：已软删除角色与非 active 角色会被过滤；
+// - 若用户不存在或已禁用，返回错误，由调用方决定如何映射为 HTTP 错误码。
+func (s *UserService) GetAuthSnapshot(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if !user.IsActive() {
+		return nil, errorx.New(errorx.Validation, "用户账户已被禁用")
 	}
 
-	return response, nil
+	roles, permissions, err := s.resolveEffectiveRolesAndPermissions(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &svc.AuthenticateResult{
+		UserID:      user.GetID(),
+		Username:    user.Username,
+		Email:       user.Email,
+		Roles:       roles,
+		Permissions: permissions,
+	}, nil
+}
+
+func (s *UserService) resolveEffectiveRolesAndPermissions(ctx context.Context, userID int64) ([]string, []string, error) {
+	roles, err := s.roleRepo.FindByUserID(ctx, userID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	roleNames := make([]string, 0, len(roles))
+	roleSet := make(map[string]struct{}, len(roles))
+
+	permissions := make([]string, 0, len(roles)*2)
+	permissionSet := make(map[string]struct{}, len(roles)*2)
+
+	for i := range roles {
+		role := roles[i]
+		if role == nil {
+			continue
+		}
+		if role.Status != svc.RoleStatusActive {
+			continue
+		}
+
+		name := strings.TrimSpace(role.Name)
+		if name != "" {
+			if _, exists := roleSet[name]; !exists {
+				roleSet[name] = struct{}{}
+				roleNames = append(roleNames, name)
+			}
+		}
+
+		for _, permission := range role.Permissions {
+			permission = strings.TrimSpace(permission)
+			if permission == "" {
+				continue
+			}
+			if _, exists := permissionSet[permission]; exists {
+				continue
+			}
+			permissionSet[permission] = struct{}{}
+			permissions = append(permissions, permission)
+		}
+	}
+
+	// 固定输出顺序，避免测试与 token 声明受数据库返回顺序影响。
+	sort.Strings(roleNames)
+	sort.Strings(permissions)
+
+	return roleNames, permissions, nil
 }
 
 // ChangePassword 修改密码
@@ -410,12 +494,6 @@ func (s *UserService) hashPassword(password string) (string, error) {
 func (s *UserService) verifyPassword(password, hashedPassword string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
 	return err == nil
-}
-
-// generateToken 生成访问令牌 (简化实现，实际应使用JWT)
-func (s *UserService) generateToken(user *iamentity.User) string {
-	// TODO: 实现JWT token生成
-	return fmt.Sprintf("token_%d_%d", user.GetID(), time.Now().Unix())
 }
 
 // assignDefaultRole 分配默认角色

@@ -1,9 +1,5 @@
 package service
 
-import (
-	"time"
-)
-
 // 用户相关请求和响应类型
 
 // RegisterRequest 用户注册请求
@@ -13,20 +9,19 @@ type RegisterRequest struct {
 	Password string `json:"password" binding:"required,min=6"`
 }
 
-// LoginRequest 用户登录请求
-type LoginRequest struct {
+// AuthenticateRequest 用户认证请求
+type AuthenticateRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
 }
 
-// LoginResponse 用户登录响应
-type LoginResponse struct {
-	UserID      int64     `json:"user_id"`
-	Username    string    `json:"username"`
-	Email       string    `json:"email"`
-	Token       string    `json:"token"`
-	ExpiresAt   time.Time `json:"expires_at"`
-	Permissions []string  `json:"permissions"`
+// AuthenticateResult 用户认证结果（不包含 token；token 由协议层按配置生成）。
+type AuthenticateResult struct {
+	UserID      int64    `json:"user_id"`
+	Username    string   `json:"username"`
+	Email       string   `json:"email"`
+	Roles       []string `json:"roles"`
+	Permissions []string `json:"permissions"`
 }
 
 // ChangePasswordRequest 修改密码请求

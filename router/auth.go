@@ -9,6 +9,7 @@ import (
 	"gochen/errorx"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
+	"time"
 )
 
 // AuthRoutes 认证路由注册器
@@ -78,32 +79,40 @@ func (ar *AuthRoutes) register(ctx httpx.IContext) error {
 
 func (ar *AuthRoutes) login(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
-	req := &iamsvc.LoginRequest{}
+	req := &iamsvc.AuthenticateRequest{}
 
 	if err := ctx.BindJSON(req); err != nil {
 		return err
 	}
 
-	resp, err := ar.userService.Login(reqCtx, req)
+	authResult, err := ar.userService.Authenticate(reqCtx, req)
 	if err != nil {
 		return err
 	}
 
 	// 基于用户信息生成 JWT，携带角色与权限声明
-	roles, err := ar.userService.GetUserRoles(reqCtx, resp.UserID)
+	token, err := iammw.GenerateTokenWithTTL(authResult.UserID, authResult.Username, authResult.Roles, authResult.Permissions, ar.authConfig.SecretKey, ar.authConfig.AccessTokenTTL)
 	if err != nil {
 		return err
-	}
-	roleNames := make([]string, 0, len(roles))
-	for _, r := range roles {
-		roleNames = append(roleNames, r.Name)
 	}
 
-	token, err := iammw.GenerateTokenWithTTL(resp.UserID, resp.Username, roleNames, resp.Permissions, ar.authConfig.SecretKey, ar.authConfig.AccessTokenTTL)
-	if err != nil {
-		return err
+	// 注意：HTTP 层返回 token/expires_at；service 层不包含 token 语义。
+	type loginResponse struct {
+		UserID      int64     `json:"user_id"`
+		Username    string    `json:"username"`
+		Email       string    `json:"email"`
+		Token       string    `json:"token"`
+		ExpiresAt   time.Time `json:"expires_at"`
+		Permissions []string  `json:"permissions"`
 	}
-	resp.Token = token
+	resp := &loginResponse{
+		UserID:      authResult.UserID,
+		Username:    authResult.Username,
+		Email:       authResult.Email,
+		Token:       token,
+		ExpiresAt:   time.Now().Add(ar.authConfig.AccessTokenTTL),
+		Permissions: authResult.Permissions,
+	}
 
 	ar.utils.WriteSuccessResponse(ctx, resp)
 	return nil
@@ -134,19 +143,13 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 		return err
 	}
 
-	// 2) 重新从数据源获取最新 RBAC（避免 refresh 继续沿用旧 token 快照）
-	user, err := ar.userService.GetUserProfile(ctx.GetRequest().Context(), claims.UserID)
+	// 2) 重新从数据源获取最新有效 RBAC（过滤软删/非激活角色，避免沿用旧 token 快照）
+	authSnapshot, err := ar.userService.GetAuthSnapshot(ctx.GetRequest().Context(), claims.UserID)
 	if err != nil {
 		return err
 	}
 
-	roleNames := make([]string, 0, len(user.Roles))
-	for i := range user.Roles {
-		roleNames = append(roleNames, user.Roles[i].Name)
-	}
-	perms := user.GetAllPermissions()
-
-	newToken, err := iammw.GenerateTokenWithTTL(user.GetID(), user.Username, roleNames, perms, ar.authConfig.SecretKey, ar.authConfig.AccessTokenTTL)
+	newToken, err := iammw.GenerateTokenWithTTL(authSnapshot.UserID, authSnapshot.Username, authSnapshot.Roles, authSnapshot.Permissions, ar.authConfig.SecretKey, ar.authConfig.AccessTokenTTL)
 	if err != nil {
 		return err
 	}
