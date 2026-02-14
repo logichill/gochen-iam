@@ -6,6 +6,7 @@ import (
 
 	"gochen/httpx"
 	"gochen/logging"
+	"gochen/metadata"
 )
 
 // AuditRecord 表示一次鉴权/授权决策的审计记录（默认仅记录 deny）。
@@ -53,7 +54,7 @@ func recordAuthzDenied(ctx httpx.IContext, rec AuditRecord) {
 		return
 	}
 	req := ctx.GetRequest()
-	stdCtx := context.Background()
+	stdCtx := metadata.Background()
 	if req != nil {
 		rec.Method = req.Method
 		stdCtx = req.Context()
