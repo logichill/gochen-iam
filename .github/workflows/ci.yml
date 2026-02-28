@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt
+        run: |
+          files=$(git ls-files '*.go' | xargs gofmt -l)
+          if [ -n "$files" ]; then
+            echo "gofmt needed:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: go vet
+        env:
+          GO_TELEMETRY: off
+        run: go vet ./...
+
+      - name: go test
+        env:
+          GO_TELEMETRY: off
+        run: go test ./... -count=1

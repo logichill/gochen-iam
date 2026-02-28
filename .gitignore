@@ -2,6 +2,9 @@ bin
 tmp
 .*
 !.gitignore
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
 
 # 质量改进相关文件
 # 这些文件可以选择性地提交到版本控制
@@ -30,4 +33,3 @@ test-output/
 
 # local review drafts (not part of library API)
 docs/review/
-

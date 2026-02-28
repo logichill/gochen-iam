@@ -300,6 +300,62 @@ func TestUserServiceLogin(t *testing.T) {
 	}
 }
 
+func TestUserServiceAuthPathsRejectDisabledUserAsForbidden(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+
+	tests := []struct {
+		name    string
+		disable func(ctx context.Context, userID int64) error
+	}{
+		{
+			name:    "inactive",
+			disable: env.userService.DeactivateUser,
+		},
+		{
+			name:    "locked",
+			disable: env.userService.LockUser,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registerReq := &svc.RegisterRequest{
+				Username: "disabled_auth_" + tt.name,
+				Email:    "disabled_auth_" + tt.name + "@example.com",
+				Password: "password123",
+			}
+			user, err := env.userService.Register(env.backgroundCtx, registerReq)
+			if err != nil {
+				t.Fatalf("register user: %v", err)
+			}
+
+			if err := tt.disable(env.backgroundCtx, user.GetID()); err != nil {
+				t.Fatalf("disable user (%s): %v", tt.name, err)
+			}
+
+			_, err = env.userService.Authenticate(env.backgroundCtx, &svc.AuthenticateRequest{
+				Username: registerReq.Username,
+				Password: registerReq.Password,
+			})
+			if err == nil {
+				t.Fatalf("expected authenticate error for %s user", tt.name)
+			}
+			if !errorx.Is(err, errorx.Forbidden) {
+				t.Fatalf("expected forbidden error for authenticate/%s, got %v", tt.name, err)
+			}
+
+			_, err = env.userService.GetAuthSnapshot(env.backgroundCtx, user.GetID())
+			if err == nil {
+				t.Fatalf("expected snapshot error for %s user", tt.name)
+			}
+			if !errorx.Is(err, errorx.Forbidden) {
+				t.Fatalf("expected forbidden error for snapshot/%s, got %v", tt.name, err)
+			}
+		})
+	}
+}
+
 func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 	env := setupUserServiceTest(t)
 	defer env.teardown(t)
@@ -381,6 +437,98 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 	assertContains(snapshotResp.Permissions, "perm:active", "snapshot permissions")
 	assertNotContains(snapshotResp.Permissions, "perm:inactive", "snapshot permissions")
 	assertNotContains(snapshotResp.Permissions, "perm:deleted", "snapshot permissions")
+
+	perms, err := env.userService.GetUserPermissions(env.backgroundCtx, user.GetID())
+	if err != nil {
+		t.Fatalf("get user permissions: %v", err)
+	}
+	assertContains(perms, "perm:active", "user permissions")
+	assertNotContains(perms, "perm:inactive", "user permissions")
+	assertNotContains(perms, "perm:deleted", "user permissions")
+
+	allowed, err := env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "perm:active")
+	if err != nil {
+		t.Fatalf("check permission perm:active: %v", err)
+	}
+	if !allowed {
+		t.Fatalf("expected perm:active allowed")
+	}
+	allowed, err = env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "perm:inactive")
+	if err != nil {
+		t.Fatalf("check permission perm:inactive: %v", err)
+	}
+	if allowed {
+		t.Fatalf("expected perm:inactive denied")
+	}
+	allowed, err = env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "perm:deleted")
+	if err != nil {
+		t.Fatalf("check permission perm:deleted: %v", err)
+	}
+	if allowed {
+		t.Fatalf("expected perm:deleted denied")
+	}
+}
+
+func TestUserServiceGetUserPermissionsRequiresActiveUser(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+
+	role := env.createTestRole(t, "perm_role", []string{"perm:active"})
+
+	tests := []struct {
+		name    string
+		disable func(ctx context.Context, userID int64) error
+	}{
+		{
+			name:    "inactive",
+			disable: env.userService.DeactivateUser,
+		},
+		{
+			name:    "locked",
+			disable: env.userService.LockUser,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registerReq := &svc.RegisterRequest{
+				Username: "permuser_" + tt.name,
+				Email:    "permuser_" + tt.name + "@example.com",
+				Password: "password123",
+			}
+			user, err := env.userService.Register(env.backgroundCtx, registerReq)
+			if err != nil {
+				t.Fatalf("register user: %v", err)
+			}
+
+			if err := env.userService.AssignRole(env.backgroundCtx, user.GetID(), role.GetID()); err != nil {
+				t.Fatalf("assign role: %v", err)
+			}
+
+			if err := tt.disable(env.backgroundCtx, user.GetID()); err != nil {
+				t.Fatalf("disable user (%s): %v", tt.name, err)
+			}
+
+			perms, err := env.userService.GetUserPermissions(env.backgroundCtx, user.GetID())
+			if err == nil {
+				t.Fatalf("expected error for %s user, got perms %v", tt.name, perms)
+			}
+			if !errorx.Is(err, errorx.Forbidden) {
+				t.Fatalf("expected forbidden error for %s user, got %v", tt.name, err)
+			}
+
+			allowed, err := env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "perm:active")
+			if err == nil {
+				t.Fatalf("expected error for %s user, got allowed=%v", tt.name, allowed)
+			}
+			if !errorx.Is(err, errorx.Forbidden) {
+				t.Fatalf("expected forbidden error for %s user, got %v", tt.name, err)
+			}
+			if allowed {
+				t.Fatalf("expected allowed=false for %s user", tt.name)
+			}
+		})
+	}
 }
 
 // TestUserServiceChangePassword 测试修改密码

@@ -127,7 +127,7 @@ func (s *UserService) Authenticate(ctx context.Context, req *svc.AuthenticateReq
 
 	// 4. 检查用户状态
 	if !user.IsActive() {
-		return nil, errorx.New(errorx.Validation, "用户账户已被禁用")
+		return nil, errorx.New(errorx.Forbidden, "用户账户已被禁用")
 	}
 
 	// 5. 更新最后登录时间
@@ -167,7 +167,7 @@ func (s *UserService) GetAuthSnapshot(ctx context.Context, userID int64) (*svc.A
 		return nil, err
 	}
 	if !user.IsActive() {
-		return nil, errorx.New(errorx.Validation, "用户账户已被禁用")
+		return nil, errorx.New(errorx.Forbidden, "用户账户已被禁用")
 	}
 
 	roles, permissions, err := s.resolveEffectiveRolesAndPermissions(ctx, userID)
@@ -387,14 +387,25 @@ func (s *UserService) RemoveFromGroup(ctx context.Context, userID, groupID int64
 	return s.userRepo.RemoveFromGroup(ctx, userID, groupID)
 }
 
-// GetUserPermissions 获取用户权限
+// GetUserPermissions 获取用户权限。
+//
+// 语义：
+// - 用户不存在：返回 NotFound；
+// - 用户非 active：返回错误（fail-close，避免禁用账号仍可参与鉴权/授权决策）。
 func (s *UserService) GetUserPermissions(ctx context.Context, userID int64) ([]string, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
+	if !user.IsActive() {
+		return nil, errorx.New(errorx.Forbidden, "用户账户已被禁用")
+	}
 
-	return user.GetAllPermissions(), nil
+	_, permissions, err := s.resolveEffectiveRolesAndPermissions(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	return permissions, nil
 }
 
 // CheckPermission 检查用户权限
