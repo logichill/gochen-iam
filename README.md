@@ -43,7 +43,7 @@
 ### 中间件
 
 - `middleware.AuthMiddleware(config)`：必需鉴权（无 token 直接拒绝）
-- `middleware.OptionalAuthMiddleware(config)`：可选鉴权（有 token 则注入身份，无 token 也放行）
+- `middleware.OptionalAuthMiddleware(config)`：可选鉴权（无 token 放行；有 token 则必须有效，否则返回 401；有效则注入身份）
 
 两者都会在验证 token 后将以下信息注入 `httpx.IRequestContext`：
 

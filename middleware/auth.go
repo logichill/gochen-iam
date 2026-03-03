@@ -85,7 +85,7 @@ func isDevEnv() bool {
 func IsDevEnv() bool { return isDevEnv() }
 
 // ValidateAuthConfig 验证认证配置是否完整
-// 应在应用启动时调用，生产环境缺少必要配置时返回错误
+// 应在应用启动时调用；缺少必要配置时返回错误（生产环境还会附加更严格的安全约束校验）。
 func ValidateAuthConfig(config *AuthConfig) error {
 	if config == nil {
 		config = DefaultAuthConfig()
@@ -98,6 +98,21 @@ func ValidateAuthConfig(config *AuthConfig) error {
 		return errorx.New(errorx.Internal, "生产环境禁止启用 AUTH_ALLOW_QUERY_TOKEN")
 	}
 	return nil
+}
+
+// matchSkipPath 判断当前请求 path 是否应被 SkipPaths 跳过。
+//
+// 约定：
+// - 默认精确匹配（允许可选的末尾 "/"），避免前缀匹配导致误跳过（例如 "/loginxxx"）。
+// - 若 skipPath 以 "/" 结尾，则视为“目录前缀”，允许跳过其子路径（显式 opt-in）。
+func matchSkipPath(path, skipPath string) bool {
+	if skipPath == "" {
+		return false
+	}
+	if strings.HasSuffix(skipPath, "/") {
+		return strings.HasPrefix(path, skipPath)
+	}
+	return path == skipPath || path == skipPath+"/"
 }
 
 // AuthMiddleware 认证中间件
@@ -113,17 +128,10 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 	var validateErr error
 
 	return func(ctx httpx.IContext, next func() error) error {
-		validateOnce.Do(func() {
-			validateErr = ValidateAuthConfig(config)
-		})
-		if validateErr != nil {
-			return validateErr
-		}
-
 		// 检查是否需要跳过认证
 		path := ctx.GetPath()
 		for _, skipPath := range config.SkipPaths {
-			if strings.HasPrefix(path, skipPath) {
+			if matchSkipPath(path, skipPath) {
 				return next()
 			}
 		}
@@ -142,6 +150,15 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 				Reason:   "用户未认证",
 			})
 			return errorx.New(errorx.Unauthorized, "用户未认证")
+		}
+
+		// 对于必需鉴权，仅在“确实需要解析 token”时才做配置校验；
+		// 这样缺少 token 时能返回 401，而不是因 AUTH_SECRET 缺失返回 500。
+		validateOnce.Do(func() {
+			validateErr = ValidateAuthConfig(config)
+		})
+		if validateErr != nil {
+			return validateErr
 		}
 
 		claims, err := validateToken(token, config.SecretKey)
@@ -200,17 +217,10 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 	var validateErr error
 
 	return func(ctx httpx.IContext, next func() error) error {
-		validateOnce.Do(func() {
-			validateErr = ValidateAuthConfig(config)
-		})
-		if validateErr != nil {
-			return validateErr
-		}
-
 		// 检查是否需要跳过认证
 		path := ctx.GetPath()
 		for _, skipPath := range config.SkipPaths {
-			if strings.HasPrefix(path, skipPath) {
+			if matchSkipPath(path, skipPath) {
 				return next()
 			}
 		}
@@ -247,21 +257,36 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 
 		// 尝试获取token
 		token := extractToken(ctx, config)
-		if token != "" {
-			// 如果有token，尝试验证
-			if claims, err := validateToken(token, config.SecretKey); err == nil && claims != nil {
-				// 验证成功，设置用户ID，并注入角色/权限信息
-				reqCtx := ctx.GetContext()
-				reqCtx = hbasic.WithUserID(reqCtx, claims.UserID)
-
-				reqCtx = auth.WithRoles(reqCtx, claims.Roles)
-				reqCtx = auth.WithPermissions(reqCtx, claims.Permissions)
-
-				ctx.SetContext(reqCtx)
-			}
+		if token == "" {
+			// 无 token：保持匿名请求，不校验 AUTH_SECRET（避免误把“缺 token”变成 500）。
+			return next()
 		}
 
-		// 无论是否认证成功都继续处理
+		// 有 token：此时才需要校验鉴权配置（尤其是 AUTH_SECRET）。
+		validateOnce.Do(func() {
+			validateErr = ValidateAuthConfig(config)
+		})
+		if validateErr != nil {
+			return validateErr
+		}
+
+		// 如果有 token：必须是有效 token；否则返回 401（fail-close）。
+		claims, err := validateToken(token, config.SecretKey)
+		if err != nil {
+			recordAuthzDenied(ctx, AuditRecord{
+				Decision: "deny",
+				Reason:   "token 验证失败",
+			})
+			return err
+		}
+
+		// 验证成功，设置用户ID，并注入角色/权限信息
+		reqCtx = hbasic.WithUserID(reqCtx, claims.UserID)
+		reqCtx = auth.WithRoles(reqCtx, claims.Roles)
+		reqCtx = auth.WithPermissions(reqCtx, claims.Permissions)
+		ctx.SetContext(reqCtx)
+
+		// 认证成功后继续处理（无 token 已在上方直接放行；有 token 但无效会返回 401）。
 		return next()
 	}
 }
