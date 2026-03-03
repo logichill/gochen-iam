@@ -46,6 +46,7 @@ func NewModule() (server.IModule, error) {
 			iamrouter.NewTenantRoutes,
 			iamrouter.NewMenuRoutes,
 			NewStrictPermissionRegistryValidator,
+			NewAuthConfigValidator,
 		},
 		// IAM 模块既包含匿名可访问的登录/注册端点，也包含需要鉴权的管理端点。
 		// 使用 OptionalAuthMiddleware 统一解析 token（若存在），供后续 PermissionMiddleware 等使用。
@@ -66,6 +67,22 @@ func (v *strictPermissionRegistryValidator) RegisterRoutes(httpx.IRouteGroup) er
 	iammw.RegisterRequiredPermissions(iamservice.AllPermissions...)
 	if err := iammw.ValidateStrictPermissionRegistry(); err != nil {
 		return errorx.Wrap(err, errorx.Internal, "strict permission registry validation failed")
+	}
+	return nil
+}
+
+// authConfigValidator 在启动期对鉴权配置做 fail-fast 校验。
+//
+// 说明：
+// - ValidateAuthConfig 负责校验 JWT 密钥与生产环境安全约束（如禁止 query token）；
+// - 将其放到模块启动链路里，避免仅靠运行期“带 token 的请求”才暴露配置错误。
+type authConfigValidator struct{}
+
+func NewAuthConfigValidator() *authConfigValidator { return &authConfigValidator{} }
+
+func (v *authConfigValidator) RegisterRoutes(httpx.IRouteGroup) error {
+	if err := iammw.ValidateAuthConfig(nil); err != nil {
+		return errorx.Wrap(err, errorx.Internal, "auth config validation failed")
 	}
 	return nil
 }
