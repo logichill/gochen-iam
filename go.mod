@@ -18,4 +18,4 @@ require (
 	golang.org/x/text v0.33.0 // indirect
 )
 
-replace gochen => github.com/logichill/gochen v0.0.0-20260212152207-227b57c07397
+replace gochen => ../gochen
