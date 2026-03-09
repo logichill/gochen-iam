@@ -162,7 +162,7 @@ func (s *UserService) Authenticate(ctx context.Context, req *svc.AuthenticateReq
 // - 仅返回“有效角色”：已软删除角色与非 active 角色会被过滤；
 // - 若用户不存在或已禁用，返回错误，由调用方决定如何映射为 HTTP 错误码。
 func (s *UserService) GetAuthSnapshot(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
-	user, err := s.userRepo.GetByID(ctx, userID)
+	user, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +236,7 @@ func (s *UserService) resolveEffectiveRolesAndPermissions(ctx context.Context, u
 // ChangePassword 修改密码
 func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *svc.ChangePasswordRequest) error {
 	// 1. 获取用户
-	user, err := s.userRepo.GetByID(ctx, userID)
+	user, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -265,7 +265,7 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *svc
 // UpdateProfile 更新用户资料
 func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *svc.UpdateUserRequest) (*iamentity.User, error) {
 	// 1. 获取用户
-	user, err := s.userRepo.GetByID(ctx, userID)
+	user, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +299,7 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *svc.
 
 // ActivateUser 激活用户
 func (s *UserService) ActivateUser(ctx context.Context, userID int64) error {
-	user, err := s.userRepo.GetByID(ctx, userID)
+	user, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -310,7 +310,7 @@ func (s *UserService) ActivateUser(ctx context.Context, userID int64) error {
 
 // DeactivateUser 停用用户
 func (s *UserService) DeactivateUser(ctx context.Context, userID int64) error {
-	user, err := s.userRepo.GetByID(ctx, userID)
+	user, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -321,7 +321,7 @@ func (s *UserService) DeactivateUser(ctx context.Context, userID int64) error {
 
 // LockUser 锁定用户
 func (s *UserService) LockUser(ctx context.Context, userID int64) error {
-	user, err := s.userRepo.GetByID(ctx, userID)
+	user, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -332,7 +332,7 @@ func (s *UserService) LockUser(ctx context.Context, userID int64) error {
 
 // UnlockUser 解锁用户
 func (s *UserService) UnlockUser(ctx context.Context, userID int64) error {
-	user, err := s.userRepo.GetByID(ctx, userID)
+	user, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -344,13 +344,13 @@ func (s *UserService) UnlockUser(ctx context.Context, userID int64) error {
 // AssignRole 为用户分配角色
 func (s *UserService) AssignRole(ctx context.Context, userID, roleID int64) error {
 	// 1. 检查用户是否存在
-	_, err := s.userRepo.GetByID(ctx, userID)
+	_, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return err
 	}
 
 	// 2. 检查角色是否存在
-	_, err = s.roleRepo.GetByID(ctx, roleID)
+	_, err = s.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -367,13 +367,13 @@ func (s *UserService) RemoveRole(ctx context.Context, userID, roleID int64) erro
 // AssignToGroup 将用户分配到组织
 func (s *UserService) AssignToGroup(ctx context.Context, userID, groupID int64) error {
 	// 1. 检查用户是否存在
-	_, err := s.userRepo.GetByID(ctx, userID)
+	_, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return err
 	}
 
 	// 2. 检查组织是否存在
-	_, err = s.groupRepo.GetByID(ctx, groupID)
+	_, err = s.groupRepo.Get(ctx, groupID)
 	if err != nil {
 		return err
 	}
@@ -393,7 +393,7 @@ func (s *UserService) RemoveFromGroup(ctx context.Context, userID, groupID int64
 // - 用户不存在：返回 NotFound；
 // - 用户非 active：返回错误（fail-close，避免禁用账号仍可参与鉴权/授权决策）。
 func (s *UserService) GetUserPermissions(ctx context.Context, userID int64) ([]string, error) {
-	user, err := s.userRepo.GetByID(ctx, userID)
+	user, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

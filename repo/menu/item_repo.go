@@ -38,7 +38,7 @@ func (r *MenuItemRepo) Update(ctx context.Context, m *iamentity.MenuItem) error 
 	return model.Save(ctx, m, orm.WithWhere("id = ? AND deleted_at IS NULL", m.GetID()))
 }
 
-func (r *MenuItemRepo) GetByID(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
+func (r *MenuItemRepo) Get(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err

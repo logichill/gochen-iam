@@ -85,7 +85,7 @@ func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest
 // UpdateRole 更新角色
 func (s *RoleService) UpdateRole(ctx context.Context, roleID int64, req *svc.UpdateRoleRequest) (*iamentity.Role, error) {
 	// 1. 获取角色
-	role, err := s.roleRepo.GetByID(ctx, roleID)
+	role, err := s.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func (s *RoleService) UpdateRole(ctx context.Context, roleID int64, req *svc.Upd
 // DeleteRole 删除角色
 func (s *RoleService) DeleteRole(ctx context.Context, roleID int64) error {
 	// 1. 获取角色
-	role, err := s.roleRepo.GetByID(ctx, roleID)
+	role, err := s.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -154,7 +154,7 @@ func (s *RoleService) DeleteRole(ctx context.Context, roleID int64) error {
 // AssignRoleToUser 将角色分配给用户
 func (s *RoleService) AssignRoleToUser(ctx context.Context, roleID, userID int64) error {
 	// 1. 检查角色是否存在
-	role, err := s.roleRepo.GetByID(ctx, roleID)
+	role, err := s.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -165,7 +165,7 @@ func (s *RoleService) AssignRoleToUser(ctx context.Context, roleID, userID int64
 	}
 
 	// 3. 检查用户是否存在
-	_, err = s.userRepo.GetByID(ctx, userID)
+	_, err = s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -194,7 +194,7 @@ func (s *RoleService) RemoveRoleFromUser(ctx context.Context, roleID, userID int
 // AssignRoleToGroup 将角色分配给组织作为默认角色
 func (s *RoleService) AssignRoleToGroup(ctx context.Context, roleID, groupID int64) error {
 	// 1. 检查角色是否存在
-	role, err := s.roleRepo.GetByID(ctx, roleID)
+	role, err := s.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -205,7 +205,7 @@ func (s *RoleService) AssignRoleToGroup(ctx context.Context, roleID, groupID int
 	}
 
 	// 3. 检查组织是否存在
-	_, err = s.groupRepo.GetByID(ctx, groupID)
+	_, err = s.groupRepo.Get(ctx, groupID)
 	if err != nil {
 		return err
 	}
@@ -222,7 +222,7 @@ func (s *RoleService) RemoveRoleFromGroup(ctx context.Context, roleID, groupID i
 // AddPermission 为角色添加权限
 func (s *RoleService) AddPermission(ctx context.Context, roleID int64, permission string) error {
 	// 1. 获取角色
-	role, err := s.roleRepo.GetByID(ctx, roleID)
+	role, err := s.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -245,7 +245,7 @@ func (s *RoleService) AddPermission(ctx context.Context, roleID int64, permissio
 // RemovePermission 从角色移除权限
 func (s *RoleService) RemovePermission(ctx context.Context, roleID int64, permission string) error {
 	// 1. 获取角色
-	role, err := s.roleRepo.GetByID(ctx, roleID)
+	role, err := s.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -262,7 +262,7 @@ func (s *RoleService) RemovePermission(ctx context.Context, roleID int64, permis
 
 // ActivateRole 激活角色
 func (s *RoleService) ActivateRole(ctx context.Context, roleID int64) error {
-	role, err := s.roleRepo.GetByID(ctx, roleID)
+	role, err := s.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -273,7 +273,7 @@ func (s *RoleService) ActivateRole(ctx context.Context, roleID int64) error {
 
 // DeactivateRole 停用角色
 func (s *RoleService) DeactivateRole(ctx context.Context, roleID int64) error {
-	role, err := s.roleRepo.GetByID(ctx, roleID)
+	role, err := s.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -289,7 +289,7 @@ func (s *RoleService) DeactivateRole(ctx context.Context, roleID int64) error {
 // CloneRole 克隆角色
 func (s *RoleService) CloneRole(ctx context.Context, roleID int64, newName string) (*iamentity.Role, error) {
 	// 1. 获取原角色
-	originalRole, err := s.roleRepo.GetByID(ctx, roleID)
+	originalRole, err := s.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +330,7 @@ func (s *RoleService) GetRoleGroups(ctx context.Context, roleID int64) ([]*iamen
 // CheckPermission 检查权限
 func (s *RoleService) CheckPermission(ctx context.Context, req *svc.PermissionCheckRequest) (*svc.PermissionCheckResponse, error) {
 	// 1. 获取用户
-	user, err := s.userRepo.GetByID(ctx, req.UserID)
+	user, err := s.userRepo.Get(ctx, req.UserID)
 	if err != nil {
 		return nil, err
 	}

@@ -106,7 +106,7 @@ func TestUserRepo_GetByID_UsesTxSessionModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTxSession: %v", err)
 	}
-	if _, err := r.GetByID(txCtx, 1); err != nil {
+	if _, err := r.Get(txCtx, 1); err != nil {
 		t.Fatalf("GetByID: %v", err)
 	}
 

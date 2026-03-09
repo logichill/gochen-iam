@@ -46,8 +46,8 @@ func (r *TenantRepo) Update(ctx context.Context, t *iamentity.Tenant) error {
 	return model.Save(ctx, t, orm.WithWhere("id = ? AND deleted_at IS NULL", t.GetID()))
 }
 
-// GetByID 根据ID获取租户（过滤软删记录）
-func (r *TenantRepo) GetByID(ctx context.Context, id int64) (*iamentity.Tenant, error) {
+// Get 根据ID获取租户（过滤软删记录）
+func (r *TenantRepo) Get(ctx context.Context, id int64) (*iamentity.Tenant, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err

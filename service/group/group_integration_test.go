@@ -267,7 +267,7 @@ func TestGroupServiceDeleteGroup(t *testing.T) {
 	}
 
 	// 验证已删除
-	_, err = env.groupRepo.GetByID(env.backgroundCtx, group.GetID())
+	_, err = env.groupRepo.Get(env.backgroundCtx, group.GetID())
 	if err == nil {
 		t.Error("expected error when getting deleted group, got nil")
 	}

@@ -45,8 +45,8 @@ func (r *UserRepo) Update(ctx context.Context, u *iamentity.User) error {
 	return model.Save(ctx, u, orm.WithWhere("id = ? AND deleted_at IS NULL", u.GetID()))
 }
 
-// GetByID 根据ID获取用户（过滤软删记录）
-func (r *UserRepo) GetByID(ctx context.Context, id int64) (*iamentity.User, error) {
+// Get 根据ID获取用户（过滤软删记录）
+func (r *UserRepo) Get(ctx context.Context, id int64) (*iamentity.User, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err

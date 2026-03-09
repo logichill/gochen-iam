@@ -1,14 +1,12 @@
 package router
 
 import (
+	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
-	rolerepo "gochen-iam/repo/role"
 	svc "gochen-iam/service"
-	groupsvc "gochen-iam/service/group"
-	rolesvc "gochen-iam/service/role"
-	usersvc "gochen-iam/service/user"
 	api "gochen/api/http"
 	appcrud "gochen/app/crud"
+	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
 	"gochen/httpx/nethttp"
@@ -16,21 +14,17 @@ import (
 
 // RoleRoutes 角色路由注册器
 type RoleRoutes struct {
-	roleService  *rolesvc.RoleService
-	userService  *usersvc.UserService
-	groupService *groupsvc.GroupService
-	utils        *nethttp.Utils
-	roleRepo     *rolerepo.RoleRepo
+	roleService roleService
+	utils       *nethttp.Utils
+	roleRepo    domaincrud.IRepository[*iamentity.Role, int64]
 }
 
 // NewRoleRoutes 创建角色路由注册器
-func NewRoleRoutes(roleService *rolesvc.RoleService, userService *usersvc.UserService, groupService *groupsvc.GroupService, roleRepo *rolerepo.RoleRepo) *RoleRoutes {
+func NewRoleRoutes(roleService roleService, roleRepo domaincrud.IRepository[*iamentity.Role, int64]) *RoleRoutes {
 	return &RoleRoutes{
-		roleService:  roleService,
-		userService:  userService,
-		groupService: groupService,
-		utils:        &nethttp.Utils{},
-		roleRepo:     roleRepo,
+		roleService: roleService,
+		utils:       &nethttp.Utils{},
+		roleRepo:    roleRepo,
 	}
 }
 
@@ -126,7 +120,7 @@ func (rr *RoleRoutes) getRolePermissions(ctx httpx.IContext) error {
 		return err
 	}
 
-	role, err := rr.roleRepo.GetByID(reqCtx, roleID)
+	role, err := rr.roleRepo.Get(reqCtx, roleID)
 	if err != nil {
 		return err
 	}

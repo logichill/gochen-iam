@@ -56,7 +56,7 @@ func (s *TenantService) CreateTenant(ctx context.Context, req *svc.CreateTenantR
 
 // UpdateTenant 更新租户信息
 func (s *TenantService) UpdateTenant(ctx context.Context, tenantID int64, req *svc.UpdateTenantRequest) (*iamentity.Tenant, error) {
-	tenant, err := s.tenantRepo.GetByID(ctx, tenantID)
+	tenant, err := s.tenantRepo.Get(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (s *TenantService) UpdateTenant(ctx context.Context, tenantID int64, req *s
 
 // ActivateTenant 启用租户
 func (s *TenantService) ActivateTenant(ctx context.Context, tenantID int64) error {
-	tenant, err := s.tenantRepo.GetByID(ctx, tenantID)
+	tenant, err := s.tenantRepo.Get(ctx, tenantID)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (s *TenantService) ActivateTenant(ctx context.Context, tenantID int64) erro
 
 // DeactivateTenant 禁用租户
 func (s *TenantService) DeactivateTenant(ctx context.Context, tenantID int64) error {
-	tenant, err := s.tenantRepo.GetByID(ctx, tenantID)
+	tenant, err := s.tenantRepo.Get(ctx, tenantID)
 	if err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (s *TenantService) DeactivateTenant(ctx context.Context, tenantID int64) er
 
 // GetTenant 获取单个租户
 func (s *TenantService) GetTenant(ctx context.Context, tenantID int64) (*iamentity.Tenant, error) {
-	return s.tenantRepo.GetByID(ctx, tenantID)
+	return s.tenantRepo.Get(ctx, tenantID)
 }
 
 // ListTenants 获取租户列表

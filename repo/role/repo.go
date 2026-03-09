@@ -31,8 +31,8 @@ func NewRoleRepository(o orm.IOrm) (*RoleRepo, error) {
 
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供
 
-// GetByID 根据ID获取角色（过滤软删记录）
-func (r *RoleRepo) GetByID(ctx context.Context, id int64) (*iamentity.Role, error) {
+// Get 根据ID获取角色（过滤软删记录）
+func (r *RoleRepo) Get(ctx context.Context, id int64) (*iamentity.Role, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err

@@ -62,7 +62,7 @@ func (v *BusinessValidator) ValidateUserRegistration(ctx context.Context, req *R
 // ValidateUserUpdate 验证用户更新业务规则
 func (v *BusinessValidator) ValidateUserUpdate(ctx context.Context, userID int64, req *UpdateUserRequest) error {
 	// 1. 用户是否存在
-	user, err := v.userRepo.GetByID(ctx, userID)
+	user, err := v.userRepo.Get(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func (v *BusinessValidator) ValidateUserUpdate(ctx context.Context, userID int64
 // ValidateUserDeletion 验证用户删除业务规则
 func (v *BusinessValidator) ValidateUserDeletion(ctx context.Context, userID int64) error {
 	// 1. 用户是否存在
-	user, err := v.userRepo.GetByID(ctx, userID)
+	user, err := v.userRepo.Get(ctx, userID)
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func (v *BusinessValidator) ValidateGroupCreation(ctx context.Context, req *Crea
 // ValidateGroupUpdate 验证组织更新业务规则
 func (v *BusinessValidator) ValidateGroupUpdate(ctx context.Context, groupID int64, req *UpdateGroupRequest) error {
 	// 1. 组织是否存在
-	group, err := v.groupRepo.GetByID(ctx, groupID)
+	group, err := v.groupRepo.Get(ctx, groupID)
 	if err != nil {
 		return err
 	}
@@ -162,7 +162,7 @@ func (v *BusinessValidator) ValidateGroupUpdate(ctx context.Context, groupID int
 // ValidateGroupDeletion 验证组织删除业务规则
 func (v *BusinessValidator) ValidateGroupDeletion(ctx context.Context, groupID int64) error {
 	// 1. 组织是否存在
-	_, err := v.groupRepo.GetByID(ctx, groupID)
+	_, err := v.groupRepo.Get(ctx, groupID)
 	if err != nil {
 		return err
 	}
@@ -213,7 +213,7 @@ func (v *BusinessValidator) ValidateRoleCreation(ctx context.Context, req *Creat
 // ValidateRoleUpdate 验证角色更新业务规则
 func (v *BusinessValidator) ValidateRoleUpdate(ctx context.Context, roleID int64, req *UpdateRoleRequest) error {
 	// 1. 角色是否存在
-	role, err := v.roleRepo.GetByID(ctx, roleID)
+	role, err := v.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -243,7 +243,7 @@ func (v *BusinessValidator) ValidateRoleUpdate(ctx context.Context, roleID int64
 // ValidateRoleDeletion 验证角色删除业务规则
 func (v *BusinessValidator) ValidateRoleDeletion(ctx context.Context, roleID int64) error {
 	// 1. 角色是否存在
-	role, err := v.roleRepo.GetByID(ctx, roleID)
+	role, err := v.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -351,7 +351,7 @@ func (v *BusinessValidator) validateGroupBasicFields(name, description string) e
 
 // validateParentGroup 验证父组织
 func (v *BusinessValidator) validateParentGroup(ctx context.Context, parentID int64) error {
-	parent, err := v.groupRepo.GetByID(ctx, parentID)
+	parent, err := v.groupRepo.Get(ctx, parentID)
 	if err != nil {
 		return errorx.Wrap(err, errorx.NotFound, "父组织不存在")
 	}
@@ -393,7 +393,7 @@ func (v *BusinessValidator) validateGroupParentChange(ctx context.Context, group
 		}
 
 		// 检查新父组织是否存在
-		newParent, err := v.groupRepo.GetByID(ctx, *newParentID)
+		newParent, err := v.groupRepo.Get(ctx, *newParentID)
 		if err != nil {
 			return errorx.Wrap(err, errorx.NotFound, "新父组织不存在")
 		}

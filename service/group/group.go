@@ -45,7 +45,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 	// 2. 检查父组织是否存在（如果指定了父组织）
 	var parentGroup *iamentity.Group
 	if req.ParentID != nil {
-		parent, err := s.groupRepo.GetByID(ctx, *req.ParentID)
+		parent, err := s.groupRepo.Get(ctx, *req.ParentID)
 		if err != nil {
 			return nil, errorx.Wrap(err, errorx.NotFound, "父组织不存在")
 		}
@@ -99,7 +99,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 // UpdateGroup 更新组织
 func (s *GroupService) UpdateGroup(ctx context.Context, groupID int64, req *svc.UpdateGroupRequest) (*iamentity.Group, error) {
 	// 1. 获取组织
-	group, err := s.groupRepo.GetByID(ctx, groupID)
+	group, err := s.groupRepo.Get(ctx, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -183,11 +183,11 @@ func (s *GroupService) GetGroupUsers(ctx context.Context, groupID int64) ([]*iam
 // AddUserToGroup 添加用户到组织
 func (s *GroupService) AddUserToGroup(ctx context.Context, groupID, userID int64) error {
 	// 确认用户存在
-	if _, err := s.userRepo.GetByID(ctx, userID); err != nil {
+	if _, err := s.userRepo.Get(ctx, userID); err != nil {
 		return err
 	}
 	// 确认组织存在
-	if _, err := s.groupRepo.GetByID(ctx, groupID); err != nil {
+	if _, err := s.groupRepo.Get(ctx, groupID); err != nil {
 		return err
 	}
 	return s.groupRepo.AddUserToGroup(ctx, groupID, userID)
@@ -222,11 +222,11 @@ func (s *GroupService) GetGroupRoles(ctx context.Context, groupID int64) ([]*iam
 // AddGroupRole 为组织添加默认角色
 func (s *GroupService) AddGroupRole(ctx context.Context, groupID, roleID int64) error {
 	// 确认角色存在
-	if _, err := s.roleRepo.GetByID(ctx, roleID); err != nil {
+	if _, err := s.roleRepo.Get(ctx, roleID); err != nil {
 		return err
 	}
 	// 确认组织存在
-	if _, err := s.groupRepo.GetByID(ctx, groupID); err != nil {
+	if _, err := s.groupRepo.Get(ctx, groupID); err != nil {
 		return err
 	}
 	return s.groupRepo.AddDefaultRole(ctx, groupID, roleID)

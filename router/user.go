@@ -1,14 +1,12 @@
 package router
 
 import (
+	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
-	userrepo "gochen-iam/repo/user"
 	iamsvc "gochen-iam/service"
-	groupsvc "gochen-iam/service/group"
-	rolesvc "gochen-iam/service/role"
-	usersvc "gochen-iam/service/user"
 	api "gochen/api/http"
 	appcrud "gochen/app/crud"
+	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
@@ -16,21 +14,17 @@ import (
 
 // UserRoutes 用户路由注册器
 type UserRoutes struct {
-	userService  *usersvc.UserService
-	groupService *groupsvc.GroupService
-	roleService  *rolesvc.RoleService
-	utils        *hbasic.Utils
-	userRepo     *userrepo.UserRepo
+	userService userService
+	utils       *hbasic.Utils
+	userRepo    domaincrud.IRepository[*iamentity.User, int64]
 }
 
 // NewUserRoutes 创建用户路由注册器
-func NewUserRoutes(userService *usersvc.UserService, groupService *groupsvc.GroupService, roleService *rolesvc.RoleService, userRepo *userrepo.UserRepo) *UserRoutes {
+func NewUserRoutes(userService userService, userRepo domaincrud.IRepository[*iamentity.User, int64]) *UserRoutes {
 	return &UserRoutes{
-		userService:  userService,
-		groupService: groupService,
-		roleService:  roleService,
-		utils:        &hbasic.Utils{},
-		userRepo:     userRepo,
+		userService: userService,
+		utils:       &hbasic.Utils{},
+		userRepo:    userRepo,
 	}
 }
 

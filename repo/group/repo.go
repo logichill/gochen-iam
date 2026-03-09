@@ -31,8 +31,8 @@ func NewGroupRepository(o orm.IOrm) (*GroupRepo, error) {
 
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供
 
-// GetByID 根据ID获取组织（过滤软删记录）
-func (r *GroupRepo) GetByID(ctx context.Context, id int64) (*iamentity.Group, error) {
+// Get 根据ID获取组织（过滤软删记录）
+func (r *GroupRepo) Get(ctx context.Context, id int64) (*iamentity.Group, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err

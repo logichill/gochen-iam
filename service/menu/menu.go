@@ -121,7 +121,7 @@ func (s *MenuService) UpdateMenuItem(ctx context.Context, id int64, req *UpdateM
 	if req == nil {
 		return nil, errorx.New(errorx.Validation, "request is required")
 	}
-	item, err := s.menuRepo.GetByID(ctx, id)
+	item, err := s.menuRepo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +192,7 @@ func (s *MenuService) UpdateMenuItem(ctx context.Context, id int64, req *UpdateM
 }
 
 func (s *MenuService) DeleteMenuItem(ctx context.Context, id int64) error {
-	item, err := s.menuRepo.GetByID(ctx, id)
+	item, err := s.menuRepo.Get(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -236,7 +236,7 @@ func (s *MenuService) PurgeMenuItem(ctx context.Context, id int64) error {
 }
 
 func (s *MenuService) PublishMenuItem(ctx context.Context, id int64, published bool) (*iamentity.MenuItem, error) {
-	item, err := s.menuRepo.GetByID(ctx, id)
+	item, err := s.menuRepo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +312,7 @@ func (s *MenuService) validateParentNoCycle(ctx context.Context, selfID int64, p
 		}
 		visited[curID] = struct{}{}
 
-		cur, err := s.menuRepo.GetByID(ctx, curID)
+		cur, err := s.menuRepo.Get(ctx, curID)
 		if err != nil {
 			return err
 		}

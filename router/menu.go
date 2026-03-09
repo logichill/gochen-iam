@@ -13,11 +13,11 @@ import (
 // - 菜单仅用于“导航可见性”，不作为安全边界；安全边界仍由 API 权限校验保证。
 // - /menus/me 返回基于当前请求上下文的菜单树（权限过滤）。
 type MenuRoutes struct {
-	menuService *menusvc.MenuService
+	menuService menuService
 	utils       *hbasic.Utils
 }
 
-func NewMenuRoutes(menuService *menusvc.MenuService) *MenuRoutes {
+func NewMenuRoutes(menuService menuService) *MenuRoutes {
 	return &MenuRoutes{
 		menuService: menuService,
 		utils:       &hbasic.Utils{},

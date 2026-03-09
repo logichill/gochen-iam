@@ -3,9 +3,6 @@ package router
 import (
 	iammw "gochen-iam/middleware"
 	iamsvc "gochen-iam/service"
-	groupsvc "gochen-iam/service/group"
-	rolesvc "gochen-iam/service/role"
-	usersvc "gochen-iam/service/user"
 	"gochen/errorx"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
@@ -14,21 +11,17 @@ import (
 
 // AuthRoutes 认证路由注册器
 type AuthRoutes struct {
-	userService  *usersvc.UserService
-	groupService *groupsvc.GroupService
-	roleService  *rolesvc.RoleService
-	utils        *hbasic.Utils
-	authConfig   *iammw.AuthConfig
+	userService userService
+	utils       *hbasic.Utils
+	authConfig  *iammw.AuthConfig
 }
 
 // NewAuthRoutes 创建认证路由注册器
-func NewAuthRoutes(userService *usersvc.UserService, groupService *groupsvc.GroupService, roleService *rolesvc.RoleService) *AuthRoutes {
+func NewAuthRoutes(userService userService) *AuthRoutes {
 	return &AuthRoutes{
-		userService:  userService,
-		groupService: groupService,
-		roleService:  roleService,
-		utils:        &hbasic.Utils{},
-		authConfig:   iammw.DefaultAuthConfig(),
+		userService: userService,
+		utils:       &hbasic.Utils{},
+		authConfig:  iammw.DefaultAuthConfig(),
 	}
 }
 

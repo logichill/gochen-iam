@@ -1,12 +1,12 @@
 package router
 
 import (
+	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
-	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
-	tenantsvc "gochen-iam/service/tenant"
 	api "gochen/api/http"
 	appcrud "gochen/app/crud"
+	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
@@ -14,13 +14,13 @@ import (
 
 // TenantRoutes 租户路由注册器
 type TenantRoutes struct {
-	tenantService *tenantsvc.TenantService
+	tenantService tenantService
 	utils         *hbasic.Utils
-	tenantRepo    *tenantrepo.TenantRepo
+	tenantRepo    domaincrud.IRepository[*iamentity.Tenant, int64]
 }
 
 // NewTenantRoutes 创建租户路由注册器
-func NewTenantRoutes(tenantService *tenantsvc.TenantService, tenantRepo *tenantrepo.TenantRepo) *TenantRoutes {
+func NewTenantRoutes(tenantService tenantService, tenantRepo domaincrud.IRepository[*iamentity.Tenant, int64]) *TenantRoutes {
 	return &TenantRoutes{
 		tenantService: tenantService,
 		utils:         &hbasic.Utils{},

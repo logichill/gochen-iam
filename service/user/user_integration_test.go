@@ -635,7 +635,7 @@ func TestUserServiceActivateDeactivate(t *testing.T) {
 	}
 
 	// 验证状态
-	dbUser, err := env.userRepo.GetByID(env.backgroundCtx, user.GetID())
+	dbUser, err := env.userRepo.Get(env.backgroundCtx, user.GetID())
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
@@ -650,7 +650,7 @@ func TestUserServiceActivateDeactivate(t *testing.T) {
 	}
 
 	// 验证状态
-	dbUser, err = env.userRepo.GetByID(env.backgroundCtx, user.GetID())
+	dbUser, err = env.userRepo.Get(env.backgroundCtx, user.GetID())
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
@@ -682,7 +682,7 @@ func TestUserServiceLockUnlock(t *testing.T) {
 	}
 
 	// 验证状态
-	dbUser, err := env.userRepo.GetByID(env.backgroundCtx, user.GetID())
+	dbUser, err := env.userRepo.Get(env.backgroundCtx, user.GetID())
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
@@ -697,7 +697,7 @@ func TestUserServiceLockUnlock(t *testing.T) {
 	}
 
 	// 验证状态
-	dbUser, err = env.userRepo.GetByID(env.backgroundCtx, user.GetID())
+	dbUser, err = env.userRepo.Get(env.backgroundCtx, user.GetID())
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
