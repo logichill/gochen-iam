@@ -53,8 +53,8 @@ func (r *MenuItemRepo) Get(ctx context.Context, id int64) (*iamentity.MenuItem, 
 	return &item, nil
 }
 
-// GetByIDWithDeleted 按 id 查询菜单（包含软删记录）。
-func (r *MenuItemRepo) GetByIDWithDeleted(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
+// GetWithDeleted 按 id 查询菜单（包含软删记录）。
+func (r *MenuItemRepo) GetWithDeleted(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ func (r *MenuItemRepo) ListPublished(ctx context.Context) ([]*iamentity.MenuItem
 
 // RestoreByID 恢复软删菜单（deleted_at 置空）。
 func (r *MenuItemRepo) RestoreByID(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
-	item, err := r.GetByIDWithDeleted(ctx, id)
+	item, err := r.GetWithDeleted(ctx, id)
 	if err != nil {
 		return nil, err
 	}

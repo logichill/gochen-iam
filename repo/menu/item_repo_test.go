@@ -111,7 +111,7 @@ func (s *fakeSession) Raw() any               { return nil }
 func (s *fakeSession) Commit() error          { return nil }
 func (s *fakeSession) Rollback() error        { return nil }
 
-func TestMenuItemRepo_GetByIDWithDeleted_UsesTxSessionModel(t *testing.T) {
+func TestMenuItemRepo_GetWithDeleted_UsesTxSessionModel(t *testing.T) {
 	o := &fakeOrm{
 		baseModel:    &capturingModel{},
 		sessionModel: &capturingModel{},
@@ -125,8 +125,8 @@ func TestMenuItemRepo_GetByIDWithDeleted_UsesTxSessionModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTxSession: %v", err)
 	}
-	if _, err := r.GetByIDWithDeleted(txCtx, 1); err != nil {
-		t.Fatalf("GetByIDWithDeleted: %v", err)
+	if _, err := r.GetWithDeleted(txCtx, 1); err != nil {
+		t.Fatalf("GetWithDeleted: %v", err)
 	}
 
 	if o.baseModel.firstCalls != 0 {

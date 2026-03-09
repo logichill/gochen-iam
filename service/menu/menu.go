@@ -221,7 +221,7 @@ func (s *MenuService) RestoreMenuItem(ctx context.Context, id int64) (*iamentity
 
 // PurgeMenuItem 物理删除菜单（硬删）。
 func (s *MenuService) PurgeMenuItem(ctx context.Context, id int64) error {
-	item, err := s.menuRepo.GetByIDWithDeleted(ctx, id)
+	item, err := s.menuRepo.GetWithDeleted(ctx, id)
 	if err != nil {
 		return err
 	}

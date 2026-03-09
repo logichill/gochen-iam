@@ -92,7 +92,7 @@ func (s *fakeSession) Raw() any               { return nil }
 func (s *fakeSession) Commit() error          { return nil }
 func (s *fakeSession) Rollback() error        { return nil }
 
-func TestUserRepo_GetByID_UsesTxSessionModel(t *testing.T) {
+func TestUserRepo_Get_UsesTxSessionModel(t *testing.T) {
 	o := &fakeOrm{
 		baseModel:    &capturingModel{},
 		sessionModel: &capturingModel{},
@@ -107,7 +107,7 @@ func TestUserRepo_GetByID_UsesTxSessionModel(t *testing.T) {
 		t.Fatalf("WithTxSession: %v", err)
 	}
 	if _, err := r.Get(txCtx, 1); err != nil {
-		t.Fatalf("GetByID: %v", err)
+		t.Fatalf("Get: %v", err)
 	}
 
 	if o.baseModel.firstCalls != 0 {
