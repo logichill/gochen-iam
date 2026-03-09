@@ -8,7 +8,7 @@ import (
 	db "gochen/db/orm/repo"
 	"gochen/domain/crud"
 	"gochen/errorx"
-	"gochen/ident/generator"
+	"gochen/ident"
 )
 
 // RoleRepo 角色数据访问层
@@ -21,7 +21,7 @@ func NewRoleRepository(o orm.IOrm) (*RoleRepo, error) {
 	base, err := db.NewRepo[*iamentity.Role, int64](
 		o,
 		"roles",
-		db.WithIDGenerator[*iamentity.Role, int64](generator.DefaultInt64Generator()),
+		db.WithIDGenerator[*iamentity.Role, int64](ident.DefaultInt64Generator()),
 	)
 	if err != nil {
 		return nil, err

@@ -7,7 +7,7 @@ import (
 	"gochen/db/orm"
 	db "gochen/db/orm/repo"
 	"gochen/errorx"
-	"gochen/ident/generator"
+	"gochen/ident"
 )
 
 // TenantRepo 租户数据访问层
@@ -20,7 +20,7 @@ func NewTenantRepository(o orm.IOrm) (*TenantRepo, error) {
 	base, err := db.NewRepo[*iamentity.Tenant, int64](
 		o,
 		"tenants",
-		db.WithIDGenerator[*iamentity.Tenant, int64](generator.DefaultInt64Generator()),
+		db.WithIDGenerator[*iamentity.Tenant, int64](ident.DefaultInt64Generator()),
 	)
 	if err != nil {
 		return nil, err

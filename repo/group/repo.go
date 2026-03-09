@@ -8,7 +8,7 @@ import (
 	db "gochen/db/orm/repo"
 	"gochen/domain/crud"
 	"gochen/errorx"
-	"gochen/ident/generator"
+	"gochen/ident"
 )
 
 // GroupRepo 组织数据访问层
@@ -21,7 +21,7 @@ func NewGroupRepository(o orm.IOrm) (*GroupRepo, error) {
 	base, err := db.NewRepo(
 		o,
 		"groups",
-		db.WithIDGenerator[*iamentity.Group](generator.DefaultInt64Generator()),
+		db.WithIDGenerator[*iamentity.Group](ident.DefaultInt64Generator()),
 	)
 	if err != nil {
 		return nil, err
