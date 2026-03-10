@@ -21,14 +21,14 @@ type AuditRecord struct {
 	Permission string // PermissionMiddleware(requiredPermission)
 }
 
-// AuditSink 可选的审计落点（默认 nil）。
+// IAuditSink 可选的审计落点（默认 nil）。
 // 可在上层应用装配期注入（例如写日志、写队列、写审计系统）。
-type AuditSink interface {
+type IAuditSink interface {
 	Record(ctx context.Context, rec AuditRecord)
 }
 
 var (
-	auditSink   AuditSink
+	auditSink   IAuditSink
 	auditLogger = logging.ComponentLogger("iam.middleware.audit")
 )
 
@@ -38,7 +38,7 @@ func isAuditLogEnabled() bool {
 }
 
 // SetAuditSink 设置审计落点（线程安全：装配期调用即可）。
-func SetAuditSink(sink AuditSink) {
+func SetAuditSink(sink IAuditSink) {
 	auditSink = sink
 }
 

@@ -14,13 +14,13 @@ import (
 
 // UserRoutes 用户路由注册器
 type UserRoutes struct {
-	userService userService
+	userService IUserService
 	utils       *hbasic.Utils
 	userRepo    domaincrud.IRepository[*iamentity.User, int64]
 }
 
 // NewUserRoutes 创建用户路由注册器
-func NewUserRoutes(userService userService, userRepo domaincrud.IRepository[*iamentity.User, int64]) *UserRoutes {
+func NewUserRoutes(userService IUserService, userRepo domaincrud.IRepository[*iamentity.User, int64]) *UserRoutes {
 	return &UserRoutes{
 		userService: userService,
 		utils:       &hbasic.Utils{},

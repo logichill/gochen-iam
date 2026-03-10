@@ -14,13 +14,13 @@ import (
 
 // TenantRoutes 租户路由注册器
 type TenantRoutes struct {
-	tenantService tenantService
+	tenantService ITenantService
 	utils         *hbasic.Utils
 	tenantRepo    domaincrud.IRepository[*iamentity.Tenant, int64]
 }
 
 // NewTenantRoutes 创建租户路由注册器
-func NewTenantRoutes(tenantService tenantService, tenantRepo domaincrud.IRepository[*iamentity.Tenant, int64]) *TenantRoutes {
+func NewTenantRoutes(tenantService ITenantService, tenantRepo domaincrud.IRepository[*iamentity.Tenant, int64]) *TenantRoutes {
 	return &TenantRoutes{
 		tenantService: tenantService,
 		utils:         &hbasic.Utils{},

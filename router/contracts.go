@@ -9,7 +9,7 @@ import (
 	"gochen/httpx"
 )
 
-type userService interface {
+type IUserService interface {
 	Register(ctx context.Context, req *svc.RegisterRequest) (*iamentity.User, error)
 	Authenticate(ctx context.Context, req *svc.AuthenticateRequest) (*svc.AuthenticateResult, error)
 	GetAuthSnapshot(ctx context.Context, userID int64) (*svc.AuthenticateResult, error)
@@ -30,7 +30,7 @@ type userService interface {
 	GetUserProfile(ctx context.Context, userID int64) (*iamentity.User, error)
 }
 
-type groupService interface {
+type IGroupService interface {
 	GetGroupTree(ctx context.Context) ([]*svc.GroupTreeNode, error)
 	GetRootGroups(ctx context.Context) ([]*iamentity.Group, error)
 	GetGroupsByLevel(ctx context.Context, level int) ([]*iamentity.Group, error)
@@ -44,7 +44,7 @@ type groupService interface {
 	GetGroupStatistics(ctx context.Context) (*svc.StatisticsResponse, error)
 }
 
-type roleService interface {
+type IRoleService interface {
 	AddPermission(ctx context.Context, roleID int64, permission string) error
 	RemovePermission(ctx context.Context, roleID int64, permission string) error
 	GetRoleUsers(ctx context.Context, roleID int64) ([]*iamentity.User, error)
@@ -58,12 +58,12 @@ type roleService interface {
 	GetRoleStatistics(ctx context.Context) (map[string]interface{}, error)
 }
 
-type tenantService interface {
+type ITenantService interface {
 	ActivateTenant(ctx context.Context, tenantID int64) error
 	DeactivateTenant(ctx context.Context, tenantID int64) error
 }
 
-type menuService interface {
+type IMenuService interface {
 	CreateMenuItem(ctx context.Context, req *menusvc.CreateMenuItemRequest) (*iamentity.MenuItem, error)
 	UpdateMenuItem(ctx context.Context, id int64, req *menusvc.UpdateMenuItemRequest) (*iamentity.MenuItem, error)
 	DeleteMenuItem(ctx context.Context, id int64) error

@@ -11,13 +11,13 @@ import (
 
 // AuthRoutes 认证路由注册器
 type AuthRoutes struct {
-	userService userService
+	userService IUserService
 	utils       *hbasic.Utils
 	authConfig  *iammw.AuthConfig
 }
 
 // NewAuthRoutes 创建认证路由注册器
-func NewAuthRoutes(userService userService) *AuthRoutes {
+func NewAuthRoutes(userService IUserService) *AuthRoutes {
 	return &AuthRoutes{
 		userService: userService,
 		utils:       &hbasic.Utils{},

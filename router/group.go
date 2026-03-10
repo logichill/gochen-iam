@@ -15,13 +15,13 @@ import (
 
 // GroupRoutes 组织路由注册器
 type GroupRoutes struct {
-	groupService groupService
+	groupService IGroupService
 	utils        *hbasic.Utils
 	groupRepo    domaincrud.IRepository[*iamentity.Group, int64]
 }
 
 // NewGroupRoutes 创建组织路由注册器
-func NewGroupRoutes(groupService groupService, groupRepo domaincrud.IRepository[*iamentity.Group, int64]) *GroupRoutes {
+func NewGroupRoutes(groupService IGroupService, groupRepo domaincrud.IRepository[*iamentity.Group, int64]) *GroupRoutes {
 	return &GroupRoutes{
 		groupService: groupService,
 		utils:        &hbasic.Utils{},

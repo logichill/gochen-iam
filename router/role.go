@@ -14,13 +14,13 @@ import (
 
 // RoleRoutes 角色路由注册器
 type RoleRoutes struct {
-	roleService roleService
+	roleService IRoleService
 	utils       *nethttp.Utils
 	roleRepo    domaincrud.IRepository[*iamentity.Role, int64]
 }
 
 // NewRoleRoutes 创建角色路由注册器
-func NewRoleRoutes(roleService roleService, roleRepo domaincrud.IRepository[*iamentity.Role, int64]) *RoleRoutes {
+func NewRoleRoutes(roleService IRoleService, roleRepo domaincrud.IRepository[*iamentity.Role, int64]) *RoleRoutes {
 	return &RoleRoutes{
 		roleService: roleService,
 		utils:       &nethttp.Utils{},
