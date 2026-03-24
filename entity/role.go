@@ -214,11 +214,7 @@ var (
 		Name:        "system_admin",
 		Description: "系统管理员，拥有所有权限",
 		Permissions: PermissionArray{
-			"system:read", "system:write", "system:delete",
-			"user:read", "user:write", "user:delete",
-			"group:read", "group:write", "group:delete",
-			"role:read", "role:write", "role:delete",
-			"menu:read", "menu:write", "menu:publish",
+			"*:*:*",
 		},
 		IsSystem: true,
 		Status:   "active",
@@ -228,7 +224,7 @@ var (
 		Name:        "user",
 		Description: "普通用户角色",
 		Permissions: PermissionArray{
-			"user:read_self", "user:update_self",
+			"api:user:read_self", "api:user:update_self",
 		},
 		IsSystem: true,
 		Status:   "active",

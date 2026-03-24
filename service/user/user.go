@@ -10,6 +10,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	iamentity "gochen-iam/entity"
+	iammw "gochen-iam/middleware"
 
 	grouprepo "gochen-iam/repo/group"
 
@@ -416,7 +417,7 @@ func (s *UserService) CheckPermission(ctx context.Context, userID int64, permiss
 	}
 
 	for _, perm := range permissions {
-		if perm == permission {
+		if iammw.PermissionPatternMatches(perm, permission) {
 			return true, nil
 		}
 	}
@@ -481,8 +482,8 @@ func (s *UserService) validateRegisterRequest(req *svc.RegisterRequest) error {
 	if req.Password == "" {
 		return errorx.New(errorx.Validation, "密码不能为空")
 	}
-	if len(req.Password) < 8 {
-		return errorx.New(errorx.Validation, "密码长度不能少于8个字符")
+	if len(req.Password) < svc.MinPasswordLength {
+		return errorx.New(errorx.Validation, "密码长度不能少于6个字符")
 	}
 	// 可选：添加更强的密码策略
 	// - 至少包含一个大写字母

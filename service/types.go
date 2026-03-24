@@ -1,5 +1,7 @@
 package service
 
+import iammw "gochen-iam/middleware"
+
 // 用户相关请求和响应类型
 
 // RegisterRequest 用户注册请求
@@ -150,64 +152,74 @@ const (
 var (
 	// 系统权限
 	SystemPermissions = []string{
-		"system:read",
-		"system:write",
-		"system:delete",
+		"api:system:read",
+		"api:system:write",
+		"api:system:delete",
 	}
 
 	// 用户权限
 	UserPermissions = []string{
-		"user:read",
-		"user:write",
-		"user:delete",
-		"user:read_self",
-		"user:update_self",
+		"api:user:read",
+		"api:user:write",
+		"api:user:delete",
+		"api:user:read_self",
+		"api:user:update_self",
 	}
 
 	// 组织权限
 	GroupPermissions = []string{
-		"group:read",
-		"group:write",
-		"group:delete",
+		"api:group:read",
+		"api:group:write",
+		"api:group:delete",
 	}
 
 	// 任务权限
 	TaskPermissions = []string{
-		"task:read",
-		"task:write",
-		"task:delete",
+		"api:task:read",
+		"api:task:write",
+		"api:task:delete",
 	}
 
 	// 积分权限
 	PointsPermissions = []string{
-		"points:read",
-		"points:write",
+		"api:points:read",
+		"api:points:write",
 	}
 
 	// 等级权限
 	LevelPermissions = []string{
-		"level:read",
-		"level:write",
+		"api:level:read",
+		"api:level:write",
 	}
 
 	// 计划权限
 	PlanPermissions = []string{
-		"plan:read",
-		"plan:write",
+		"api:plan:read",
+		"api:plan:write",
 	}
 
 	// 角色权限
 	RolePermissions = []string{
-		"role:read",
-		"role:write",
-		"role:delete",
+		"api:role:read",
+		"api:role:write",
+		"api:role:delete",
 	}
 
 	// 菜单权限（后台导航可见性配置）
 	MenuPermissions = []string{
-		"menu:read",
-		"menu:write",
-		"menu:publish",
+		"api:menu:read",
+		"api:menu:write",
+		"api:menu:publish",
+	}
+
+	// 动作权限（非 HTTP 资源型能力）。
+	ActionPermissions = []string{
+		"action:mcp:invoke",
+	}
+
+	// 菜单可见性权限是数据驱动的，使用通配定义兜住具体菜单 code。
+	MenuVisibilityPermissionPatterns = []string{
+		"menu:*:view",
 	}
 
 	// 所有权限
@@ -221,9 +233,57 @@ var (
 					TaskPermissions...),
 				PointsPermissions...),
 			LevelPermissions...),
-		append(append(PlanPermissions, RolePermissions...), MenuPermissions...)...,
+		append(
+			append(
+				append(append(PlanPermissions, RolePermissions...), MenuPermissions...),
+				ActionPermissions...,
+			),
+			MenuVisibilityPermissionPatterns...,
+		)...,
+	)
+
+	AllPermissionDefinitions = append(
+		append(
+			append(
+				append(
+					append(
+						append(apiPermissionDefinitions(SystemPermissions), apiPermissionDefinitions(UserPermissions)...),
+						apiPermissionDefinitions(GroupPermissions)...),
+					apiPermissionDefinitions(TaskPermissions)...),
+				apiPermissionDefinitions(PointsPermissions)...),
+			apiPermissionDefinitions(LevelPermissions)...),
+		append(
+			append(
+				append(apiPermissionDefinitions(PlanPermissions), append(apiPermissionDefinitions(RolePermissions), apiPermissionDefinitions(MenuPermissions)...)...),
+				actionPermissionDefinitions(ActionPermissions)...,
+			),
+			patternPermissionDefinitions(MenuVisibilityPermissionPatterns, iammw.PermissionTypeMenu)...,
+		)...,
 	)
 )
+
+func apiPermissionDefinitions(permissions []string) []iammw.PermissionDefinition {
+	return permissionDefinitions(permissions, iammw.PermissionTypeAPI)
+}
+
+func actionPermissionDefinitions(permissions []string) []iammw.PermissionDefinition {
+	return permissionDefinitions(permissions, iammw.PermissionTypeAction)
+}
+
+func patternPermissionDefinitions(permissions []string, permissionType iammw.PermissionType) []iammw.PermissionDefinition {
+	return permissionDefinitions(permissions, permissionType)
+}
+
+func permissionDefinitions(permissions []string, permissionType iammw.PermissionType) []iammw.PermissionDefinition {
+	definitions := make([]iammw.PermissionDefinition, 0, len(permissions))
+	for _, permission := range permissions {
+		definitions = append(definitions, iammw.PermissionDefinition{
+			Code: permission,
+			Type: permissionType,
+		})
+	}
+	return definitions
+}
 
 // 租户相关请求类型
 

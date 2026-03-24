@@ -96,7 +96,7 @@ func PermissionMiddleware(requiredPermission string) httpx.Middleware {
 		}
 	}
 
-	registerRequiredPermission(requiredPermission)
+	registerRequiredPermission(PermissionDefinition{Code: requiredPermission})
 
 	base := httpx.PermissionMiddleware(permissionChecker{}, requiredPermission)
 	return func(ctx httpx.IContext, next func() error) error {

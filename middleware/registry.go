@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -12,11 +13,33 @@ type requiredPermissionMeta struct {
 	Callsite string
 }
 
+type PermissionType string
+
+const (
+	PermissionTypeAPI    PermissionType = "api"
+	PermissionTypeMenu   PermissionType = "menu"
+	PermissionTypeAction PermissionType = "action"
+)
+
+type PermissionDefinition struct {
+	Code        string         `json:"code"`
+	Type        PermissionType `json:"type"`
+	Resource    string         `json:"resource,omitempty"`
+	Action      string         `json:"action,omitempty"`
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+}
+
+type registeredPermission struct {
+	definition PermissionDefinition
+	metas      []requiredPermissionMeta
+}
+
 var requiredPermissionsRegistry = struct {
 	mu    sync.RWMutex
-	perms map[string][]requiredPermissionMeta
+	perms map[string]registeredPermission
 }{
-	perms: map[string][]requiredPermissionMeta{},
+	perms: map[string]registeredPermission{},
 }
 
 func requiredPermissionsCount() int {
@@ -25,8 +48,44 @@ func requiredPermissionsCount() int {
 	return len(requiredPermissionsRegistry.perms)
 }
 
-func registerRequiredPermission(permission string) {
-	if permission == "" {
+func normalizePermissionDefinition(def PermissionDefinition) PermissionDefinition {
+	def.Code = strings.ToLower(strings.TrimSpace(def.Code))
+	if def.Code == "" || !IsValidPermissionCode(def.Code) {
+		return PermissionDefinition{}
+	}
+
+	segments := strings.Split(def.Code, ":")
+	def.Type = PermissionType(segments[0])
+	def.Resource = segments[1]
+	def.Action = segments[2]
+	return def
+}
+
+func mergePermissionDefinition(current PermissionDefinition, incoming PermissionDefinition) PermissionDefinition {
+	if current.Code == "" {
+		return incoming
+	}
+	if incoming.Type != "" {
+		current.Type = incoming.Type
+	}
+	if incoming.Resource != "" {
+		current.Resource = incoming.Resource
+	}
+	if incoming.Action != "" {
+		current.Action = incoming.Action
+	}
+	if incoming.Name != "" {
+		current.Name = incoming.Name
+	}
+	if incoming.Description != "" {
+		current.Description = incoming.Description
+	}
+	return current
+}
+
+func registerRequiredPermission(def PermissionDefinition) {
+	def = normalizePermissionDefinition(def)
+	if def.Code == "" {
 		return
 	}
 
@@ -39,9 +98,12 @@ func registerRequiredPermission(permission string) {
 
 	requiredPermissionsRegistry.mu.Lock()
 	defer requiredPermissionsRegistry.mu.Unlock()
-	requiredPermissionsRegistry.perms[permission] = append(requiredPermissionsRegistry.perms[permission], requiredPermissionMeta{
+	current := requiredPermissionsRegistry.perms[def.Code]
+	current.definition = mergePermissionDefinition(current.definition, def)
+	current.metas = append(current.metas, requiredPermissionMeta{
 		Callsite: callsite,
 	})
+	requiredPermissionsRegistry.perms[def.Code] = current
 }
 
 // RequiredPermissions 返回当前进程在启动期间注册到 PermissionMiddleware 的权限集合（去重、排序）。
@@ -63,9 +125,9 @@ func RequiredPermissionsWithCallsites() map[string][]string {
 	defer requiredPermissionsRegistry.mu.RUnlock()
 
 	out := make(map[string][]string, len(requiredPermissionsRegistry.perms))
-	for perm, metas := range requiredPermissionsRegistry.perms {
-		callsites := make([]string, 0, len(metas))
-		for _, m := range metas {
+	for perm, entry := range requiredPermissionsRegistry.perms {
+		callsites := make([]string, 0, len(entry.metas))
+		for _, m := range entry.metas {
 			callsites = append(callsites, m.Callsite)
 		}
 		sort.Strings(callsites)
@@ -80,15 +142,21 @@ func RequiredPermissionsWithRedactedCallsites() map[string][]string {
 	defer requiredPermissionsRegistry.mu.RUnlock()
 
 	out := make(map[string][]string, len(requiredPermissionsRegistry.perms))
-	for perm, metas := range requiredPermissionsRegistry.perms {
-		callsites := make([]string, 0, len(metas))
-		for _, m := range metas {
+	for perm, entry := range requiredPermissionsRegistry.perms {
+		callsites := make([]string, 0, len(entry.metas))
+		for _, m := range entry.metas {
 			callsites = append(callsites, redactCallsite(m.Callsite))
 		}
 		sort.Strings(callsites)
 		out[perm] = callsites
 	}
 	return out
+}
+
+func RegisterRequiredPermissionDefinitions(definitions ...PermissionDefinition) {
+	for _, def := range definitions {
+		registerRequiredPermission(def)
+	}
 }
 
 // RegisterRequiredPermissions 允许模块在启动期一次性注册“系统已声明的权限”集合。
@@ -98,8 +166,22 @@ func RequiredPermissionsWithRedactedCallsites() map[string][]string {
 // - 该函数用于不依赖路由装配细节也能完成权限字典初始化（例如权限常量集中定义的场景）。
 func RegisterRequiredPermissions(permissions ...string) {
 	for _, p := range permissions {
-		registerRequiredPermission(p)
+		registerRequiredPermission(PermissionDefinition{Code: p})
 	}
+}
+
+func RequiredPermissionDefinitions() []PermissionDefinition {
+	requiredPermissionsRegistry.mu.RLock()
+	defer requiredPermissionsRegistry.mu.RUnlock()
+
+	out := make([]PermissionDefinition, 0, len(requiredPermissionsRegistry.perms))
+	for _, entry := range requiredPermissionsRegistry.perms {
+		out = append(out, entry.definition)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Code < out[j].Code
+	})
+	return out
 }
 
 // HasRequiredPermission 判断权限是否已在启动期注册到 required permissions registry。
@@ -107,10 +189,21 @@ func HasRequiredPermission(permission string) bool {
 	if permission == "" {
 		return false
 	}
+	normalized := strings.ToLower(strings.TrimSpace(permission))
+	if !IsValidPermissionCode(normalized) {
+		return false
+	}
 	requiredPermissionsRegistry.mu.RLock()
 	defer requiredPermissionsRegistry.mu.RUnlock()
-	_, ok := requiredPermissionsRegistry.perms[permission]
-	return ok
+	if _, ok := requiredPermissionsRegistry.perms[normalized]; ok {
+		return true
+	}
+	for registered := range requiredPermissionsRegistry.perms {
+		if PermissionPatternMatches(normalized, registered) || PermissionPatternMatches(registered, normalized) {
+			return true
+		}
+	}
+	return false
 }
 
 func redactCallsite(callsite string) string {
@@ -139,5 +232,5 @@ func splitCallsite(callsite string) (file string, line string) {
 func resetRequiredPermissionsRegistryForTest() {
 	requiredPermissionsRegistry.mu.Lock()
 	defer requiredPermissionsRegistry.mu.Unlock()
-	requiredPermissionsRegistry.perms = map[string][]requiredPermissionMeta{}
+	requiredPermissionsRegistry.perms = map[string]registeredPermission{}
 }

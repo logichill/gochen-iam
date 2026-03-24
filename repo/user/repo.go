@@ -7,6 +7,7 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen/db/orm"
 	db "gochen/db/orm/repo"
+	dataquery "gochen/db/query"
 	"gochen/domain/crud"
 	"gochen/errorx"
 )
@@ -43,6 +44,15 @@ func (r *UserRepo) Update(ctx context.Context, u *iamentity.User) error {
 		return err
 	}
 	return model.Save(ctx, u, orm.WithWhere("id = ? AND deleted_at IS NULL", u.GetID()))
+}
+
+// Query 覆盖通用查询，补齐用户分页列表所需的角色/组织关联。
+func (r *UserRepo) Query(ctx context.Context, opts dataquery.QueryOptions) ([]*iamentity.User, error) {
+	users, err := r.Repo.Query(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	return r.hydrateUsersRelations(ctx, users)
 }
 
 // Get 根据ID获取用户（过滤软删记录）
@@ -353,6 +363,25 @@ func (r *UserRepo) SearchUsers(ctx context.Context, keyword string, limit int) (
 
 	if err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "搜索用户失败")
+	}
+
+	return users, nil
+}
+
+func (r *UserRepo) hydrateUsersRelations(ctx context.Context, users []*iamentity.User) ([]*iamentity.User, error) {
+	for i := range users {
+		user := users[i]
+		if user == nil {
+			continue
+		}
+
+		hydrated, err := r.GetWithRelations(ctx, user.GetID())
+		if err != nil {
+			return nil, err
+		}
+
+		user.Groups = hydrated.Groups
+		user.Roles = hydrated.Roles
 	}
 
 	return users, nil

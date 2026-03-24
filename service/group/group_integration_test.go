@@ -120,7 +120,7 @@ func (env *groupServiceTestEnv) createTestRole(t *testing.T, name string) *iamen
 	role := &iamentity.Role{
 		Name:        name,
 		Description: "测试角色",
-		Permissions: iamentity.PermissionArray([]string{"test:read"}),
+		Permissions: iamentity.PermissionArray([]string{"api:test:read"}),
 		Status:      svc.RoleStatusActive,
 	}
 	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {

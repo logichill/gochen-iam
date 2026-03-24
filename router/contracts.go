@@ -66,6 +66,7 @@ type ITenantService interface {
 type IMenuService interface {
 	CreateMenuItem(ctx context.Context, req *menusvc.CreateMenuItemRequest) (*iamentity.MenuItem, error)
 	UpdateMenuItem(ctx context.Context, id int64, req *menusvc.UpdateMenuItemRequest) (*iamentity.MenuItem, error)
+	SyncMenuItems(ctx context.Context, req *menusvc.SyncMenuItemsRequest) (*menusvc.SyncMenuItemsResult, error)
 	DeleteMenuItem(ctx context.Context, id int64) error
 	RestoreMenuItem(ctx context.Context, id int64) (*iamentity.MenuItem, error)
 	PurgeMenuItem(ctx context.Context, id int64) error

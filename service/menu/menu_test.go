@@ -13,7 +13,7 @@ import (
 func TestBuildMenuTree_NoContext_ShowsOnlyUnrestricted(t *testing.T) {
 	items := []*iamentity.MenuItem{
 		{Entity: crud.Entity[int64]{ID: 1}, Code: "root", Title: "Root", Published: true},
-		{Entity: crud.Entity[int64]{ID: 2}, Code: "secure", Title: "Secure", Published: true, AllOfPermissions: iamentity.StringArray{"a:b"}},
+		{Entity: crud.Entity[int64]{ID: 2}, Code: "secure", Title: "Secure", Published: true, AllOfPermissions: iamentity.StringArray{"api:a:read"}},
 	}
 
 	tree := buildMenuTree(items, nil)
@@ -35,7 +35,7 @@ func TestBuildMenuTree_WithPermissions_AnyAllAndParentRetention(t *testing.T) {
 			Code:             "root",
 			Title:            "Root",
 			Published:        true,
-			AllOfPermissions: iamentity.StringArray{"x:y"}, // user does not have
+			AllOfPermissions: iamentity.StringArray{"api:x:view"}, // user does not have
 		},
 		{
 			Entity:    crud.Entity[int64]{ID: childID},
@@ -44,8 +44,8 @@ func TestBuildMenuTree_WithPermissions_AnyAllAndParentRetention(t *testing.T) {
 			Title:     "Child",
 			Published: true,
 			AnyOfPermissions: iamentity.StringArray{
-				"a:b", // user has
-				"c:d",
+				"api:a:read", // user has
+				"api:c:write",
 			},
 		},
 	}
@@ -56,7 +56,7 @@ func TestBuildMenuTree_WithPermissions_AnyAllAndParentRetention(t *testing.T) {
 	}
 	reqCtx = hbasic.WithUserID(reqCtx, 1)
 	reqCtx = auth.WithRoles(reqCtx, []string{"user"})
-	reqCtx = auth.WithPermissions(reqCtx, []string{"a:b"})
+	reqCtx = auth.WithPermissions(reqCtx, []string{"api:a:read"})
 
 	tree := buildMenuTree(items, reqCtx)
 	if len(tree) != 1 {

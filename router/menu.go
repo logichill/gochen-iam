@@ -11,7 +11,7 @@ import (
 //
 // 约定：
 // - 菜单仅用于“导航可见性”，不作为安全边界；安全边界仍由 API 权限校验保证。
-// - /menus/me 返回基于当前请求上下文的菜单树（权限过滤）。
+// - /menus/me 返回基于当前请求上下文的菜单树（按菜单自身 permission 规则过滤）。
 type MenuRoutes struct {
 	menuService IMenuService
 	utils       *hbasic.Utils
@@ -36,23 +36,24 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	adminGroup := menuGroup.Group("")
 	adminGroup.Use(iammw.AdminOnlyMiddleware())
 	// 说明：当前设计“仅允许 system_admin 管理菜单”。
-	// menu:read/menu:write/menu:publish 仍会通过 PermissionMiddleware 注册到 required permissions，用于权限治理与审计。
+	// api:menu:read/api:menu:write/api:menu:publish 仍会通过 PermissionMiddleware 注册到 required permissions，用于权限治理与审计。
 	// 如需支持“非 system_admin 但具备 menu:* 权限的角色”管理菜单：移除 AdminOnlyMiddleware，仅保留 PermissionMiddleware。
 
 	adminReadGroup := adminGroup.Group("")
-	adminReadGroup.Use(iammw.PermissionMiddleware("menu:read"))
+	adminReadGroup.Use(iammw.PermissionMiddleware("api:menu:read"))
 	adminReadGroup.GET("", mr.listMenuItems)
 
 	adminWriteGroup := adminGroup.Group("")
-	adminWriteGroup.Use(iammw.PermissionMiddleware("menu:write"))
+	adminWriteGroup.Use(iammw.PermissionMiddleware("api:menu:write"))
 	adminWriteGroup.POST("", mr.createMenuItem)
+	adminWriteGroup.POST("/sync", mr.syncMenuItems)
 	adminWriteGroup.PUT("/:id", mr.updateMenuItem)
 	adminWriteGroup.DELETE("/:id", mr.deleteMenuItem)
 	adminWriteGroup.POST("/:id/restore", mr.restoreMenuItem)
 	adminWriteGroup.DELETE("/:id/purge", mr.purgeMenuItem)
 
 	adminPublishGroup := adminGroup.Group("")
-	adminPublishGroup.Use(iammw.PermissionMiddleware("menu:publish"))
+	adminPublishGroup.Use(iammw.PermissionMiddleware("api:menu:publish"))
 	adminPublishGroup.POST("/:id/publish", mr.publishMenuItem)
 	adminPublishGroup.POST("/:id/unpublish", mr.unpublishMenuItem)
 
@@ -102,6 +103,19 @@ func (mr *MenuRoutes) updateMenuItem(ctx httpx.IContext) error {
 		return err
 	}
 	mr.utils.WriteSuccessResponse(ctx, item)
+	return nil
+}
+
+func (mr *MenuRoutes) syncMenuItems(ctx httpx.IContext) error {
+	req := &menusvc.SyncMenuItemsRequest{}
+	if err := ctx.BindJSON(req); err != nil {
+		return err
+	}
+	result, err := mr.menuService.SyncMenuItems(ctx.GetRequest().Context(), req)
+	if err != nil {
+		return err
+	}
+	mr.utils.WriteSuccessResponse(ctx, result)
 	return nil
 }
 

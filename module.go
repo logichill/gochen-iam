@@ -64,7 +64,7 @@ func NewStrictPermissionRegistryValidator() *strictPermissionRegistryValidator {
 
 func (v *strictPermissionRegistryValidator) RegisterRoutes(httpx.IRouteGroup) error {
 	// 启动期 fail-close：严格权限字典模式校验（走 error 通道）。
-	iammw.RegisterRequiredPermissions(iamservice.AllPermissions...)
+	iammw.RegisterRequiredPermissionDefinitions(iamservice.AllPermissionDefinitions...)
 	if err := iammw.ValidateStrictPermissionRegistry(); err != nil {
 		return errorx.Wrap(err, errorx.Internal, "strict permission registry validation failed")
 	}

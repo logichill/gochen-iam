@@ -22,7 +22,7 @@ func newTestHTTPContext(t *testing.T, method, path string) *nethttp.Context {
 func TestOptionalAuthMiddleware_NoToken_PassThrough(t *testing.T) {
 	resetRequiredPermissionsRegistryForTest()
 	strictRegistryValidated = 0
-	RegisterRequiredPermissions("iam:test")
+	RegisterRequiredPermissions("api:iam:test")
 
 	mw := OptionalAuthMiddleware(&AuthConfig{
 		SecretKey:   "test-secret",
@@ -47,7 +47,7 @@ func TestOptionalAuthMiddleware_NoToken_PassThrough(t *testing.T) {
 func TestOptionalAuthMiddleware_InvalidToken_Returns401(t *testing.T) {
 	resetRequiredPermissionsRegistryForTest()
 	strictRegistryValidated = 0
-	RegisterRequiredPermissions("iam:test")
+	RegisterRequiredPermissions("api:iam:test")
 
 	mw := OptionalAuthMiddleware(&AuthConfig{
 		SecretKey:   "test-secret",

@@ -6,7 +6,7 @@
 - JWT 认证（`AuthMiddleware` / `OptionalAuthMiddleware`）
 - RBAC 授权（`RoleMiddleware` / `PermissionMiddleware`）
 - 权限治理（启动期自动收集 required permissions + 可选严格模式）
-- 后台菜单管理（`menu` 模块：落库 + 基于权限的“导航可见性”过滤）
+- 后台菜单管理（`menu` 模块：落库 + 基于菜单自身规则的“导航可见性”过滤）
 
 > 重要：菜单仅用于“导航可见性”，**不作为安全边界**。真正的安全边界应由服务端 API 的权限校验（如 `PermissionMiddleware`）保证。
 
@@ -78,7 +78,14 @@
 
 ### 权限码格式
 
-权限码格式为：`resource:action`（例如 `user:read`、`menu:publish`）。
+权限码格式只支持一种：
+
+- `type:resource:action`
+- API 权限：`api:user:read`、`api:family:manage`
+- 菜单权限：`menu:dashboard.home:view`
+- 动作权限：`action:mcp:invoke`
+- 仅支持“整段通配” `*`，例如 `api:*:*`、`api:task:*`、`menu:*:view`、`*:*:*`
+- 不支持正则、半段模糊或混合写法（如 `api:ta*:read`、`^api:.*`）
 
 ---
 
@@ -86,7 +93,7 @@
 
 ### required permissions registry
 
-在启动期调用到 `PermissionMiddleware("a:b")` 时，会自动注册到内存 registry：
+在启动期调用到 `PermissionMiddleware("api:user:read")` 这类三段式权限时，会自动注册到内存 registry；也可以显式调用 `RegisterRequiredPermissionDefinitions(...)` 注册带 `type/resource/action/name/description` 元数据的权限定义。
 
 - `middleware.RequiredPermissions()`：返回去重排序后的权限列表
 - `middleware.RequiredPermissionsWithCallsites()`：附带 callsite（调试用途）
@@ -95,6 +102,9 @@
 ### 严格权限字典（默认）
 
 gochen-iam 默认启用严格权限字典：仅允许为角色写入“系统已声明的权限”（由 `PermissionMiddleware(...)` 在装配期自动收集）。
+
+- 具体权限必须被 registry 显式注册
+- 通配符权限必须至少能命中一条已注册权限（例如 `api:*:*`、`*:*:*`）
 
 启动期校验在模块层执行：`gochen-iam/module.go` 的 `RegisterRoutes(ctx)` 会在路由装配完成后调用 `middleware.ValidateStrictPermissionRegistry()` 并通过 `error` 通道 fail-close。
 当 registry 为空时，会直接阻止应用继续启动。
@@ -112,7 +122,7 @@ gochen-iam 默认启用严格权限字典：仅允许为角色写入“系统已
 
 ## 菜单模块（menu）
 
-菜单模块用于后台系统的“导航结构”与“可见性配置”，可绑定权限条件进行过滤。
+菜单模块用于后台系统的“导航结构”与“可见性配置”；默认完全由菜单自身的 permission 规则过滤。
 
 ### 数据模型（落库）
 
@@ -134,7 +144,7 @@ gochen-iam 默认启用严格权限字典：仅允许为角色写入“系统已
    - `hidden=true` 或 `disabled=true`：直接过滤
    - `all_of_permissions`：必须全部满足
    - `any_of_permissions`：至少满足一个
-   - 无请求上下文（`reqCtx=nil`）：仅展示无权限约束菜单
+   - 无请求上下文（`reqCtx=nil`）：仅展示无 permission 约束菜单
 3. 父节点无权限但子节点可见时：保留父节点以承载子树
 
 > 再强调：菜单不作为安全边界；即使菜单不可见，也必须在 API 层继续做权限校验。
@@ -165,20 +175,20 @@ gochen-iam 默认启用严格权限字典：仅允许为角色写入“系统已
 
 2) 管理端（当前设计：**仅允许 system_admin 管理菜单**）：
 
-> 注意：管理端路由叠加了 `AdminOnlyMiddleware()` + `PermissionMiddleware("menu:*")`。由于 system_admin 天然拥有全部权限，`menu:*` 更偏向“权限治理（required permissions）/审计”用途。
-> 若未来希望非 system_admin 但具备 `menu:*` 权限的角色管理菜单，可移除 `AdminOnlyMiddleware()`，仅保留 `PermissionMiddleware`。
+> 注意：管理端路由叠加了 `AdminOnlyMiddleware()` + `PermissionMiddleware("api:menu:read|write|publish")`。当前 `system_admin` 仍是角色边界，而其权限集合建议收敛为 `*:*:*`；这些 permission 仍承担“权限治理（required permissions）/审计”职责。
+> 若未来希望非 system_admin 但具备菜单管理 permission 的角色接管菜单后台，可移除 `AdminOnlyMiddleware()`，仅保留对应 `PermissionMiddleware`。
 
-- `GET /menus`（`menu:read`）
-- `POST /menus`、`PUT /menus/:id`、`DELETE /menus/:id`（`menu:write`）
-- `POST /menus/:id/restore`（`menu:write`，恢复软删）
-- `DELETE /menus/:id/purge`（`menu:write`，物理删除）
-- `POST /menus/:id/publish`、`POST /menus/:id/unpublish`（`menu:publish`）
+- `GET /menus`（`api:menu:read`）
+- `POST /menus`、`PUT /menus/:id`、`DELETE /menus/:id`（`api:menu:write`）
+- `POST /menus/:id/restore`（`api:menu:write`，恢复软删）
+- `DELETE /menus/:id/purge`（`api:menu:write`，物理删除）
+- `POST /menus/:id/publish`、`POST /menus/:id/unpublish`（`api:menu:publish`）
 
 对应权限码：
 
-- `menu:read`
-- `menu:write`
-- `menu:publish`
+- `api:menu:read`
+- `api:menu:write`
+- `api:menu:publish`
 
 ---
 

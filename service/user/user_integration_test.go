@@ -189,6 +189,15 @@ func TestUserServiceRegister(t *testing.T) {
 			expectError: true,
 			errorCode:   errorx.Validation,
 		},
+		{
+			name: "6位密码允许注册",
+			req: &svc.RegisterRequest{
+				Username: "testuser4",
+				Email:    "test5@example.com",
+				Password: "123456",
+			},
+			expectError: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -370,9 +379,9 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 		t.Fatalf("register user: %v", err)
 	}
 
-	activeRole := env.createTestRole(t, "role_active", []string{"perm:active"})
-	inactiveRole := env.createTestRole(t, "role_inactive", []string{"perm:inactive"})
-	deletedRole := env.createTestRole(t, "role_deleted", []string{"perm:deleted"})
+	activeRole := env.createTestRole(t, "role_active", []string{"api:perm:active"})
+	inactiveRole := env.createTestRole(t, "role_inactive", []string{"api:perm:inactive"})
+	deletedRole := env.createTestRole(t, "role_deleted", []string{"api:perm:deleted"})
 
 	if err := env.userService.AssignRole(env.backgroundCtx, user.GetID(), activeRole.GetID()); err != nil {
 		t.Fatalf("assign active role: %v", err)
@@ -427,40 +436,40 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 	assertContains(authResp.Roles, "role_active", "auth roles")
 	assertNotContains(authResp.Roles, "role_inactive", "auth roles")
 	assertNotContains(authResp.Roles, "role_deleted", "auth roles")
-	assertContains(authResp.Permissions, "perm:active", "auth permissions")
-	assertNotContains(authResp.Permissions, "perm:inactive", "auth permissions")
-	assertNotContains(authResp.Permissions, "perm:deleted", "auth permissions")
+	assertContains(authResp.Permissions, "api:perm:active", "auth permissions")
+	assertNotContains(authResp.Permissions, "api:perm:inactive", "auth permissions")
+	assertNotContains(authResp.Permissions, "api:perm:deleted", "auth permissions")
 
 	assertContains(snapshotResp.Roles, "role_active", "snapshot roles")
 	assertNotContains(snapshotResp.Roles, "role_inactive", "snapshot roles")
 	assertNotContains(snapshotResp.Roles, "role_deleted", "snapshot roles")
-	assertContains(snapshotResp.Permissions, "perm:active", "snapshot permissions")
-	assertNotContains(snapshotResp.Permissions, "perm:inactive", "snapshot permissions")
-	assertNotContains(snapshotResp.Permissions, "perm:deleted", "snapshot permissions")
+	assertContains(snapshotResp.Permissions, "api:perm:active", "snapshot permissions")
+	assertNotContains(snapshotResp.Permissions, "api:perm:inactive", "snapshot permissions")
+	assertNotContains(snapshotResp.Permissions, "api:perm:deleted", "snapshot permissions")
 
 	perms, err := env.userService.GetUserPermissions(env.backgroundCtx, user.GetID())
 	if err != nil {
 		t.Fatalf("get user permissions: %v", err)
 	}
-	assertContains(perms, "perm:active", "user permissions")
-	assertNotContains(perms, "perm:inactive", "user permissions")
-	assertNotContains(perms, "perm:deleted", "user permissions")
+	assertContains(perms, "api:perm:active", "user permissions")
+	assertNotContains(perms, "api:perm:inactive", "user permissions")
+	assertNotContains(perms, "api:perm:deleted", "user permissions")
 
-	allowed, err := env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "perm:active")
+	allowed, err := env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "api:perm:active")
 	if err != nil {
 		t.Fatalf("check permission perm:active: %v", err)
 	}
 	if !allowed {
 		t.Fatalf("expected perm:active allowed")
 	}
-	allowed, err = env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "perm:inactive")
+	allowed, err = env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "api:perm:inactive")
 	if err != nil {
 		t.Fatalf("check permission perm:inactive: %v", err)
 	}
 	if allowed {
 		t.Fatalf("expected perm:inactive denied")
 	}
-	allowed, err = env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "perm:deleted")
+	allowed, err = env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "api:perm:deleted")
 	if err != nil {
 		t.Fatalf("check permission perm:deleted: %v", err)
 	}
@@ -473,7 +482,7 @@ func TestUserServiceGetUserPermissionsRequiresActiveUser(t *testing.T) {
 	env := setupUserServiceTest(t)
 	defer env.teardown(t)
 
-	role := env.createTestRole(t, "perm_role", []string{"perm:active"})
+	role := env.createTestRole(t, "perm_role", []string{"api:perm:active"})
 
 	tests := []struct {
 		name    string
@@ -517,7 +526,7 @@ func TestUserServiceGetUserPermissionsRequiresActiveUser(t *testing.T) {
 				t.Fatalf("expected forbidden error for %s user, got %v", tt.name, err)
 			}
 
-			allowed, err := env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "perm:active")
+			allowed, err := env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "api:perm:active")
 			if err == nil {
 				t.Fatalf("expected error for %s user, got allowed=%v", tt.name, allowed)
 			}
@@ -723,7 +732,7 @@ func TestUserServiceAssignRole(t *testing.T) {
 	}
 
 	// 创建角色
-	role := env.createTestRole(t, "test_role", []string{"test:read", "test:write"})
+	role := env.createTestRole(t, "test_role", []string{"api:test:read", "api:test:write"})
 
 	// 分配角色
 	err = env.userService.AssignRole(env.backgroundCtx, user.GetID(), role.GetID())
@@ -799,7 +808,7 @@ func TestUserServiceRemoveRole(t *testing.T) {
 	}
 
 	// 创建并分配角色
-	role := env.createTestRole(t, "remove_role", []string{"test:read"})
+	role := env.createTestRole(t, "remove_role", []string{"api:test:read"})
 	err = env.userService.AssignRole(env.backgroundCtx, user.GetID(), role.GetID())
 	if err != nil {
 		t.Fatalf("assign role: %v", err)

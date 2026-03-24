@@ -62,6 +62,40 @@ type UpdateMenuItemRequest struct {
 	AllOfPermissions []string `json:"all_of_permissions,omitempty"`
 }
 
+type SyncMenuItemRequest struct {
+	Code string `json:"code" binding:"required,max=100"`
+
+	Title string `json:"title" binding:"required,max=200"`
+	Path  string `json:"path,omitempty" binding:"omitempty,max=500"`
+	Icon  string `json:"icon,omitempty" binding:"omitempty,max=200"`
+	Type  string `json:"type" binding:"omitempty,oneof=group page link"`
+	Order int    `json:"order" binding:"omitempty,gte=0"`
+
+	Hidden    bool `json:"hidden"`
+	Disabled  bool `json:"disabled"`
+	Published bool `json:"published"`
+
+	AnyOfPermissions []string `json:"any_of_permissions,omitempty"`
+	AllOfPermissions []string `json:"all_of_permissions,omitempty"`
+}
+
+type SyncMenuItemsRequest struct {
+	Items           []SyncMenuItemRequest `json:"items" binding:"required"`
+	Upsert          bool                  `json:"upsert"`
+	SyncPermissions bool                  `json:"sync_permissions"`
+}
+
+type SyncMenuSkippedItem struct {
+	Code   string `json:"code"`
+	Reason string `json:"reason"`
+}
+
+type SyncMenuItemsResult struct {
+	Created []string              `json:"created"`
+	Updated []string              `json:"updated"`
+	Skipped []SyncMenuSkippedItem `json:"skipped"`
+}
+
 func (s *MenuService) CreateMenuItem(ctx context.Context, req *CreateMenuItemRequest) (*iamentity.MenuItem, error) {
 	if req == nil {
 		return nil, errorx.New(errorx.Validation, "request is required")
@@ -189,6 +223,99 @@ func (s *MenuService) UpdateMenuItem(ctx context.Context, id int64, req *UpdateM
 		logging.String("code", item.Code),
 	)
 	return item, nil
+}
+
+func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsRequest) (*SyncMenuItemsResult, error) {
+	if req == nil {
+		return nil, errorx.New(errorx.Validation, "request is required")
+	}
+	if len(req.Items) == 0 {
+		return nil, errorx.New(errorx.Validation, "items is required")
+	}
+
+	result := &SyncMenuItemsResult{
+		Created: make([]string, 0, len(req.Items)),
+		Updated: make([]string, 0, len(req.Items)),
+		Skipped: make([]SyncMenuSkippedItem, 0),
+	}
+
+	for _, raw := range req.Items {
+		if err := validateMenuPermissionCodes(raw.AnyOfPermissions, raw.AllOfPermissions); err != nil {
+			return nil, err
+		}
+
+		existing, err := s.menuRepo.GetByCodeWithDeleted(ctx, raw.Code)
+		if err != nil && !errorx.Is(err, errorx.NotFound) {
+			return nil, err
+		}
+
+		if existing == nil || errorx.Is(err, errorx.NotFound) {
+			item := &iamentity.MenuItem{
+				Code:             raw.Code,
+				Title:            raw.Title,
+				Path:             raw.Path,
+				Icon:             raw.Icon,
+				Type:             raw.Type,
+				Order:            raw.Order,
+				Hidden:           raw.Hidden,
+				Disabled:         raw.Disabled,
+				Published:        raw.Published,
+				AnyOfPermissions: iamentity.StringArray(raw.AnyOfPermissions),
+				AllOfPermissions: iamentity.StringArray(raw.AllOfPermissions),
+			}
+			item.SetUpdatedAt(time.Now())
+			if err := item.Validate(); err != nil {
+				return nil, err
+			}
+			if err := s.menuRepo.Create(ctx, item); err != nil {
+				return nil, errorx.Wrap(err, errorx.Database, "同步菜单失败")
+			}
+			result.Created = append(result.Created, item.Code)
+			continue
+		}
+
+		if existing.DeletedAt != nil {
+			result.Skipped = append(result.Skipped, SyncMenuSkippedItem{
+				Code:   raw.Code,
+				Reason: "菜单已软删除，请先恢复后再同步",
+			})
+			continue
+		}
+
+		dirty := false
+		if req.Upsert {
+			dirty = syncMenuBaseFields(existing, raw) || dirty
+		}
+		if req.SyncPermissions {
+			if !stringSliceEquals([]string(existing.AnyOfPermissions), raw.AnyOfPermissions) {
+				existing.AnyOfPermissions = iamentity.StringArray(raw.AnyOfPermissions)
+				dirty = true
+			}
+			if !stringSliceEquals([]string(existing.AllOfPermissions), raw.AllOfPermissions) {
+				existing.AllOfPermissions = iamentity.StringArray(raw.AllOfPermissions)
+				dirty = true
+			}
+		}
+
+		if !dirty {
+			result.Skipped = append(result.Skipped, SyncMenuSkippedItem{
+				Code:   raw.Code,
+				Reason: "无需更新",
+			})
+			continue
+		}
+
+		existing.SetUpdatedAt(time.Now())
+		if err := existing.Validate(); err != nil {
+			return nil, err
+		}
+		if err := s.menuRepo.Update(ctx, existing); err != nil {
+			return nil, errorx.Wrap(err, errorx.Database, "同步菜单失败")
+		}
+		result.Updated = append(result.Updated, existing.Code)
+	}
+
+	return result, nil
 }
 
 func (s *MenuService) DeleteMenuItem(ctx context.Context, id int64) error {
@@ -325,17 +452,80 @@ func (s *MenuService) validateParentNoCycle(ctx context.Context, selfID int64, p
 }
 
 func validateMenuPermissionCodes(anyOf []string, allOf []string) error {
+	if err := iammw.EnsureStrictPermissionRegistryLoaded(); err != nil {
+		return err
+	}
 	for _, p := range anyOf {
 		if !iammw.IsValidPermissionCode(p) {
 			return errorx.New(errorx.Validation, "无效的权限: "+p)
+		}
+		if !iammw.HasRequiredPermission(p) {
+			return errorx.New(errorx.Validation, "未知权限: "+p)
 		}
 	}
 	for _, p := range allOf {
 		if !iammw.IsValidPermissionCode(p) {
 			return errorx.New(errorx.Validation, "无效的权限: "+p)
 		}
+		if !iammw.HasRequiredPermission(p) {
+			return errorx.New(errorx.Validation, "未知权限: "+p)
+		}
 	}
 	return nil
+}
+
+func syncMenuBaseFields(item *iamentity.MenuItem, req SyncMenuItemRequest) bool {
+	if item == nil {
+		return false
+	}
+
+	dirty := false
+	if item.Title != req.Title {
+		item.Title = req.Title
+		dirty = true
+	}
+	if item.Path != req.Path {
+		item.Path = req.Path
+		dirty = true
+	}
+	if item.Icon != req.Icon {
+		item.Icon = req.Icon
+		dirty = true
+	}
+	if item.Type != req.Type && req.Type != "" {
+		item.Type = req.Type
+		dirty = true
+	}
+	if item.Order != req.Order {
+		item.Order = req.Order
+		dirty = true
+	}
+	if item.Hidden != req.Hidden {
+		item.Hidden = req.Hidden
+		dirty = true
+	}
+	if item.Disabled != req.Disabled {
+		item.Disabled = req.Disabled
+		dirty = true
+	}
+	if item.Published != req.Published {
+		item.Published = req.Published
+		dirty = true
+	}
+
+	return dirty
+}
+
+func stringSliceEquals(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func buildMenuTree(items []*iamentity.MenuItem, reqCtx httpx.IRequestContext) []*MenuNode {

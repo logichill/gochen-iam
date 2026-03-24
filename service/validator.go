@@ -2,9 +2,9 @@ package service
 
 import (
 	"context"
-	"strings"
 
 	iamentity "gochen-iam/entity"
+	iammw "gochen-iam/middleware"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
@@ -458,6 +458,5 @@ func (v *BusinessValidator) isValidPermission(permission string) bool {
 			return true
 		}
 	}
-	// 支持通配符权限
-	return strings.Contains(permission, ":") && len(permission) > 3
+	return iammw.IsValidPermissionCode(permission)
 }

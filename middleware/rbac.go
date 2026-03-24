@@ -9,7 +9,7 @@ import (
 	"gochen/httpx"
 )
 
-var permissionCodePattern = regexp.MustCompile(`^[A-Za-z0-9_]+:[A-Za-z0-9_]+$`)
+var permissionCodePattern = regexp.MustCompile(`^(\*|[A-Za-z0-9_]+):(\*|[A-Za-z0-9_.]+):(\*|[A-Za-z0-9_]+)$`)
 
 // IsValidPermissionCode 用于校验权限码格式（命名治理的最小护栏）。
 func IsValidPermissionCode(permission string) bool {
@@ -17,6 +17,47 @@ func IsValidPermissionCode(permission string) bool {
 		return false
 	}
 	return permissionCodePattern.MatchString(permission)
+}
+
+// PermissionPatternMatches 判断 pattern 是否命中 permission。
+//
+// 约定：
+// - 仅支持“整段通配” `*`，不支持正则或半段模糊；
+// - `pattern` 可为 `api:task:*`、`api:*:*`、`*:*:*` 等；
+// - `permission` 通常应是具体权限，但也允许传入合法的三段式通配符。
+func PermissionPatternMatches(pattern string, permission string) bool {
+	patternSegments, ok := permissionSegments(pattern)
+	if !ok {
+		return false
+	}
+	permissionSegments, ok := permissionSegments(permission)
+	if !ok {
+		return false
+	}
+
+	for i := range patternSegments {
+		if patternSegments[i] == "*" {
+			continue
+		}
+		if patternSegments[i] != permissionSegments[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func permissionSegments(permission string) ([3]string, bool) {
+	var segments [3]string
+	normalized := strings.ToLower(strings.TrimSpace(permission))
+	if !IsValidPermissionCode(normalized) {
+		return segments, false
+	}
+	parts := strings.Split(normalized, ":")
+	if len(parts) != len(segments) {
+		return segments, false
+	}
+	copy(segments[:], parts)
+	return segments, true
 }
 
 // GetRoles 从请求上下文中获取当前请求的角色列表
@@ -61,20 +102,18 @@ func HasPermission(ctx httpx.IRequestContext, permission string) bool {
 	if permission == "" {
 		return true
 	}
-	// 管理员拥有所有权限
-	if HasAnyRole(ctx, "system_admin") {
-		return true
-	}
 	if set := auth.GetPermissionSet(ctx); set != nil {
-		_, ok := set[strings.ToLower(permission)]
-		return ok
+		normalized := strings.ToLower(permission)
+		if _, ok := set[normalized]; ok {
+			return true
+		}
 	}
 	perms := GetPermissions(ctx)
 	if len(perms) == 0 {
 		return false
 	}
 	for _, p := range perms {
-		if strings.EqualFold(p, permission) {
+		if PermissionPatternMatches(p, permission) {
 			return true
 		}
 	}

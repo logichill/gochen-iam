@@ -260,15 +260,21 @@ func TestRequireAnyRole(t *testing.T) {
 	}
 }
 
-func TestHasPermission_AdminRoleOverrides(t *testing.T) {
+func TestHasPermission_WildcardPermissions(t *testing.T) {
 	ctx, err := hbasic.NewRequestContext(context.Background())
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
-	ctx = auth.WithRoles(ctx, []string{"system_admin"})
+	ctx = auth.WithPermissions(ctx, []string{"api:*:*", "menu:*:view"})
 
-	if !HasPermission(ctx, "any:permission") {
-		t.Error("expected admin to have all permissions")
+	if !HasPermission(ctx, "api:any:permission") {
+		t.Error("expected api:*:* to match api:any:permission")
+	}
+	if !HasPermission(ctx, "menu:dashboard.home:view") {
+		t.Error("expected menu:*:view to match menu:dashboard.home:view")
+	}
+	if HasPermission(ctx, "action:mcp:invoke") {
+		t.Error("expected wildcard not to cross permission type boundary")
 	}
 }
 
@@ -277,12 +283,12 @@ func TestRequirePermission(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
-	ctx = auth.WithPermissions(ctx, []string{"a:read"})
+	ctx = auth.WithPermissions(ctx, []string{"api:a:read"})
 
-	if err := RequirePermission(ctx, "a:write"); err == nil {
-		t.Error("expected RequirePermission(a:write) to fail")
+	if err := RequirePermission(ctx, "api:a:write"); err == nil {
+		t.Error("expected RequirePermission(api:a:write) to fail")
 	}
-	if err := RequirePermission(ctx, "a:read"); err != nil {
+	if err := RequirePermission(ctx, "api:a:read"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -297,9 +303,9 @@ func TestRequirePermission_ReturnsForbidden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
-	ctx = auth.WithPermissions(ctx, []string{"a:read"})
+	ctx = auth.WithPermissions(ctx, []string{"api:a:read"})
 
-	err = RequirePermission(ctx, "a:write")
+	err = RequirePermission(ctx, "api:a:write")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -312,17 +318,56 @@ func TestRequiredPermissionsRegistry(t *testing.T) {
 	resetRequiredPermissionsRegistryForTest()
 	defer resetRequiredPermissionsRegistryForTest()
 
-	_ = PermissionMiddleware("a:read")
-	_ = PermissionMiddleware("a:read")
-	_ = PermissionMiddleware("b:write")
+	_ = PermissionMiddleware("api:a:read")
+	_ = PermissionMiddleware("api:a:read")
+	_ = PermissionMiddleware("api:b:write")
 	_ = PermissionMiddleware("invalid-perm")
 
 	perms := RequiredPermissions()
 	if len(perms) != 2 {
 		t.Fatalf("expected 2 unique permissions, got %d: %#v", len(perms), perms)
 	}
-	if perms[0] != "a:read" || perms[1] != "b:write" {
+	if perms[0] != "api:a:read" || perms[1] != "api:b:write" {
 		t.Fatalf("unexpected permissions: %#v", perms)
+	}
+}
+
+func TestHasRequiredPermission_WildcardPattern(t *testing.T) {
+	resetRequiredPermissionsRegistryForTest()
+	defer resetRequiredPermissionsRegistryForTest()
+
+	_ = PermissionMiddleware("api:task:read")
+	_ = PermissionMiddleware("api:task:write")
+	_ = PermissionMiddleware("menu:dashboard.home:view")
+
+	if !HasRequiredPermission("api:*:*") {
+		t.Fatal("expected api:*:* to match registered api permissions")
+	}
+	if !HasRequiredPermission("api:task:*") {
+		t.Fatal("expected api:task:* to match registered task permissions")
+	}
+	if !HasRequiredPermission("*:*:*") {
+		t.Fatal("expected *:*:* to match all registered permissions")
+	}
+	if HasRequiredPermission("action:*:*") {
+		t.Fatal("expected action:*:* to fail when no action permission is registered")
+	}
+}
+
+func TestHasRequiredPermission_RegisteredWildcardMatchesConcretePermission(t *testing.T) {
+	resetRequiredPermissionsRegistryForTest()
+	defer resetRequiredPermissionsRegistryForTest()
+
+	RegisterRequiredPermissionDefinitions(
+		PermissionDefinition{Code: "menu:*:view"},
+		PermissionDefinition{Code: "action:mcp:invoke"},
+	)
+
+	if !HasRequiredPermission("menu:dashboard.home:view") {
+		t.Fatal("expected concrete menu permission to match registered wildcard definition")
+	}
+	if !HasRequiredPermission("action:mcp:invoke") {
+		t.Fatal("expected registered action permission to be recognized")
 	}
 }
 
@@ -330,12 +375,12 @@ func TestPermissionMiddleware_InvalidPermission_NotRegistered(t *testing.T) {
 	resetRequiredPermissionsRegistryForTest()
 	defer resetRequiredPermissionsRegistryForTest()
 
+	_ = PermissionMiddleware("api:task:read")
 	_ = PermissionMiddleware("task:read")
-	_ = PermissionMiddleware("task:read-self")
 	_ = PermissionMiddleware("")
 
 	perms := RequiredPermissions()
-	if len(perms) != 1 || perms[0] != "task:read" {
+	if len(perms) != 1 || perms[0] != "api:task:read" {
 		t.Fatalf("unexpected permissions: %#v", perms)
 	}
 }
@@ -353,7 +398,7 @@ func TestValidateStrictPermissionRegistry_StrictNonEmpty(t *testing.T) {
 	resetRequiredPermissionsRegistryForTest()
 	defer resetRequiredPermissionsRegistryForTest()
 
-	_ = PermissionMiddleware("task:read")
+	_ = PermissionMiddleware("api:task:read")
 	if err := ValidateStrictPermissionRegistry(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

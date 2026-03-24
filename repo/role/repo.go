@@ -4,6 +4,7 @@ import (
 	"context"
 
 	iamentity "gochen-iam/entity"
+	iammw "gochen-iam/middleware"
 	"gochen/db/orm"
 	db "gochen/db/orm/repo"
 	"gochen/domain/crud"
@@ -161,7 +162,7 @@ func (r *RoleRepo) FindByPermission(ctx context.Context, permission string) ([]*
 	}
 	var roles []*iamentity.Role
 	err = model.Find(ctx, &roles,
-		orm.WithWhere("JSON_CONTAINS(permissions, ?) AND deleted_at IS NULL", `"`+permission+`"`),
+		orm.WithWhere("deleted_at IS NULL"),
 		orm.WithPreload("Users"),
 	)
 
@@ -169,7 +170,24 @@ func (r *RoleRepo) FindByPermission(ctx context.Context, permission string) ([]*
 		return nil, errorx.Wrap(err, errorx.Database, "查询角色失败")
 	}
 
-	return roles, nil
+	if permission == "" {
+		return roles, nil
+	}
+
+	filtered := make([]*iamentity.Role, 0, len(roles))
+	for _, role := range roles {
+		if role == nil {
+			continue
+		}
+		for _, granted := range role.Permissions {
+			if iammw.PermissionPatternMatches(granted, permission) {
+				filtered = append(filtered, role)
+				break
+			}
+		}
+	}
+
+	return filtered, nil
 }
 
 // FindByUserID 根据用户ID查找角色

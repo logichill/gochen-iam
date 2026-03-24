@@ -8,15 +8,19 @@ import (
 
 func TestIsValidPermission(t *testing.T) {
 	valid := []string{
-		"task:read",
-		"task:write",
-		"user:read_self",
-		"story:admin",
-		"mcp:invoke",
-		"SYSTEM:READ",
-		"a:b",
-		"a1:b2",
-		"a_b:c_d",
+		"api:task:read",
+		"api:task:write",
+		"api:task:*",
+		"api:*:*",
+		"*:*:*",
+		"api:user:read_self",
+		"api:story:admin",
+		"action:mcp:invoke",
+		"menu:dashboard.home:view",
+		"menu:*:view",
+		"API:SYSTEM:READ",
+		"api:a1_b2:read_self",
+		"menu:a_b.c_d:view",
 	}
 	for _, p := range valid {
 		if !iammw.IsValidPermissionCode(p) {
@@ -30,11 +34,12 @@ func TestIsValidPermission(t *testing.T) {
 		"task",
 		"task:",
 		":read",
-		"task:read:extra",
-		"task:read-self",
+		"task:read",
+		"task:read:extra:value",
+		"action:mcp-invoke",
 		"task read",
 		"task/read",
-		"task:read\n",
+		"api:task:read\n",
 	}
 	for _, p := range invalid {
 		if iammw.IsValidPermissionCode(p) {
@@ -45,13 +50,23 @@ func TestIsValidPermission(t *testing.T) {
 
 func TestValidatePermissions_StrictRegistry(t *testing.T) {
 	// 注册系统所需权限（模拟路由装配期调用 PermissionMiddleware）
-	_ = iammw.PermissionMiddleware("role_permission_validation_test:read")
+	_ = iammw.PermissionMiddleware("api:role_permission_validation_test:read")
+	_ = iammw.PermissionMiddleware("menu:role_permission_validation_test:view")
 
 	s := &RoleService{}
-	if err := s.validatePermissions([]string{"role_permission_validation_test:read"}); err != nil {
+	if err := s.validatePermissions([]string{"api:role_permission_validation_test:read"}); err != nil {
 		t.Fatalf("expected permission in registry to pass, got: %v", err)
 	}
-	if err := s.validatePermissions([]string{"role_permission_validation_test:write"}); err == nil {
+	if err := s.validatePermissions([]string{"api:*:*", "menu:*:view"}); err != nil {
+		t.Fatalf("expected wildcard permissions matched by registry to pass, got: %v", err)
+	}
+	if err := s.validatePermissions([]string{"*:*:*"}); err != nil {
+		t.Fatalf("expected full wildcard permission to pass when registry is non-empty, got: %v", err)
+	}
+	if err := s.validatePermissions([]string{"api:role_permission_validation_test:write"}); err == nil {
 		t.Fatalf("expected unknown permission to fail")
+	}
+	if err := s.validatePermissions([]string{"action:*:*"}); err == nil {
+		t.Fatalf("expected unknown wildcard domain to fail")
 	}
 }
