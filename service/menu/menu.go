@@ -64,6 +64,8 @@ type UpdateMenuItemRequest struct {
 
 type SyncMenuItemRequest struct {
 	Code string `json:"code" binding:"required,max=100"`
+	// Sync 场景面向声明式菜单定义，使用稳定的业务 code 建树，再在服务层解析成 ParentID 落库。
+	ParentCode string `json:"parent_code,omitempty" binding:"omitempty,max=100"`
 
 	Title string `json:"title" binding:"required,max=200"`
 	Path  string `json:"path,omitempty" binding:"omitempty,max=500"`
@@ -239,10 +241,26 @@ func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsReque
 		Skipped: make([]SyncMenuSkippedItem, 0),
 	}
 
+	itemsByCode := make(map[string]SyncMenuItemRequest, len(req.Items))
 	for _, raw := range req.Items {
 		if err := validateMenuPermissionCodes(raw.AnyOfPermissions, raw.AllOfPermissions); err != nil {
 			return nil, err
 		}
+		if _, exists := itemsByCode[raw.Code]; exists {
+			return nil, errorx.New(errorx.Validation, "同步菜单中存在重复 code: "+raw.Code)
+		}
+		if raw.ParentCode != "" && raw.ParentCode == raw.Code {
+			return nil, errorx.New(errorx.Validation, "menu parent_code 不能指向自身: "+raw.Code)
+		}
+		itemsByCode[raw.Code] = raw
+	}
+
+	if err := s.validateSyncMenuParentCodes(ctx, itemsByCode); err != nil {
+		return nil, err
+	}
+
+	stagedItems := make(map[string]*iamentity.MenuItem, len(req.Items))
+	for _, raw := range req.Items {
 
 		existing, err := s.menuRepo.GetByCodeWithDeleted(ctx, raw.Code)
 		if err != nil && !errorx.Is(err, errorx.NotFound) {
@@ -270,6 +288,7 @@ func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsReque
 			if err := s.menuRepo.Create(ctx, item); err != nil {
 				return nil, errorx.Wrap(err, errorx.Database, "同步菜单失败")
 			}
+			stagedItems[item.Code] = item
 			result.Created = append(result.Created, item.Code)
 			continue
 		}
@@ -282,37 +301,62 @@ func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsReque
 			continue
 		}
 
+		stagedItems[existing.Code] = existing
+	}
+
+	for _, raw := range req.Items {
+		item := stagedItems[raw.Code]
+		if item == nil {
+			continue
+		}
+		created := contains(result.Created, raw.Code)
+
 		dirty := false
 		if req.Upsert {
-			dirty = syncMenuBaseFields(existing, raw) || dirty
+			dirty = syncMenuBaseFields(item, raw) || dirty
 		}
 		if req.SyncPermissions {
-			if !stringSliceEquals([]string(existing.AnyOfPermissions), raw.AnyOfPermissions) {
-				existing.AnyOfPermissions = iamentity.StringArray(raw.AnyOfPermissions)
+			if !stringSliceEquals([]string(item.AnyOfPermissions), raw.AnyOfPermissions) {
+				item.AnyOfPermissions = iamentity.StringArray(raw.AnyOfPermissions)
 				dirty = true
 			}
-			if !stringSliceEquals([]string(existing.AllOfPermissions), raw.AllOfPermissions) {
-				existing.AllOfPermissions = iamentity.StringArray(raw.AllOfPermissions)
+			if !stringSliceEquals([]string(item.AllOfPermissions), raw.AllOfPermissions) {
+				item.AllOfPermissions = iamentity.StringArray(raw.AllOfPermissions)
 				dirty = true
 			}
+		}
+		parentID, err := s.resolveSyncMenuParentID(ctx, raw.ParentCode, stagedItems)
+		if err != nil {
+			return nil, err
+		}
+		if !int64PtrEquals(item.ParentID, parentID) {
+			item.ParentID = parentID
+			dirty = true
 		}
 
 		if !dirty {
-			result.Skipped = append(result.Skipped, SyncMenuSkippedItem{
-				Code:   raw.Code,
-				Reason: "无需更新",
-			})
+			if !created {
+				result.Skipped = append(result.Skipped, SyncMenuSkippedItem{
+					Code:   raw.Code,
+					Reason: "无需更新",
+				})
+			}
 			continue
 		}
 
-		existing.SetUpdatedAt(time.Now())
-		if err := existing.Validate(); err != nil {
+		item.SetUpdatedAt(time.Now())
+		if err := item.Validate(); err != nil {
 			return nil, err
 		}
-		if err := s.menuRepo.Update(ctx, existing); err != nil {
+		if err := s.validateParentNoCycle(ctx, item.GetID(), item.ParentID); err != nil {
+			return nil, err
+		}
+		if err := s.menuRepo.Update(ctx, item); err != nil {
 			return nil, errorx.Wrap(err, errorx.Database, "同步菜单失败")
 		}
-		result.Updated = append(result.Updated, existing.Code)
+		if !created {
+			result.Updated = append(result.Updated, item.Code)
+		}
 	}
 
 	return result, nil
@@ -474,6 +518,86 @@ func validateMenuPermissionCodes(anyOf []string, allOf []string) error {
 	return nil
 }
 
+func (s *MenuService) validateSyncMenuParentCodes(ctx context.Context, itemsByCode map[string]SyncMenuItemRequest) error {
+	visiting := make(map[string]struct{}, len(itemsByCode))
+	visited := make(map[string]struct{}, len(itemsByCode))
+
+	for code, item := range itemsByCode {
+		if item.ParentCode == "" {
+			continue
+		}
+		if _, ok := itemsByCode[item.ParentCode]; ok {
+			continue
+		}
+		if _, err := s.menuRepo.GetByCode(ctx, item.ParentCode); err != nil {
+			if errorx.Is(err, errorx.NotFound) {
+				return errorx.New(errorx.Validation, "menu parent_code 不存在: "+item.ParentCode)
+			}
+			return err
+		}
+		if item.ParentCode == code {
+			return errorx.New(errorx.Validation, "menu parent_code 不能指向自身: "+code)
+		}
+	}
+
+	var walk func(code string) error
+	walk = func(code string) error {
+		if _, ok := visited[code]; ok {
+			return nil
+		}
+		if _, ok := visiting[code]; ok {
+			return errorx.New(errorx.Validation, "同步菜单 parent_code 链路存在环")
+		}
+
+		visiting[code] = struct{}{}
+		parentCode := itemsByCode[code].ParentCode
+		if parentCode != "" {
+			if _, ok := itemsByCode[parentCode]; ok {
+				if err := walk(parentCode); err != nil {
+					return err
+				}
+			}
+		}
+
+		delete(visiting, code)
+		visited[code] = struct{}{}
+		return nil
+	}
+
+	for code := range itemsByCode {
+		if err := walk(code); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *MenuService) resolveSyncMenuParentID(
+	ctx context.Context,
+	parentCode string,
+	stagedItems map[string]*iamentity.MenuItem,
+) (*int64, error) {
+	if parentCode == "" {
+		return nil, nil
+	}
+	if parent, ok := stagedItems[parentCode]; ok && parent != nil {
+		parentID := parent.GetID()
+		return &parentID, nil
+	}
+
+	parent, err := s.menuRepo.GetByCode(ctx, parentCode)
+	if err != nil {
+		if errorx.Is(err, errorx.NotFound) {
+			return nil, errorx.New(errorx.Validation, "menu parent_code 不存在: "+parentCode)
+		}
+		return nil, err
+	}
+
+	parentID := parent.GetID()
+	return &parentID, nil
+}
+
 func syncMenuBaseFields(item *iamentity.MenuItem, req SyncMenuItemRequest) bool {
 	if item == nil {
 		return false
@@ -526,6 +650,22 @@ func stringSliceEquals(a []string, b []string) bool {
 		}
 	}
 	return true
+}
+
+func int64PtrEquals(left *int64, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func contains(items []string, target string) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
 
 func buildMenuTree(items []*iamentity.MenuItem, reqCtx httpx.IRequestContext) []*MenuNode {
