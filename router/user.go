@@ -400,7 +400,7 @@ func (ur *UserRoutes) checkUserPermission(ctx httpx.IContext) error {
 // 当前用户处理器
 func (ur *UserRoutes) getCurrentUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
-	userID := ctx.GetContext().GetUserID()
+	userID := iammw.GetUserID(ctx.GetContext())
 	if userID == 0 {
 		err := errorx.New(errorx.Unauthorized, "用户未认证")
 		return err
@@ -421,7 +421,7 @@ func (ur *UserRoutes) getCurrentUser(ctx httpx.IContext) error {
 // updateCurrentUser 更新当前用户。
 func (ur *UserRoutes) updateCurrentUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
-	userID := ctx.GetContext().GetUserID()
+	userID := iammw.GetUserID(ctx.GetContext())
 	if userID == 0 {
 		err := errorx.New(errorx.Unauthorized, "用户未认证")
 		return err
@@ -447,7 +447,7 @@ func (ur *UserRoutes) updateCurrentUser(ctx httpx.IContext) error {
 // changePassword 处理change密码。
 func (ur *UserRoutes) changePassword(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
-	userID := ctx.GetContext().GetUserID()
+	userID := iammw.GetUserID(ctx.GetContext())
 	if userID == 0 {
 		err := errorx.New(errorx.Unauthorized, "用户未认证")
 		return err

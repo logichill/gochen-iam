@@ -115,7 +115,7 @@ gochen-iam 默认启用严格权限字典：仅允许为角色写入“系统已
 
 约定 tenant 通过 HTTP Header `X-Tenant-ID`（或 `AUTH_TENANT_HEADER` 指定的 key）传入：
 
-- `middleware.AuthMiddleware` / `OptionalAuthMiddleware` 会把 tenant 写入 `IRequestContext.GetTenantID()`
+- `middleware.AuthMiddleware` / `OptionalAuthMiddleware` 会把 tenant 写入 `gochen/metadata.GetTenantID(ctx)`
 - 业务侧可用 `middleware.RequireTenant(ctx)` / `middleware.RequireSameTenant(ctx, targetTenantID)` 做租户校验
 
 ---

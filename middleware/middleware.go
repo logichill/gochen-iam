@@ -4,7 +4,7 @@ import (
 	"gochen-iam/auth"
 	"gochen/errorx"
 	"gochen/httpx"
-	hbasic "gochen/httpx/nethttp"
+	"gochen/identity"
 )
 
 type permissionChecker struct{}
@@ -61,7 +61,7 @@ func RoleMiddleware(requiredRole string) httpx.Middleware {
 	base := httpx.RoleMiddleware(permissionChecker{}, requiredRole)
 	return func(ctx httpx.IContext, next func() error) error {
 		reqCtx := ctx.GetContext()
-		if reqCtx == nil || reqCtx.GetUserID() == 0 {
+		if reqCtx == nil || GetUserID(reqCtx) == 0 {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision: "deny",
 				Reason:   "用户未认证",
@@ -105,7 +105,7 @@ func PermissionMiddleware(requiredPermission string) httpx.Middleware {
 	base := httpx.PermissionMiddleware(permissionChecker{}, requiredPermission)
 	return func(ctx httpx.IContext, next func() error) error {
 		reqCtx := ctx.GetContext()
-		if reqCtx == nil || reqCtx.GetUserID() == 0 {
+		if reqCtx == nil || GetUserID(reqCtx) == 0 {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision:   "deny",
 				Reason:     "用户未认证",
@@ -138,7 +138,7 @@ func AdminOnlyMiddleware() httpx.Middleware {
 // UserOnlyMiddleware 仅用户中间件（已认证用户）
 func UserOnlyMiddleware() httpx.Middleware {
 	return func(ctx httpx.IContext, next func() error) error {
-		userID := ctx.GetContext().GetUserID()
+		userID := GetUserID(ctx.GetContext())
 		if userID == 0 {
 			return errorx.New(errorx.Unauthorized, "用户未认证")
 		}
@@ -148,7 +148,10 @@ func UserOnlyMiddleware() httpx.Middleware {
 
 // InjectAuthContext 处理Inject鉴权上下文。
 func InjectAuthContext(reqCtx httpx.IRequestContext, userID int64, roles, permissions []string) httpx.IRequestContext {
-	reqCtx = hbasic.WithUserID(reqCtx, userID)
+	derived, err := identity.WithUserID(reqCtx, userID)
+	if err == nil {
+		reqCtx = reqCtx.WithContext(derived)
+	}
 	reqCtx = auth.WithRoles(reqCtx, roles)
 	reqCtx = auth.WithPermissions(reqCtx, permissions)
 	return reqCtx

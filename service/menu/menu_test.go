@@ -8,6 +8,7 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen/domain/crud"
 	hbasic "gochen/httpx/nethttp"
+	"gochen/identity"
 )
 
 func TestBuildMenuTree_NoContext_ShowsOnlyUnrestricted(t *testing.T) {
@@ -54,7 +55,11 @@ func TestBuildMenuTree_WithPermissions_AnyAllAndParentRetention(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
-	reqCtx = hbasic.WithUserID(reqCtx, 1)
+	derived, err := identity.WithUserID(reqCtx, 1)
+	if err != nil {
+		t.Fatalf("WithUserID: %v", err)
+	}
+	reqCtx = reqCtx.WithContext(derived)
 	reqCtx = auth.WithRoles(reqCtx, []string{"user"})
 	reqCtx = auth.WithPermissions(reqCtx, []string{"api:a:read"})
 
@@ -79,7 +84,11 @@ func TestBuildMenuTree_TenantOverride_AppliesAndFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
-	reqCtx = hbasic.WithUserID(reqCtx, 1)
+	derived, err := identity.WithUserID(reqCtx, 1)
+	if err != nil {
+		t.Fatalf("WithUserID: %v", err)
+	}
+	reqCtx = reqCtx.WithContext(derived)
 	reqCtx = auth.WithRoles(reqCtx, []string{"user"})
 
 	tree := buildMenuTree(items, reqCtx)

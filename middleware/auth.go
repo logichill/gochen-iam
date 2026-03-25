@@ -11,7 +11,8 @@ import (
 	"gochen-iam/auth"
 	"gochen/errorx"
 	"gochen/httpx"
-	hbasic "gochen/httpx/nethttp"
+	"gochen/identity"
+	"gochen/metadata"
 )
 
 const (
@@ -168,7 +169,11 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 
 		// 设置用户ID到上下文
 		reqCtx := ctx.GetContext()
-		reqCtx = hbasic.WithUserID(reqCtx, claims.UserID)
+		derived, derr := identity.WithUserID(reqCtx, claims.UserID)
+		if derr != nil {
+			return derr
+		}
+		reqCtx = reqCtx.WithContext(derived)
 
 		tenantID := ctx.GetHeader(config.TenantHeader)
 		if tenantID == "" && config.AllowTenantQuery {
@@ -182,7 +187,7 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return errorx.New(errorx.Validation, "tenant_id is required")
 		}
 		if tenantID != "" {
-			derived, err := hbasic.WithTenantID(reqCtx, tenantID)
+			derived, err := metadata.WithTenantID(reqCtx, tenantID)
 			if err != nil {
 				recordAuthzDenied(ctx, AuditRecord{
 					Decision: "deny",
@@ -190,7 +195,7 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 				})
 				return err
 			}
-			reqCtx = derived
+			reqCtx = reqCtx.WithContext(derived)
 		}
 
 		// 注入角色与权限信息，供后续 RBAC 使用
@@ -239,7 +244,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return errorx.New(errorx.Validation, "tenant_id is required")
 		}
 		if tenantID != "" {
-			derived, err := hbasic.WithTenantID(reqCtx, tenantID)
+			derived, err := metadata.WithTenantID(reqCtx, tenantID)
 			if err != nil {
 				recordAuthzDenied(ctx, AuditRecord{
 					Decision: "deny",
@@ -247,7 +252,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 				})
 				return err
 			}
-			reqCtx = derived
+			reqCtx = reqCtx.WithContext(derived)
 			ctx.SetContext(reqCtx)
 		}
 
@@ -277,7 +282,11 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 		}
 
 		// 验证成功，设置用户ID，并注入角色/权限信息
-		reqCtx = hbasic.WithUserID(reqCtx, claims.UserID)
+		derived, derr := identity.WithUserID(reqCtx, claims.UserID)
+		if derr != nil {
+			return derr
+		}
+		reqCtx = reqCtx.WithContext(derived)
 		reqCtx = auth.WithRoles(reqCtx, claims.Roles)
 		reqCtx = auth.WithPermissions(reqCtx, claims.Permissions)
 		ctx.SetContext(reqCtx)

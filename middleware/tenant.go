@@ -10,7 +10,7 @@ func RequireTenant(ctx httpx.IRequestContext) (string, error) {
 	if ctx == nil {
 		return "", errorx.New(errorx.Unauthorized, "用户未认证")
 	}
-	tenantID := ctx.GetTenantID()
+	tenantID := GetTenantID(ctx)
 	if tenantID == "" {
 		return "", errorx.New(errorx.Validation, "tenant_id is required")
 	}
@@ -25,7 +25,7 @@ func RequireSameTenant(ctx httpx.IRequestContext, targetTenantID string) error {
 	if targetTenantID == "" {
 		return errorx.New(errorx.Validation, "target tenant_id is required")
 	}
-	if ctx.GetTenantID() != targetTenantID {
+	if GetTenantID(ctx) != targetTenantID {
 		return errorx.New(errorx.Forbidden, "跨租户访问被拒绝")
 	}
 	return nil
