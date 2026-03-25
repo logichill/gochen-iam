@@ -5,7 +5,7 @@ import (
 	"gochen/httpx"
 )
 
-// RequireTenant 要求请求上下文中已注入 tenant_id（通常来自 Header: X-Tenant-ID）。
+// RequireTenant 处理要求租户。
 func RequireTenant(ctx httpx.IRequestContext) (string, error) {
 	if ctx == nil {
 		return "", errorx.New(errorx.Unauthorized, "用户未认证")

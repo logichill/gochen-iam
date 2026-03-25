@@ -100,11 +100,7 @@ func ValidateAuthConfig(config *AuthConfig) error {
 	return nil
 }
 
-// matchSkipPath 判断当前请求 path 是否应被 SkipPaths 跳过。
-//
-// 约定：
-// - 默认精确匹配（允许可选的末尾 "/"），避免前缀匹配导致误跳过（例如 "/loginxxx"）。
-// - 若 skipPath 以 "/" 结尾，则视为“目录前缀”，允许跳过其子路径（显式 opt-in）。
+// matchSkipPath 处理matchSkipPath。
 func matchSkipPath(path, skipPath string) bool {
 	if skipPath == "" {
 		return false
@@ -291,6 +287,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 	}
 }
 
+// extractTokenFromHeadersAndQuery 提取令牌从请求头集合And查询。
 func extractTokenFromHeadersAndQuery(getHeader func(string) string, getQuery func(string) string, config *AuthConfig) string {
 	if config == nil {
 		config = DefaultAuthConfig()
@@ -317,7 +314,7 @@ func extractToken(ctx httpx.IContext, config *AuthConfig) string {
 	return extractTokenFromHeadersAndQuery(ctx.GetHeader, ctx.GetQuery, config)
 }
 
-// validateToken 验证token并返回声明
+// validateToken 校验令牌。
 func validateToken(token, secretKey string) (*JWTClaims, error) {
 	claims, err := ParseToken(token, secretKey)
 	if err != nil {

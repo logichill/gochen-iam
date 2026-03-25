@@ -9,7 +9,7 @@ import (
 	"gochen/validation"
 )
 
-// Tenant 租户实体（普通审计型聚合，不使用 Event Sourcing）
+// Tenant 定义租户。
 type Tenant struct {
 	crud.Entity[int64]
 	domain.Timestamps
@@ -52,15 +52,31 @@ func (t *Tenant) GetEntityType() string {
 }
 
 // 兼容 domain.IEntity 方法
-func (t *Tenant) GetID() int64              { return t.ID }
-func (t *Tenant) SetID(id int64)            { t.ID = id }
-func (t *Tenant) GetCreatedAt() time.Time   { return t.CreatedAt }
-func (t *Tenant) GetUpdatedAt() time.Time   { return t.UpdatedAt }
+func (t *Tenant) GetID() int64 { return t.ID }
+
+// SetID 设置ID。
+func (t *Tenant) SetID(id int64) { t.ID = id }
+
+// GetCreatedAt 返回创建At。
+func (t *Tenant) GetCreatedAt() time.Time { return t.CreatedAt }
+
+// GetUpdatedAt 返回更新At。
+func (t *Tenant) GetUpdatedAt() time.Time { return t.UpdatedAt }
+
+// SetUpdatedAt 设置更新At。
 func (t *Tenant) SetUpdatedAt(tm time.Time) { t.UpdatedAt = tm }
-func (t *Tenant) IsDeleted() bool           { return t.DeletedAt != nil }
-func (t *Tenant) MarkAsDeleted()            { now := time.Now(); t.DeletedAt = &now; t.UpdatedAt = now }
-func (t *Tenant) Restore()                  { t.DeletedAt = nil; t.UpdatedAt = time.Now() }
-func (t *Tenant) GetDeletedAt() *time.Time  { return t.DeletedAt }
+
+// IsDeleted 判断已删除。
+func (t *Tenant) IsDeleted() bool { return t.DeletedAt != nil }
+
+// MarkAsDeleted 处理MarkAs已删除。
+func (t *Tenant) MarkAsDeleted() { now := time.Now(); t.DeletedAt = &now; t.UpdatedAt = now }
+
+// Restore 恢复数据。
+func (t *Tenant) Restore() { t.DeletedAt = nil; t.UpdatedAt = time.Now() }
+
+// GetDeletedAt 返回已删除At。
+func (t *Tenant) GetDeletedAt() *time.Time { return t.DeletedAt }
 
 // IsActive 是否处于启用状态
 func (t *Tenant) IsActive() bool {

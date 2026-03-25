@@ -56,14 +56,30 @@ func (g *Group) GetEntityType() string {
 }
 
 // 兼容 domain.IEntity 方法
-func (g *Group) GetID() int64             { return g.ID }
-func (g *Group) SetID(id int64)           { g.ID = id }
-func (g *Group) GetCreatedAt() time.Time  { return g.CreatedAt }
-func (g *Group) GetUpdatedAt() time.Time  { return g.UpdatedAt }
+func (g *Group) GetID() int64 { return g.ID }
+
+// SetID 设置ID。
+func (g *Group) SetID(id int64) { g.ID = id }
+
+// GetCreatedAt 返回创建At。
+func (g *Group) GetCreatedAt() time.Time { return g.CreatedAt }
+
+// GetUpdatedAt 返回更新At。
+func (g *Group) GetUpdatedAt() time.Time { return g.UpdatedAt }
+
+// SetUpdatedAt 设置更新At。
 func (g *Group) SetUpdatedAt(t time.Time) { g.UpdatedAt = t }
-func (g *Group) IsDeleted() bool          { return g.DeletedAt != nil }
-func (g *Group) MarkAsDeleted()           { now := time.Now(); g.DeletedAt = &now; g.UpdatedAt = now }
-func (g *Group) Restore()                 { g.DeletedAt = nil; g.UpdatedAt = time.Now() }
+
+// IsDeleted 判断已删除。
+func (g *Group) IsDeleted() bool { return g.DeletedAt != nil }
+
+// MarkAsDeleted 处理MarkAs已删除。
+func (g *Group) MarkAsDeleted() { now := time.Now(); g.DeletedAt = &now; g.UpdatedAt = now }
+
+// Restore 恢复数据。
+func (g *Group) Restore() { g.DeletedAt = nil; g.UpdatedAt = time.Now() }
+
+// GetDeletedAt 返回已删除At。
 func (g *Group) GetDeletedAt() *time.Time { return g.DeletedAt }
 
 // IsRootGroup 检查是否为根组织
@@ -221,7 +237,7 @@ func (g *Group) GetFullName() string {
 	return g.Parent.GetFullName() + " / " + g.Name
 }
 
-// String 实现 Stringer 接口
+// String 返回字符串表示。
 func (g *Group) String() string {
 	return fmt.Sprintf("Group{ID: %d, Name: %s, Level: %d, Path: %s}",
 		g.GetID(), g.Name, g.Level, g.Path)

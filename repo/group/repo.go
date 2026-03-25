@@ -16,7 +16,7 @@ type GroupRepo struct {
 	*db.Repo[*iamentity.Group, int64]
 }
 
-// NewGroupRepository 创建组织Repository
+// NewGroupRepository 创建分组仓储。
 func NewGroupRepository(o orm.IOrm) (*GroupRepo, error) {
 	base, err := db.NewRepo(
 		o,

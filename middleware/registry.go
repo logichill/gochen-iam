@@ -13,6 +13,7 @@ type requiredPermissionMeta struct {
 	Callsite string
 }
 
+// PermissionType 定义权限类型枚举。
 type PermissionType string
 
 const (
@@ -21,6 +22,7 @@ const (
 	PermissionTypeAction PermissionType = "action"
 )
 
+// PermissionDefinition 定义权限Definition。
 type PermissionDefinition struct {
 	Code        string         `json:"code"`
 	Type        PermissionType `json:"type"`
@@ -42,12 +44,14 @@ var requiredPermissionsRegistry = struct {
 	perms: map[string]registeredPermission{},
 }
 
+// requiredPermissionsCount 处理required权限集合Count。
 func requiredPermissionsCount() int {
 	requiredPermissionsRegistry.mu.RLock()
 	defer requiredPermissionsRegistry.mu.RUnlock()
 	return len(requiredPermissionsRegistry.perms)
 }
 
+// normalizePermissionDefinition 规范化权限Definition。
 func normalizePermissionDefinition(def PermissionDefinition) PermissionDefinition {
 	def.Code = strings.ToLower(strings.TrimSpace(def.Code))
 	if def.Code == "" || !IsValidPermissionCode(def.Code) {
@@ -61,6 +65,7 @@ func normalizePermissionDefinition(def PermissionDefinition) PermissionDefinitio
 	return def
 }
 
+// mergePermissionDefinition 合并权限Definition。
 func mergePermissionDefinition(current PermissionDefinition, incoming PermissionDefinition) PermissionDefinition {
 	if current.Code == "" {
 		return incoming
@@ -83,6 +88,7 @@ func mergePermissionDefinition(current PermissionDefinition, incoming Permission
 	return current
 }
 
+// registerRequiredPermission 注册Required权限。
 func registerRequiredPermission(def PermissionDefinition) {
 	def = normalizePermissionDefinition(def)
 	if def.Code == "" {
@@ -106,7 +112,7 @@ func registerRequiredPermission(def PermissionDefinition) {
 	requiredPermissionsRegistry.perms[def.Code] = current
 }
 
-// RequiredPermissions 返回当前进程在启动期间注册到 PermissionMiddleware 的权限集合（去重、排序）。
+// RequiredPermissions 处理Required权限集合。
 func RequiredPermissions() []string {
 	requiredPermissionsRegistry.mu.RLock()
 	defer requiredPermissionsRegistry.mu.RUnlock()
@@ -136,7 +142,7 @@ func RequiredPermissionsWithCallsites() map[string][]string {
 	return out
 }
 
-// RequiredPermissionsWithRedactedCallsites 返回权限及其注册点（脱敏：仅保留文件名与行号）。
+// RequiredPermissionsWithRedactedCallsites 处理Required权限集合并带RedactedCallsites。
 func RequiredPermissionsWithRedactedCallsites() map[string][]string {
 	requiredPermissionsRegistry.mu.RLock()
 	defer requiredPermissionsRegistry.mu.RUnlock()
@@ -153,6 +159,7 @@ func RequiredPermissionsWithRedactedCallsites() map[string][]string {
 	return out
 }
 
+// RegisterRequiredPermissionDefinitions 注册Required权限Definitions。
 func RegisterRequiredPermissionDefinitions(definitions ...PermissionDefinition) {
 	for _, def := range definitions {
 		registerRequiredPermission(def)
@@ -170,6 +177,7 @@ func RegisterRequiredPermissions(permissions ...string) {
 	}
 }
 
+// RequiredPermissionDefinitions 处理Required权限Definitions。
 func RequiredPermissionDefinitions() []PermissionDefinition {
 	requiredPermissionsRegistry.mu.RLock()
 	defer requiredPermissionsRegistry.mu.RUnlock()
@@ -206,6 +214,7 @@ func HasRequiredPermission(permission string) bool {
 	return false
 }
 
+// redactCallsite 处理redactCallsite。
 func redactCallsite(callsite string) string {
 	if callsite == "" || callsite == "unknown" {
 		return "unknown"
@@ -219,6 +228,7 @@ func redactCallsite(callsite string) string {
 	return base + ":" + line
 }
 
+// splitCallsite 处理splitCallsite。
 func splitCallsite(callsite string) (file string, line string) {
 	// callsite 形如 "/abs/path/file.go:123" 或 "file.go:123"。
 	for i := len(callsite) - 1; i >= 0; i-- {
@@ -229,6 +239,7 @@ func splitCallsite(callsite string) (file string, line string) {
 	return callsite, ""
 }
 
+// resetRequiredPermissionsRegistryForTest 重置测试Required权限集合注册表。
 func resetRequiredPermissionsRegistryForTest() {
 	requiredPermissionsRegistry.mu.Lock()
 	defer requiredPermissionsRegistry.mu.Unlock()

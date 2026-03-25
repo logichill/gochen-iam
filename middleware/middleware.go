@@ -9,6 +9,7 @@ import (
 
 type permissionChecker struct{}
 
+// HasPermission 判断权限。
 func (permissionChecker) HasPermission(ctx httpx.IContext, permission string) bool {
 	if ctx == nil {
 		return false
@@ -16,6 +17,7 @@ func (permissionChecker) HasPermission(ctx httpx.IContext, permission string) bo
 	return HasPermission(ctx.GetContext(), permission)
 }
 
+// HasAnyPermission 判断Any权限。
 func (permissionChecker) HasAnyPermission(ctx httpx.IContext, permissions []string) bool {
 	if len(permissions) == 0 {
 		return true
@@ -35,6 +37,7 @@ func (permissionChecker) HasAnyPermission(ctx httpx.IContext, permissions []stri
 	return false
 }
 
+// HasRole 判断角色。
 func (permissionChecker) HasRole(ctx httpx.IContext, role string) bool {
 	if ctx == nil {
 		return false
@@ -42,6 +45,7 @@ func (permissionChecker) HasRole(ctx httpx.IContext, role string) bool {
 	return HasAnyRole(ctx.GetContext(), role)
 }
 
+// HasAnyRole 判断Any角色。
 func (permissionChecker) HasAnyRole(ctx httpx.IContext, roles []string) bool {
 	if len(roles) == 0 {
 		return true
@@ -142,7 +146,7 @@ func UserOnlyMiddleware() httpx.Middleware {
 	}
 }
 
-// InjectAuthContext 将角色与权限信息注入 IRequestContext，供后续 RBAC 使用。
+// InjectAuthContext 处理Inject鉴权上下文。
 func InjectAuthContext(reqCtx httpx.IRequestContext, userID int64, roles, permissions []string) httpx.IRequestContext {
 	reqCtx = hbasic.WithUserID(reqCtx, userID)
 	reqCtx = auth.WithRoles(reqCtx, roles)

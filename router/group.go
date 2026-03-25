@@ -122,6 +122,7 @@ func (gr *GroupRoutes) getGroupTree(ctx httpx.IContext) error {
 	return nil
 }
 
+// getRootGroups 返回RootGroups。
 func (gr *GroupRoutes) getRootGroups(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 
@@ -134,6 +135,7 @@ func (gr *GroupRoutes) getRootGroups(ctx httpx.IContext) error {
 	return nil
 }
 
+// getGroupsByLevel 返回Groups按等级。
 func (gr *GroupRoutes) getGroupsByLevel(ctx httpx.IContext) error {
 	levelStr := ctx.GetQuery("level")
 	if levelStr == "" {
@@ -180,6 +182,7 @@ func (gr *GroupRoutes) getGroupUsers(ctx httpx.IContext) error {
 	return nil
 }
 
+// addUserToGroup 添加用户到分组。
 func (gr *GroupRoutes) addUserToGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	groupID, err := gr.utils.ParseID(ctx, "id")
@@ -209,6 +212,7 @@ func (gr *GroupRoutes) addUserToGroup(ctx httpx.IContext) error {
 	return nil
 }
 
+// removeUserFromGroup 移除用户从分组。
 func (gr *GroupRoutes) removeUserFromGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	groupID, err := gr.utils.ParseID(ctx, "id")
@@ -232,6 +236,7 @@ func (gr *GroupRoutes) removeUserFromGroup(ctx httpx.IContext) error {
 	return nil
 }
 
+// batchAddUsersToGroup 处理批量AddUsers到分组。
 func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	groupID, err := gr.utils.ParseID(ctx, "id")
@@ -291,6 +296,7 @@ func (gr *GroupRoutes) getGroupRoles(ctx httpx.IContext) error {
 	return nil
 }
 
+// addGroupRole 添加分组角色。
 func (gr *GroupRoutes) addGroupRole(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	groupID, err := gr.utils.ParseID(ctx, "id")
@@ -320,6 +326,7 @@ func (gr *GroupRoutes) addGroupRole(ctx httpx.IContext) error {
 	return nil
 }
 
+// removeGroupRole 移除分组角色。
 func (gr *GroupRoutes) removeGroupRole(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	groupID, err := gr.utils.ParseID(ctx, "id")

@@ -42,7 +42,7 @@ func NewRoleService(
 	}
 }
 
-// CreateRole 创建角色
+// CreateRole 创建角色。
 func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest) (*iamentity.Role, error) {
 	// 1. 验证请求数据
 	if err := s.validateCreateRoleRequest(req); err != nil {
@@ -82,7 +82,7 @@ func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest
 	return role, nil
 }
 
-// UpdateRole 更新角色
+// UpdateRole 更新角色。
 func (s *RoleService) UpdateRole(ctx context.Context, roleID int64, req *svc.UpdateRoleRequest) (*iamentity.Role, error) {
 	// 1. 获取角色
 	role, err := s.roleRepo.Get(ctx, roleID)
@@ -129,7 +129,7 @@ func (s *RoleService) UpdateRole(ctx context.Context, roleID int64, req *svc.Upd
 	return role, nil
 }
 
-// DeleteRole 删除角色
+// DeleteRole 删除角色。
 func (s *RoleService) DeleteRole(ctx context.Context, roleID int64) error {
 	// 1. 获取角色
 	role, err := s.roleRepo.Get(ctx, roleID)
@@ -371,7 +371,7 @@ func (s *RoleService) InitializeSystemRoles(ctx context.Context) error {
 	return s.roleRepo.InitializeSystemRoles(ctx)
 }
 
-// GetRoleStatistics 获取角色统计信息
+// GetRoleStatistics 返回角色统计信息。
 func (s *RoleService) GetRoleStatistics(ctx context.Context) (map[string]interface{}, error) {
 	// 1. 统计总角色数
 	totalRoles, err := s.roleRepo.Count(ctx)
@@ -462,6 +462,7 @@ func (s *RoleService) validatePermissions(permissions []string) error {
 
 // 发布用户角色相关事件（内部辅助方法）
 
+// publishUserRoleAssignedEvent 处理publish用户角色Assigned事件。
 func (s *RoleService) publishUserRoleAssignedEvent(ctx context.Context, userID int64, role *iamentity.Role) {
 	if s.eventBus == nil || role == nil {
 		return
@@ -485,6 +486,7 @@ func (s *RoleService) publishUserRoleAssignedEvent(ctx context.Context, userID i
 	}
 }
 
+// publishUserRoleRemovedEvent 处理publish用户角色Removed事件。
 func (s *RoleService) publishUserRoleRemovedEvent(ctx context.Context, userID, roleID int64) {
 	if s.eventBus == nil {
 		return

@@ -13,11 +13,13 @@ import (
 	"gochen/logging"
 )
 
+// MenuService 负责菜单定义管理与当前用户菜单树组装。
 type MenuService struct {
 	menuRepo *menurepo.MenuItemRepo
 	logger   logging.ILogger
 }
 
+// NewMenuService 创建菜单应用服务。
 func NewMenuService(menuRepo *menurepo.MenuItemRepo) *MenuService {
 	return &MenuService{
 		menuRepo: menuRepo,
@@ -25,6 +27,7 @@ func NewMenuService(menuRepo *menurepo.MenuItemRepo) *MenuService {
 	}
 }
 
+// CreateMenuItemRequest 定义创建菜单的请求体。
 type CreateMenuItemRequest struct {
 	Code      string `json:"code" binding:"required,max=100"`
 	ParentID  *int64 `json:"parent_id,omitempty" binding:"omitempty,gt=0"`
@@ -44,6 +47,7 @@ type CreateMenuItemRequest struct {
 	AllOfPermissions []string `json:"all_of_permissions,omitempty"`
 }
 
+// UpdateMenuItemRequest 定义更新菜单的请求体。
 type UpdateMenuItemRequest struct {
 	ParentID  *int64  `json:"parent_id,omitempty"`
 	Title     string  `json:"title,omitempty" binding:"omitempty,max=200"`
@@ -62,6 +66,7 @@ type UpdateMenuItemRequest struct {
 	AllOfPermissions []string `json:"all_of_permissions,omitempty"`
 }
 
+// SyncMenuItemRequest 定义单个菜单同步项。
 type SyncMenuItemRequest struct {
 	Code string `json:"code" binding:"required,max=100"`
 	// Sync 场景面向声明式菜单定义，使用稳定的业务 code 建树，再在服务层解析成 ParentID 落库。
@@ -81,23 +86,27 @@ type SyncMenuItemRequest struct {
 	AllOfPermissions []string `json:"all_of_permissions,omitempty"`
 }
 
+// SyncMenuItemsRequest 定义批量同步菜单的请求体。
 type SyncMenuItemsRequest struct {
 	Items           []SyncMenuItemRequest `json:"items" binding:"required"`
 	Upsert          bool                  `json:"upsert"`
 	SyncPermissions bool                  `json:"sync_permissions"`
 }
 
+// SyncMenuSkippedItem 记录同步过程中被跳过的菜单项。
 type SyncMenuSkippedItem struct {
 	Code   string `json:"code"`
 	Reason string `json:"reason"`
 }
 
+// SyncMenuItemsResult 汇总菜单同步的创建、更新与跳过结果。
 type SyncMenuItemsResult struct {
 	Created []string              `json:"created"`
 	Updated []string              `json:"updated"`
 	Skipped []SyncMenuSkippedItem `json:"skipped"`
 }
 
+// CreateMenuItem 创建一条新的菜单定义。
 func (s *MenuService) CreateMenuItem(ctx context.Context, req *CreateMenuItemRequest) (*iamentity.MenuItem, error) {
 	if req == nil {
 		return nil, errorx.New(errorx.Validation, "request is required")
@@ -153,6 +162,7 @@ func (s *MenuService) CreateMenuItem(ctx context.Context, req *CreateMenuItemReq
 	return item, nil
 }
 
+// UpdateMenuItem 按 ID 更新菜单定义。
 func (s *MenuService) UpdateMenuItem(ctx context.Context, id int64, req *UpdateMenuItemRequest) (*iamentity.MenuItem, error) {
 	if req == nil {
 		return nil, errorx.New(errorx.Validation, "request is required")
@@ -227,6 +237,7 @@ func (s *MenuService) UpdateMenuItem(ctx context.Context, id int64, req *UpdateM
 	return item, nil
 }
 
+// SyncMenuItems 按声明式菜单定义批量同步菜单数据。
 func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsRequest) (*SyncMenuItemsResult, error) {
 	if req == nil {
 		return nil, errorx.New(errorx.Validation, "request is required")
@@ -241,6 +252,7 @@ func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsReque
 		Skipped: make([]SyncMenuSkippedItem, 0),
 	}
 
+	// 1. 准备 code 索引并完成权限、重复项、自引用等基础校验。
 	itemsByCode := make(map[string]SyncMenuItemRequest, len(req.Items))
 	for _, raw := range req.Items {
 		if err := validateMenuPermissionCodes(raw.AnyOfPermissions, raw.AllOfPermissions); err != nil {
@@ -259,6 +271,7 @@ func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsReque
 		return nil, err
 	}
 
+	// 2. 预加载/创建本批次菜单，确保后续解析 parent_code 时能拿到最新节点集合。
 	stagedItems := make(map[string]*iamentity.MenuItem, len(req.Items))
 	for _, raw := range req.Items {
 
@@ -304,6 +317,7 @@ func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsReque
 		stagedItems[existing.Code] = existing
 	}
 
+	// 3. 二次遍历做字段同步、父子关系解析和最终持久化。
 	for _, raw := range req.Items {
 		item := stagedItems[raw.Code]
 		if item == nil {
@@ -362,6 +376,7 @@ func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsReque
 	return result, nil
 }
 
+// DeleteMenuItem 软删除指定菜单。
 func (s *MenuService) DeleteMenuItem(ctx context.Context, id int64) error {
 	item, err := s.menuRepo.Get(ctx, id)
 	if err != nil {
@@ -406,6 +421,7 @@ func (s *MenuService) PurgeMenuItem(ctx context.Context, id int64) error {
 	return nil
 }
 
+// PublishMenuItem 切换菜单的发布状态。
 func (s *MenuService) PublishMenuItem(ctx context.Context, id int64, published bool) (*iamentity.MenuItem, error) {
 	item, err := s.menuRepo.Get(ctx, id)
 	if err != nil {
@@ -424,10 +440,12 @@ func (s *MenuService) PublishMenuItem(ctx context.Context, id int64, published b
 	return item, nil
 }
 
+// ListMenuItems 返回全部菜单定义。
 func (s *MenuService) ListMenuItems(ctx context.Context) ([]*iamentity.MenuItem, error) {
 	return s.menuRepo.ListAll(ctx)
 }
 
+// MenuNode 表示前端菜单树节点。
 type MenuNode struct {
 	ID       int64  `json:"id"`
 	Code     string `json:"code"`
@@ -460,6 +478,7 @@ func (s *MenuService) GetMyMenuTree(ctx context.Context, reqCtx httpx.IRequestCo
 	return buildMenuTree(items, reqCtx), nil
 }
 
+// validateParentNoCycle 校验 parent_id 不会形成菜单环。
 func (s *MenuService) validateParentNoCycle(ctx context.Context, selfID int64, parentID *int64) error {
 	if parentID == nil {
 		return nil
@@ -495,6 +514,7 @@ func (s *MenuService) validateParentNoCycle(ctx context.Context, selfID int64, p
 	return nil
 }
 
+// validateMenuPermissionCodes 校验菜单上声明的权限编码是否合法且已注册。
 func validateMenuPermissionCodes(anyOf []string, allOf []string) error {
 	if err := iammw.EnsureStrictPermissionRegistryLoaded(); err != nil {
 		return err
@@ -518,10 +538,12 @@ func validateMenuPermissionCodes(anyOf []string, allOf []string) error {
 	return nil
 }
 
+// validateSyncMenuParentCodes 校验同步请求里的 parent_code 链路合法且无环。
 func (s *MenuService) validateSyncMenuParentCodes(ctx context.Context, itemsByCode map[string]SyncMenuItemRequest) error {
 	visiting := make(map[string]struct{}, len(itemsByCode))
 	visited := make(map[string]struct{}, len(itemsByCode))
 
+	// 1. 先校验所有 parent_code 是否存在，并拒绝直接指向自身。
 	for code, item := range itemsByCode {
 		if item.ParentCode == "" {
 			continue
@@ -564,6 +586,7 @@ func (s *MenuService) validateSyncMenuParentCodes(ctx context.Context, itemsByCo
 		return nil
 	}
 
+	// 2. 再用 DFS 检查批次内 parent_code 是否形成环。
 	for code := range itemsByCode {
 		if err := walk(code); err != nil {
 			return err
@@ -573,6 +596,7 @@ func (s *MenuService) validateSyncMenuParentCodes(ctx context.Context, itemsByCo
 	return nil
 }
 
+// resolveSyncMenuParentID 解析Sync菜单父级ID。
 func (s *MenuService) resolveSyncMenuParentID(
 	ctx context.Context,
 	parentCode string,
@@ -598,6 +622,7 @@ func (s *MenuService) resolveSyncMenuParentID(
 	return &parentID, nil
 }
 
+// syncMenuBaseFields 同步菜单基础字段集合。
 func syncMenuBaseFields(item *iamentity.MenuItem, req SyncMenuItemRequest) bool {
 	if item == nil {
 		return false
@@ -640,6 +665,7 @@ func syncMenuBaseFields(item *iamentity.MenuItem, req SyncMenuItemRequest) bool 
 	return dirty
 }
 
+// stringSliceEquals 判断两个字符串切片是否完全相等。
 func stringSliceEquals(a []string, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -652,6 +678,7 @@ func stringSliceEquals(a []string, b []string) bool {
 	return true
 }
 
+// int64PtrEquals 判断两个 int64 指针是否都为空或值相等。
 func int64PtrEquals(left *int64, right *int64) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
@@ -659,6 +686,7 @@ func int64PtrEquals(left *int64, right *int64) bool {
 	return *left == *right
 }
 
+// contains 判断目标字符串是否已存在于结果切片中。
 func contains(items []string, target string) bool {
 	for _, item := range items {
 		if item == target {
@@ -668,12 +696,15 @@ func contains(items []string, target string) bool {
 	return false
 }
 
+// buildMenuTree 把扁平菜单列表构造成已排序、按权限过滤后的树结构。
 func buildMenuTree(items []*iamentity.MenuItem, reqCtx httpx.IRequestContext) []*MenuNode {
+	// 1. 先把扁平菜单实体转换成节点映射。
 	nodes := make(map[int64]*MenuNode, len(items))
 	for i := range items {
 		nodes[items[i].ID] = toNode(items[i])
 	}
 
+	// 2. 再按 ParentID 组装树结构；缺失父节点的项会提升为根节点。
 	var roots []*MenuNode
 	for _, n := range nodes {
 		if n.ParentID == nil {
@@ -688,11 +719,13 @@ func buildMenuTree(items []*iamentity.MenuItem, reqCtx httpx.IRequestContext) []
 		parent.Children = append(parent.Children, n)
 	}
 
+	// 3. 最后统一排序并按权限过滤不可见节点。
 	sortMenuTree(roots)
 	roots = filterMenuTree(roots, reqCtx)
 	return roots
 }
 
+// toNode 把菜单实体转换成菜单树节点。
 func toNode(item *iamentity.MenuItem) *MenuNode {
 	if item == nil {
 		return nil
@@ -722,11 +755,13 @@ func toNode(item *iamentity.MenuItem) *MenuNode {
 	}
 }
 
+// sortMenuTree 对整棵菜单树做稳定排序。
 func sortMenuTree(nodes []*MenuNode) {
 	visited := map[int64]struct{}{}
 	sortMenuTreeRec(nodes, visited)
 }
 
+// sortMenuTreeRec 递归按 order/title 对菜单节点排序。
 func sortMenuTreeRec(nodes []*MenuNode, visited map[int64]struct{}) {
 	sort.SliceStable(nodes, func(i, j int) bool {
 		if nodes[i].Order != nodes[j].Order {
@@ -748,11 +783,13 @@ func sortMenuTreeRec(nodes []*MenuNode, visited map[int64]struct{}) {
 	}
 }
 
+// filterMenuTree 过滤整棵菜单树中当前请求不可见的节点。
 func filterMenuTree(nodes []*MenuNode, reqCtx httpx.IRequestContext) []*MenuNode {
 	visited := map[int64]struct{}{}
 	return filterMenuTreeRec(nodes, reqCtx, visited)
 }
 
+// filterMenuTreeRec 递归过滤菜单树，并保留仍有可见子节点的父菜单。
 func filterMenuTreeRec(nodes []*MenuNode, reqCtx httpx.IRequestContext, visited map[int64]struct{}) []*MenuNode {
 	out := make([]*MenuNode, 0, len(nodes))
 	for _, n := range nodes {
@@ -767,7 +804,11 @@ func filterMenuTreeRec(nodes []*MenuNode, reqCtx httpx.IRequestContext, visited 
 		if n.Disabled || n.Hidden {
 			continue
 		}
+
+		// 1. 先递归处理子节点，避免父节点权限通过但子节点仍带脏数据。
 		n.Children = filterMenuTreeRec(n.Children, reqCtx, visited)
+
+		// 2. 再计算当前节点可见性；父节点即使自身不可见，只要仍有可见子节点也要保留。
 		selfVisible := evaluateMenuVisibility(n, reqCtx)
 		if selfVisible || len(n.Children) > 0 {
 			out = append(out, n)
@@ -776,6 +817,7 @@ func filterMenuTreeRec(nodes []*MenuNode, reqCtx httpx.IRequestContext, visited 
 	return out
 }
 
+// evaluateMenuVisibility 判断单个菜单节点在当前请求上下文中是否可见。
 func evaluateMenuVisibility(n *MenuNode, reqCtx httpx.IRequestContext) bool {
 	// 没有上下文时：仅显示无权限约束的菜单
 	if reqCtx == nil {

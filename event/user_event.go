@@ -10,6 +10,7 @@ type UserRoleAssigned struct {
 	AssignedAt time.Time `json:"assigned_at"`
 }
 
+// GetType 返回类型。
 func (e UserRoleAssigned) GetType() string {
 	return "UserRoleAssigned"
 }
@@ -21,6 +22,7 @@ type UserRoleRemoved struct {
 	RemovedAt time.Time `json:"removed_at"`
 }
 
+// GetType 返回类型。
 func (e UserRoleRemoved) GetType() string {
 	return "UserRoleRemoved"
 }

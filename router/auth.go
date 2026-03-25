@@ -70,6 +70,7 @@ func (ar *AuthRoutes) register(ctx httpx.IContext) error {
 	return nil
 }
 
+// login 处理login。
 func (ar *AuthRoutes) login(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	req := &iamsvc.AuthenticateRequest{}
@@ -111,6 +112,7 @@ func (ar *AuthRoutes) login(ctx httpx.IContext) error {
 	return nil
 }
 
+// logout 处理logout。
 func (ar *AuthRoutes) logout(ctx httpx.IContext) error {
 	ar.utils.WriteSuccessResponse(ctx, map[string]interface{}{
 		"message": "logged_out",
@@ -118,6 +120,7 @@ func (ar *AuthRoutes) logout(ctx httpx.IContext) error {
 	return nil
 }
 
+// refreshToken 处理refresh令牌。
 func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 	var req struct {
 		Token string `json:"token" binding:"required"`
@@ -153,6 +156,7 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 	return nil
 }
 
+// forgotPassword 处理forgot密码。
 func (ar *AuthRoutes) forgotPassword(ctx httpx.IContext) error {
 	var req struct {
 		Email string `json:"email" binding:"required,email"`
@@ -167,6 +171,7 @@ func (ar *AuthRoutes) forgotPassword(ctx httpx.IContext) error {
 	return nil
 }
 
+// resetPassword 重置密码。
 func (ar *AuthRoutes) resetPassword(ctx httpx.IContext) error {
 	var req struct {
 		Token       string `json:"token" binding:"required"`

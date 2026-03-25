@@ -15,7 +15,7 @@ type TenantRepo struct {
 	*db.Repo[*iamentity.Tenant, int64]
 }
 
-// NewTenantRepository 创建租户仓储
+// NewTenantRepository 创建租户仓储。
 func NewTenantRepository(o orm.IOrm) (*TenantRepo, error) {
 	base, err := db.NewRepo[*iamentity.Tenant, int64](
 		o,

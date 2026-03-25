@@ -185,6 +185,7 @@ func (s *UserService) GetAuthSnapshot(ctx context.Context, userID int64) (*svc.A
 	}, nil
 }
 
+// resolveEffectiveRolesAndPermissions 解析当前生效的RolesAnd权限集合。
 func (s *UserService) resolveEffectiveRolesAndPermissions(ctx context.Context, userID int64) ([]string, []string, error) {
 	roles, err := s.roleRepo.FindByUserID(ctx, userID)
 	if err != nil {

@@ -129,6 +129,7 @@ func (s *TenantService) ListTenants(ctx context.Context) ([]*iamentity.Tenant, e
 
 // ----------------- 校验辅助 -----------------
 
+// validateCreateTenantRequest 校验创建租户请求。
 func (s *TenantService) validateCreateTenantRequest(req *svc.CreateTenantRequest) error {
 	if req == nil {
 		return errorx.New(errorx.Validation, "请求不能为空")

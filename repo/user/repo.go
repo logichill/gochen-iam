@@ -17,7 +17,7 @@ type UserRepo struct {
 	*db.Repo[*iamentity.User, int64]
 }
 
-// NewUserRepository 创建用户Repository
+// NewUserRepository 创建用户仓储。
 func NewUserRepository(o orm.IOrm) (*UserRepo, error) {
 	base, err := db.NewRepo[*iamentity.User, int64](o, "users")
 	if err != nil {
@@ -368,6 +368,7 @@ func (r *UserRepo) SearchUsers(ctx context.Context, keyword string, limit int) (
 	return users, nil
 }
 
+// hydrateUsersRelations 处理填充UsersRelations。
 func (r *UserRepo) hydrateUsersRelations(ctx context.Context, users []*iamentity.User) ([]*iamentity.User, error) {
 	for i := range users {
 		user := users[i]

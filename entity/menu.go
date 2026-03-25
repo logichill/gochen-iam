@@ -11,9 +11,10 @@ import (
 	"gochen/errorx"
 )
 
-// StringArray 字符串数组类型（用于 JSON 序列化到 DB text 字段）。
+// StringArray 定义字符串Array。
 type StringArray []string
 
+// Scan 把当前结果写入目标对象。
 func (a *StringArray) Scan(value any) error {
 	if value == nil {
 		*a = StringArray{}
@@ -30,6 +31,7 @@ func (a *StringArray) Scan(value any) error {
 	}
 }
 
+// Value 处理值。
 func (a StringArray) Value() (driver.Value, error) {
 	if len(a) == 0 {
 		return "[]", nil
@@ -80,8 +82,10 @@ type MenuItem struct {
 	AllOfPermissions StringArray `json:"all_of_permissions,omitempty" gorm:"type:text;serializer:json"`
 }
 
+// TableName 返回数据表名。
 func (MenuItem) TableName() string { return "menu_items" }
 
+// Validate 校验输入。
 func (m *MenuItem) Validate() error {
 	if m.Code == "" {
 		return errorx.New(errorx.Validation, "menu code is required")
@@ -112,22 +116,34 @@ func (m *MenuItem) GetEntityType() string {
 }
 
 // 兼容 domain.IEntity 方法
-func (m *MenuItem) GetID() int64             { return m.ID }
-func (m *MenuItem) SetID(id int64)           { m.ID = id }
-func (m *MenuItem) GetCreatedAt() time.Time  { return m.CreatedAt }
-func (m *MenuItem) GetUpdatedAt() time.Time  { return m.UpdatedAt }
+func (m *MenuItem) GetID() int64 { return m.ID }
+
+// SetID 设置ID。
+func (m *MenuItem) SetID(id int64) { m.ID = id }
+
+// GetCreatedAt 返回创建At。
+func (m *MenuItem) GetCreatedAt() time.Time { return m.CreatedAt }
+
+// GetUpdatedAt 返回更新At。
+func (m *MenuItem) GetUpdatedAt() time.Time { return m.UpdatedAt }
+
+// SetUpdatedAt 设置更新At。
 func (m *MenuItem) SetUpdatedAt(t time.Time) { m.UpdatedAt = t }
-func (m *MenuItem) IsDeleted() bool          { return m.DeletedAt != nil }
+
+// IsDeleted 判断已删除。
+func (m *MenuItem) IsDeleted() bool { return m.DeletedAt != nil }
+
+// GetDeletedAt 返回已删除At。
 func (m *MenuItem) GetDeletedAt() *time.Time { return m.DeletedAt }
 
-// SoftDelete 实现 domain.ISoftDeletable（用于启用默认 ORM Repo 的软删能力）。
+// SoftDelete 处理软删除。
 func (m *MenuItem) SoftDelete(at time.Time) error {
 	m.DeletedAt = &at
 	m.UpdatedAt = at
 	return nil
 }
 
-// Restore 实现 domain.ISoftDeletable（用于启用默认 ORM Repo 的软删能力）。
+// Restore 恢复记录。
 func (m *MenuItem) Restore() error {
 	m.DeletedAt = nil
 	m.UpdatedAt = time.Now()

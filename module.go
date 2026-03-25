@@ -58,10 +58,12 @@ func NewModule() (server.IModule, error) {
 
 type strictPermissionRegistryValidator struct{}
 
+// NewStrictPermissionRegistryValidator 创建Strict权限注册表Validator。
 func NewStrictPermissionRegistryValidator() *strictPermissionRegistryValidator {
 	return &strictPermissionRegistryValidator{}
 }
 
+// RegisterRoutes 注册路由集合。
 func (v *strictPermissionRegistryValidator) RegisterRoutes(httpx.IRouteGroup) error {
 	// 启动期 fail-close：严格权限字典模式校验（走 error 通道）。
 	iammw.RegisterRequiredPermissionDefinitions(iamservice.AllPermissionDefinitions...)
@@ -78,8 +80,10 @@ func (v *strictPermissionRegistryValidator) RegisterRoutes(httpx.IRouteGroup) er
 // - 将其放到模块启动链路里，避免仅靠运行期“带 token 的请求”才暴露配置错误。
 type authConfigValidator struct{}
 
+// NewAuthConfigValidator 创建鉴权配置Validator。
 func NewAuthConfigValidator() *authConfigValidator { return &authConfigValidator{} }
 
+// RegisterRoutes 注册路由集合。
 func (v *authConfigValidator) RegisterRoutes(httpx.IRouteGroup) error {
 	if err := iammw.ValidateAuthConfig(nil); err != nil {
 		return errorx.Wrap(err, errorx.Internal, "auth config validation failed")

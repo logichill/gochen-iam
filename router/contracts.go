@@ -9,6 +9,7 @@ import (
 	"gochen/httpx"
 )
 
+// IUserService 定义用户服务能力接口。
 type IUserService interface {
 	Register(ctx context.Context, req *svc.RegisterRequest) (*iamentity.User, error)
 	Authenticate(ctx context.Context, req *svc.AuthenticateRequest) (*svc.AuthenticateResult, error)
@@ -30,6 +31,7 @@ type IUserService interface {
 	GetUserProfile(ctx context.Context, userID int64) (*iamentity.User, error)
 }
 
+// IGroupService 定义分组服务能力接口。
 type IGroupService interface {
 	GetGroupTree(ctx context.Context) ([]*svc.GroupTreeNode, error)
 	GetRootGroups(ctx context.Context) ([]*iamentity.Group, error)
@@ -44,6 +46,7 @@ type IGroupService interface {
 	GetGroupStatistics(ctx context.Context) (*svc.StatisticsResponse, error)
 }
 
+// IRoleService 定义角色服务能力接口。
 type IRoleService interface {
 	AddPermission(ctx context.Context, roleID int64, permission string) error
 	RemovePermission(ctx context.Context, roleID int64, permission string) error
@@ -58,11 +61,13 @@ type IRoleService interface {
 	GetRoleStatistics(ctx context.Context) (map[string]interface{}, error)
 }
 
+// ITenantService 定义租户服务能力接口。
 type ITenantService interface {
 	ActivateTenant(ctx context.Context, tenantID int64) error
 	DeactivateTenant(ctx context.Context, tenantID int64) error
 }
 
+// IMenuService 定义菜单服务能力接口。
 type IMenuService interface {
 	CreateMenuItem(ctx context.Context, req *menusvc.CreateMenuItemRequest) (*iamentity.MenuItem, error)
 	UpdateMenuItem(ctx context.Context, id int64, req *menusvc.UpdateMenuItemRequest) (*iamentity.MenuItem, error)

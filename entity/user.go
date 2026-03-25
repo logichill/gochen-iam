@@ -68,14 +68,30 @@ func (u *User) GetEntityType() string {
 }
 
 // 兼容 domain.IEntity 方法
-func (u *User) GetID() int64             { return u.ID }
-func (u *User) SetID(id int64)           { u.ID = id }
-func (u *User) GetCreatedAt() time.Time  { return u.CreatedAt }
-func (u *User) GetUpdatedAt() time.Time  { return u.UpdatedAt }
+func (u *User) GetID() int64 { return u.ID }
+
+// SetID 设置ID。
+func (u *User) SetID(id int64) { u.ID = id }
+
+// GetCreatedAt 返回创建At。
+func (u *User) GetCreatedAt() time.Time { return u.CreatedAt }
+
+// GetUpdatedAt 返回更新At。
+func (u *User) GetUpdatedAt() time.Time { return u.UpdatedAt }
+
+// SetUpdatedAt 设置更新At。
 func (u *User) SetUpdatedAt(t time.Time) { u.UpdatedAt = t }
-func (u *User) IsDeleted() bool          { return u.DeletedAt != nil }
-func (u *User) MarkAsDeleted()           { now := time.Now(); u.DeletedAt = &now; u.UpdatedAt = now }
-func (u *User) Restore()                 { u.DeletedAt = nil; u.UpdatedAt = time.Now() }
+
+// IsDeleted 判断已删除。
+func (u *User) IsDeleted() bool { return u.DeletedAt != nil }
+
+// MarkAsDeleted 处理MarkAs已删除。
+func (u *User) MarkAsDeleted() { now := time.Now(); u.DeletedAt = &now; u.UpdatedAt = now }
+
+// Restore 恢复数据。
+func (u *User) Restore() { u.DeletedAt = nil; u.UpdatedAt = time.Now() }
+
+// GetDeletedAt 返回已删除At。
 func (u *User) GetDeletedAt() *time.Time { return u.DeletedAt }
 
 // IsActive 检查用户是否激活
@@ -156,6 +172,7 @@ func (u *User) GetAllPermissions() []string {
 	return permissions
 }
 
+// isValidUserStatus 判断有效用户状态。
 func isValidUserStatus(status string) bool {
 	validStatuses := []string{"active", "inactive", "locked", "pending"}
 	for _, validStatus := range validStatuses {

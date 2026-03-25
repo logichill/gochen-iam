@@ -14,7 +14,7 @@ import (
 // PermissionArray 权限数组类型
 type PermissionArray []string
 
-// Scan 实现 sql.Scanner 接口
+// Scan 把当前结果写入目标对象。
 func (p *PermissionArray) Scan(value any) error {
 	if value == nil {
 		*p = PermissionArray{}
@@ -31,7 +31,7 @@ func (p *PermissionArray) Scan(value any) error {
 	}
 }
 
-// Value 实现 driver.Valuer 接口
+// Value 处理值。
 func (p PermissionArray) Value() (any, error) {
 	if len(p) == 0 {
 		return "[]", nil
@@ -85,14 +85,30 @@ func (r *Role) GetEntityType() string {
 }
 
 // 兼容 domain.IEntity 方法
-func (r *Role) GetID() int64             { return r.ID }
-func (r *Role) SetID(id int64)           { r.ID = id }
-func (r *Role) GetCreatedAt() time.Time  { return r.CreatedAt }
-func (r *Role) GetUpdatedAt() time.Time  { return r.UpdatedAt }
+func (r *Role) GetID() int64 { return r.ID }
+
+// SetID 设置ID。
+func (r *Role) SetID(id int64) { r.ID = id }
+
+// GetCreatedAt 返回创建At。
+func (r *Role) GetCreatedAt() time.Time { return r.CreatedAt }
+
+// GetUpdatedAt 返回更新At。
+func (r *Role) GetUpdatedAt() time.Time { return r.UpdatedAt }
+
+// SetUpdatedAt 设置更新At。
 func (r *Role) SetUpdatedAt(t time.Time) { r.UpdatedAt = t }
-func (r *Role) IsDeleted() bool          { return r.DeletedAt != nil }
-func (r *Role) MarkAsDeleted()           { now := time.Now(); r.DeletedAt = &now; r.UpdatedAt = now }
-func (r *Role) Restore()                 { r.DeletedAt = nil; r.UpdatedAt = time.Now() }
+
+// IsDeleted 判断已删除。
+func (r *Role) IsDeleted() bool { return r.DeletedAt != nil }
+
+// MarkAsDeleted 处理MarkAs已删除。
+func (r *Role) MarkAsDeleted() { now := time.Now(); r.DeletedAt = &now; r.UpdatedAt = now }
+
+// Restore 恢复数据。
+func (r *Role) Restore() { r.DeletedAt = nil; r.UpdatedAt = time.Now() }
+
+// GetDeletedAt 返回已删除At。
 func (r *Role) GetDeletedAt() *time.Time { return r.DeletedAt }
 
 // IsActive 检查角色是否激活
@@ -202,7 +218,7 @@ func (r *Role) IsInUse() bool {
 	return r.HasUsers() || r.HasGroups()
 }
 
-// String 实现 Stringer 接口
+// String 返回字符串表示。
 func (r *Role) String() string {
 	return fmt.Sprintf("Role{ID: %d, Name: %s, Permissions: %d, IsSystem: %t}",
 		r.GetID(), r.Name, len(r.Permissions), r.IsSystem)

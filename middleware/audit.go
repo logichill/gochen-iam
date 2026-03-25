@@ -32,12 +32,13 @@ var (
 	auditLogger = logging.ComponentLogger("iam.middleware.audit")
 )
 
+// isAuditLogEnabled 判断审计日志Enabled。
 func isAuditLogEnabled() bool {
 	v := os.Getenv("AUTH_AUDIT_LOG")
 	return v == "" || v == "true" || v == "1"
 }
 
-// SetAuditSink 设置审计落点（线程安全：装配期调用即可）。
+// SetAuditSink 设置审计Sink。
 func SetAuditSink(sink IAuditSink) {
 	auditSink = sink
 }
@@ -49,6 +50,7 @@ func SetAuditLogger(logger logging.ILogger) {
 	}
 }
 
+// recordAuthzDenied 处理记录AuthzDenied。
 func recordAuthzDenied(ctx httpx.IContext, rec AuditRecord) {
 	if ctx == nil {
 		return

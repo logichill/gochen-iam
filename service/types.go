@@ -66,14 +66,14 @@ type GroupTreeNode struct {
 
 // 角色相关请求和响应类型
 
-// CreateRoleRequest 创建角色请求
+// CreateRoleRequest 定义创建角色请求参数。
 type CreateRoleRequest struct {
 	Name        string   `json:"name" binding:"required,max=50"`
 	Description string   `json:"description" binding:"omitempty,max=500"`
 	Permissions []string `json:"permissions" binding:"required"`
 }
 
-// UpdateRoleRequest 更新角色请求
+// UpdateRoleRequest 定义Update角色请求参数。
 type UpdateRoleRequest struct {
 	Name        string   `json:"name" binding:"omitempty,max=50"`
 	Description string   `json:"description" binding:"omitempty,max=500"`
@@ -262,18 +262,22 @@ var (
 	)
 )
 
+// apiPermissionDefinitions 处理API权限Definitions。
 func apiPermissionDefinitions(permissions []string) []iammw.PermissionDefinition {
 	return permissionDefinitions(permissions, iammw.PermissionTypeAPI)
 }
 
+// actionPermissionDefinitions 处理action权限Definitions。
 func actionPermissionDefinitions(permissions []string) []iammw.PermissionDefinition {
 	return permissionDefinitions(permissions, iammw.PermissionTypeAction)
 }
 
+// patternPermissionDefinitions 处理pattern权限Definitions。
 func patternPermissionDefinitions(permissions []string, permissionType iammw.PermissionType) []iammw.PermissionDefinition {
 	return permissionDefinitions(permissions, permissionType)
 }
 
+// permissionDefinitions 处理权限Definitions。
 func permissionDefinitions(permissions []string, permissionType iammw.PermissionType) []iammw.PermissionDefinition {
 	definitions := make([]iammw.PermissionDefinition, 0, len(permissions))
 	for _, permission := range permissions {
@@ -287,14 +291,14 @@ func permissionDefinitions(permissions []string, permissionType iammw.Permission
 
 // 租户相关请求类型
 
-// CreateTenantRequest 创建租户请求
+// CreateTenantRequest 定义创建租户请求参数。
 type CreateTenantRequest struct {
 	Key         string `json:"key" binding:"required,max=64"`
 	Name        string `json:"name" binding:"required,max=100"`
 	Description string `json:"description" binding:"omitempty,max=500"`
 }
 
-// UpdateTenantRequest 更新租户请求
+// UpdateTenantRequest 定义Update租户请求参数。
 type UpdateTenantRequest struct {
 	Name        string `json:"name" binding:"omitempty,max=100"`
 	Description string `json:"description" binding:"omitempty,max=500"`

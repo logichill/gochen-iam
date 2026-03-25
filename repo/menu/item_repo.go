@@ -14,6 +14,7 @@ type MenuItemRepo struct {
 	*db.Repo[*iamentity.MenuItem, int64]
 }
 
+// NewMenuItemRepository 创建菜单条目仓储。
 func NewMenuItemRepository(o orm.IOrm) (*MenuItemRepo, error) {
 	base, err := db.NewRepo[*iamentity.MenuItem, int64](o, "menu_items")
 	if err != nil {
@@ -22,6 +23,7 @@ func NewMenuItemRepository(o orm.IOrm) (*MenuItemRepo, error) {
 	return &MenuItemRepo{Repo: base}, nil
 }
 
+// Create 创建记录。
 func (r *MenuItemRepo) Create(ctx context.Context, m *iamentity.MenuItem) error {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
@@ -30,6 +32,7 @@ func (r *MenuItemRepo) Create(ctx context.Context, m *iamentity.MenuItem) error 
 	return model.Create(ctx, m)
 }
 
+// Update 更新记录。
 func (r *MenuItemRepo) Update(ctx context.Context, m *iamentity.MenuItem) error {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
@@ -38,6 +41,7 @@ func (r *MenuItemRepo) Update(ctx context.Context, m *iamentity.MenuItem) error 
 	return model.Save(ctx, m, orm.WithWhere("id = ? AND deleted_at IS NULL", m.GetID()))
 }
 
+// Get 返回当前值。
 func (r *MenuItemRepo) Get(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
@@ -69,6 +73,7 @@ func (r *MenuItemRepo) GetWithDeleted(ctx context.Context, id int64) (*iamentity
 	return &item, nil
 }
 
+// GetByCode 按编码查询。
 func (r *MenuItemRepo) GetByCode(ctx context.Context, code string) (*iamentity.MenuItem, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
@@ -100,6 +105,7 @@ func (r *MenuItemRepo) GetByCodeWithDeleted(ctx context.Context, code string) (*
 	return &item, nil
 }
 
+// ListAll 列出全部。
 func (r *MenuItemRepo) ListAll(ctx context.Context) ([]*iamentity.MenuItem, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
@@ -112,6 +118,7 @@ func (r *MenuItemRepo) ListAll(ctx context.Context) ([]*iamentity.MenuItem, erro
 	return items, nil
 }
 
+// ListPublished 列出已发布。
 func (r *MenuItemRepo) ListPublished(ctx context.Context) ([]*iamentity.MenuItem, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {

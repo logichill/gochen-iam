@@ -17,7 +17,7 @@ type RoleRepo struct {
 	*db.Repo[*iamentity.Role, int64]
 }
 
-// NewRoleRepository 创建角色Repository
+// NewRoleRepository 创建角色仓储。
 func NewRoleRepository(o orm.IOrm) (*RoleRepo, error) {
 	base, err := db.NewRepo[*iamentity.Role, int64](
 		o,

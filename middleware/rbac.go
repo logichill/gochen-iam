@@ -46,6 +46,7 @@ func PermissionPatternMatches(pattern string, permission string) bool {
 	return true
 }
 
+// permissionSegments 处理权限Segments。
 func permissionSegments(permission string) ([3]string, bool) {
 	var segments [3]string
 	normalized := strings.ToLower(strings.TrimSpace(permission))
@@ -89,7 +90,7 @@ func HasAnyRole(ctx httpx.IRequestContext, required ...string) bool {
 	return false
 }
 
-// RequireAnyRole 校验上下文中是否包含任一指定角色,否则返回 Forbidden 错误
+// RequireAnyRole 处理要求Any角色。
 func RequireAnyRole(ctx httpx.IRequestContext, required ...string) error {
 	if HasAnyRole(ctx, required...) {
 		return nil
@@ -120,7 +121,7 @@ func HasPermission(ctx httpx.IRequestContext, permission string) bool {
 	return false
 }
 
-// RequirePermission 校验是否拥有指定权限,否则返回 Forbidden 错误
+// RequirePermission 处理要求权限。
 func RequirePermission(ctx httpx.IRequestContext, permission string) error {
 	if HasPermission(ctx, permission) {
 		return nil

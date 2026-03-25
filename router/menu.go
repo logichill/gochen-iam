@@ -17,6 +17,7 @@ type MenuRoutes struct {
 	utils       *hbasic.Utils
 }
 
+// NewMenuRoutes 创建菜单路由注册器。
 func NewMenuRoutes(menuService IMenuService) *MenuRoutes {
 	return &MenuRoutes{
 		menuService: menuService,
@@ -24,15 +25,16 @@ func NewMenuRoutes(menuService IMenuService) *MenuRoutes {
 	}
 }
 
+// RegisterRoutes 注册菜单相关 HTTP 路由。
 func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	menuGroup := group.Group("/menus")
 
-	// 当前用户可见菜单（必须已登录）
+	// 1. 注册当前用户菜单树接口，只要求登录即可访问。
 	meGroup := menuGroup.Group("/me")
 	meGroup.Use(iammw.UserOnlyMiddleware())
 	meGroup.GET("", mr.getMyMenuTree)
 
-	// 管理端：菜单定义与发布（管理员 + 细分权限）
+	// 2. 注册管理端菜单接口：先做管理员门禁，再按读/写/发布能力细分权限。
 	adminGroup := menuGroup.Group("")
 	adminGroup.Use(iammw.AdminOnlyMiddleware())
 	// 说明：当前设计“仅允许 system_admin 管理菜单”。
@@ -60,13 +62,16 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	return nil
 }
 
+// GetName 返回路由注册器名称。
 func (mr *MenuRoutes) GetName() string { return "menu" }
 
+// GetPriority 返回菜单路由的注册优先级。
 func (mr *MenuRoutes) GetPriority() int {
 	// 低于 auth/user 等基础路由即可
 	return 210
 }
 
+// listMenuItems 返回后台菜单列表。
 func (mr *MenuRoutes) listMenuItems(ctx httpx.IContext) error {
 	items, err := mr.menuService.ListMenuItems(ctx.GetRequest().Context())
 	if err != nil {
@@ -76,6 +81,7 @@ func (mr *MenuRoutes) listMenuItems(ctx httpx.IContext) error {
 	return nil
 }
 
+// createMenuItem 处理创建菜单请求。
 func (mr *MenuRoutes) createMenuItem(ctx httpx.IContext) error {
 	req := &menusvc.CreateMenuItemRequest{}
 	if err := ctx.BindJSON(req); err != nil {
@@ -89,6 +95,7 @@ func (mr *MenuRoutes) createMenuItem(ctx httpx.IContext) error {
 	return nil
 }
 
+// updateMenuItem 处理更新菜单请求。
 func (mr *MenuRoutes) updateMenuItem(ctx httpx.IContext) error {
 	id, err := mr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -106,6 +113,7 @@ func (mr *MenuRoutes) updateMenuItem(ctx httpx.IContext) error {
 	return nil
 }
 
+// syncMenuItems 处理批量同步菜单请求。
 func (mr *MenuRoutes) syncMenuItems(ctx httpx.IContext) error {
 	req := &menusvc.SyncMenuItemsRequest{}
 	if err := ctx.BindJSON(req); err != nil {
@@ -119,6 +127,7 @@ func (mr *MenuRoutes) syncMenuItems(ctx httpx.IContext) error {
 	return nil
 }
 
+// deleteMenuItem 处理软删除菜单请求。
 func (mr *MenuRoutes) deleteMenuItem(ctx httpx.IContext) error {
 	id, err := mr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -131,6 +140,7 @@ func (mr *MenuRoutes) deleteMenuItem(ctx httpx.IContext) error {
 	return nil
 }
 
+// restoreMenuItem 处理恢复菜单请求。
 func (mr *MenuRoutes) restoreMenuItem(ctx httpx.IContext) error {
 	id, err := mr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -144,6 +154,7 @@ func (mr *MenuRoutes) restoreMenuItem(ctx httpx.IContext) error {
 	return nil
 }
 
+// purgeMenuItem 处理硬删除菜单请求。
 func (mr *MenuRoutes) purgeMenuItem(ctx httpx.IContext) error {
 	id, err := mr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -156,14 +167,17 @@ func (mr *MenuRoutes) purgeMenuItem(ctx httpx.IContext) error {
 	return nil
 }
 
+// publishMenuItem 处理发布菜单请求。
 func (mr *MenuRoutes) publishMenuItem(ctx httpx.IContext) error {
 	return mr.setMenuPublished(ctx, true)
 }
 
+// unpublishMenuItem 处理取消发布菜单请求。
 func (mr *MenuRoutes) unpublishMenuItem(ctx httpx.IContext) error {
 	return mr.setMenuPublished(ctx, false)
 }
 
+// setMenuPublished 统一处理菜单发布状态切换。
 func (mr *MenuRoutes) setMenuPublished(ctx httpx.IContext, published bool) error {
 	id, err := mr.utils.ParseID(ctx, "id")
 	if err != nil {
@@ -177,6 +191,7 @@ func (mr *MenuRoutes) setMenuPublished(ctx httpx.IContext, published bool) error
 	return nil
 }
 
+// getMyMenuTree 返回当前用户可见的菜单树。
 func (mr *MenuRoutes) getMyMenuTree(ctx httpx.IContext) error {
 	menus, err := mr.menuService.GetMyMenuTree(ctx.GetRequest().Context(), ctx.GetContext())
 	if err != nil {

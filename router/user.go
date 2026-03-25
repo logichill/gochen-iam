@@ -142,6 +142,7 @@ func (ur *UserRoutes) activateUser(ctx httpx.IContext) error {
 	return nil
 }
 
+// deactivateUser 处理deactivate用户。
 func (ur *UserRoutes) deactivateUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
@@ -160,6 +161,7 @@ func (ur *UserRoutes) deactivateUser(ctx httpx.IContext) error {
 	return nil
 }
 
+// lockUser 处理lock用户。
 func (ur *UserRoutes) lockUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
@@ -178,6 +180,7 @@ func (ur *UserRoutes) lockUser(ctx httpx.IContext) error {
 	return nil
 }
 
+// unlockUser 处理unlock用户。
 func (ur *UserRoutes) unlockUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
@@ -215,6 +218,7 @@ func (ur *UserRoutes) getUserRoles(ctx httpx.IContext) error {
 	return nil
 }
 
+// assignUserRole 分配用户角色。
 func (ur *UserRoutes) assignUserRole(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
@@ -244,6 +248,7 @@ func (ur *UserRoutes) assignUserRole(ctx httpx.IContext) error {
 	return nil
 }
 
+// removeUserRole 移除用户角色。
 func (ur *UserRoutes) removeUserRole(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
@@ -286,6 +291,7 @@ func (ur *UserRoutes) getUserGroups(ctx httpx.IContext) error {
 	return nil
 }
 
+// assignUserToGroup 分配用户到分组。
 func (ur *UserRoutes) assignUserToGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
@@ -315,6 +321,7 @@ func (ur *UserRoutes) assignUserToGroup(ctx httpx.IContext) error {
 	return nil
 }
 
+// removeUserFromGroupByUser 移除用户从分组按用户。
 func (ur *UserRoutes) removeUserFromGroupByUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
@@ -358,6 +365,7 @@ func (ur *UserRoutes) getUserPermissions(ctx httpx.IContext) error {
 	return nil
 }
 
+// checkUserPermission 处理check用户权限。
 func (ur *UserRoutes) checkUserPermission(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID, err := ur.utils.ParseID(ctx, "id")
@@ -410,6 +418,7 @@ func (ur *UserRoutes) getCurrentUser(ctx httpx.IContext) error {
 	return nil
 }
 
+// updateCurrentUser 更新当前用户。
 func (ur *UserRoutes) updateCurrentUser(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID := ctx.GetContext().GetUserID()
@@ -435,6 +444,7 @@ func (ur *UserRoutes) updateCurrentUser(ctx httpx.IContext) error {
 	return nil
 }
 
+// changePassword 处理change密码。
 func (ur *UserRoutes) changePassword(ctx httpx.IContext) error {
 	reqCtx := ctx.GetRequest().Context()
 	userID := ctx.GetContext().GetUserID()
