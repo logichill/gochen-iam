@@ -9,10 +9,9 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 
 	"gochen-iam/auth"
+	ctxx "gochen/contextx"
 	"gochen/errorx"
 	"gochen/httpx"
-	"gochen/identity"
-	"gochen/metadata"
 )
 
 const (
@@ -169,7 +168,7 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 
 		// 设置用户ID到上下文
 		reqCtx := ctx.GetContext()
-		derived, derr := identity.WithUserID(reqCtx, claims.UserID)
+		derived, derr := ctxx.WithUserID(reqCtx, claims.UserID)
 		if derr != nil {
 			return derr
 		}
@@ -187,7 +186,7 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return errorx.New(errorx.Validation, "tenant_id is required")
 		}
 		if tenantID != "" {
-			derived, err := metadata.WithTenantID(reqCtx, tenantID)
+			derived, err := ctxx.WithTenantID(reqCtx, tenantID)
 			if err != nil {
 				recordAuthzDenied(ctx, AuditRecord{
 					Decision: "deny",
@@ -244,7 +243,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return errorx.New(errorx.Validation, "tenant_id is required")
 		}
 		if tenantID != "" {
-			derived, err := metadata.WithTenantID(reqCtx, tenantID)
+			derived, err := ctxx.WithTenantID(reqCtx, tenantID)
 			if err != nil {
 				recordAuthzDenied(ctx, AuditRecord{
 					Decision: "deny",
@@ -282,7 +281,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 		}
 
 		// 验证成功，设置用户ID，并注入角色/权限信息
-		derived, derr := identity.WithUserID(reqCtx, claims.UserID)
+		derived, derr := ctxx.WithUserID(reqCtx, claims.UserID)
 		if derr != nil {
 			return derr
 		}

@@ -2,9 +2,9 @@ package middleware
 
 import (
 	"gochen-iam/auth"
+	ctxx "gochen/contextx"
 	"gochen/errorx"
 	"gochen/httpx"
-	"gochen/identity"
 )
 
 type permissionChecker struct{}
@@ -148,7 +148,7 @@ func UserOnlyMiddleware() httpx.Middleware {
 
 // InjectAuthContext 处理Inject鉴权上下文。
 func InjectAuthContext(reqCtx httpx.IRequestContext, userID int64, roles, permissions []string) httpx.IRequestContext {
-	derived, err := identity.WithUserID(reqCtx, userID)
+	derived, err := ctxx.WithUserID(reqCtx, userID)
 	if err == nil {
 		reqCtx = reqCtx.WithContext(derived)
 	}
