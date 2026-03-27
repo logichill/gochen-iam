@@ -99,11 +99,10 @@ func (tr *TenantRoutes) activateTenant(ctx httpx.IContext) error {
 		return err
 	}
 
-	tr.utils.WriteSuccessResponse(ctx, map[string]any{
+	return httpx.WriteSuccess(ctx, map[string]any{
 		"id":     id,
 		"status": svc.TenantStatusActive,
 	})
-	return nil
 }
 
 // deactivateTenant 禁用租户
@@ -118,9 +117,8 @@ func (tr *TenantRoutes) deactivateTenant(ctx httpx.IContext) error {
 		return err
 	}
 
-	tr.utils.WriteSuccessResponse(ctx, map[string]any{
+	return httpx.WriteSuccess(ctx, map[string]any{
 		"id":     id,
 		"status": svc.TenantStatusInactive,
 	})
-	return nil
 }

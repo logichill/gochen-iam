@@ -125,11 +125,10 @@ func (rr *RoleRoutes) getRolePermissions(ctx httpx.IContext) error {
 		return err
 	}
 
-	rr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"role_id":     roleID,
 		"permissions": role.Permissions,
 	})
-	return nil
 }
 
 // addRolePermission 添加角色权限。
@@ -155,11 +154,10 @@ func (rr *RoleRoutes) addRolePermission(ctx httpx.IContext) error {
 		return err
 	}
 
-	rr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"role_id":    roleID,
 		"permission": req.Permission,
 	})
-	return nil
 }
 
 // removeRolePermission 移除角色权限。
@@ -180,11 +178,10 @@ func (rr *RoleRoutes) removeRolePermission(ctx httpx.IContext) error {
 		return err
 	}
 
-	rr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"role_id":    roleID,
 		"permission": permission,
 	})
-	return nil
 }
 
 // 角色用户管理处理器
@@ -200,11 +197,10 @@ func (rr *RoleRoutes) getRoleUsers(ctx httpx.IContext) error {
 		return err
 	}
 
-	rr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"role_id": roleID,
 		"users":   users,
 	})
-	return nil
 }
 
 // assignRoleToUsers 分配角色到Users。
@@ -237,13 +233,12 @@ func (rr *RoleRoutes) assignRoleToUsers(ctx httpx.IContext) error {
 		}
 	}
 
-	rr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"role_id":       roleID,
 		"success_count": result.SuccessCount,
 		"failure_count": result.FailureCount,
 		"errors":        errorMessages,
 	})
-	return nil
 }
 
 // removeRoleFromUser 移除角色从用户。
@@ -263,11 +258,10 @@ func (rr *RoleRoutes) removeRoleFromUser(ctx httpx.IContext) error {
 		return err
 	}
 
-	rr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"role_id": roleID,
 		"user_id": userID,
 	})
-	return nil
 }
 
 // 角色操作处理器
@@ -282,11 +276,10 @@ func (rr *RoleRoutes) activateRole(ctx httpx.IContext) error {
 		return err
 	}
 
-	rr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"role_id": roleID,
 		"status":  svc.RoleStatusActive,
 	})
-	return nil
 }
 
 // deactivateRole 处理deactivate角色。
@@ -301,11 +294,10 @@ func (rr *RoleRoutes) deactivateRole(ctx httpx.IContext) error {
 		return err
 	}
 
-	rr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"role_id": roleID,
 		"status":  svc.RoleStatusInactive,
 	})
-	return nil
 }
 
 // cloneRole 复制角色。
@@ -328,8 +320,7 @@ func (rr *RoleRoutes) cloneRole(ctx httpx.IContext) error {
 		return err
 	}
 
-	rr.utils.WriteSuccessResponse(ctx, clonedRole)
-	return nil
+	return httpx.WriteSuccess(ctx, clonedRole)
 }
 
 // 系统角色处理器
@@ -340,8 +331,7 @@ func (rr *RoleRoutes) getSystemRoles(ctx httpx.IContext) error {
 		return err
 	}
 
-	rr.utils.WriteSuccessResponse(ctx, roles)
-	return nil
+	return httpx.WriteSuccess(ctx, roles)
 }
 
 // initSystemRoles 处理初始化系统Roles。
@@ -351,10 +341,9 @@ func (rr *RoleRoutes) initSystemRoles(ctx httpx.IContext) error {
 		return err
 	}
 
-	rr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"initialized": true,
 	})
-	return nil
 }
 
 // 角色统计处理器
@@ -365,6 +354,5 @@ func (rr *RoleRoutes) getRoleStatistics(ctx httpx.IContext) error {
 		return err
 	}
 
-	rr.utils.WriteSuccessResponse(ctx, stats)
-	return nil
+	return httpx.WriteSuccess(ctx, stats)
 }

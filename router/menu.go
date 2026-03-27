@@ -77,8 +77,7 @@ func (mr *MenuRoutes) listMenuItems(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	mr.utils.WriteSuccessResponse(ctx, items)
-	return nil
+	return httpx.WriteSuccess(ctx, items)
 }
 
 // createMenuItem 处理创建菜单请求。
@@ -91,8 +90,7 @@ func (mr *MenuRoutes) createMenuItem(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	mr.utils.WriteSuccessResponse(ctx, item)
-	return nil
+	return httpx.WriteSuccess(ctx, item)
 }
 
 // updateMenuItem 处理更新菜单请求。
@@ -109,8 +107,7 @@ func (mr *MenuRoutes) updateMenuItem(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	mr.utils.WriteSuccessResponse(ctx, item)
-	return nil
+	return httpx.WriteSuccess(ctx, item)
 }
 
 // syncMenuItems 处理批量同步菜单请求。
@@ -123,8 +120,7 @@ func (mr *MenuRoutes) syncMenuItems(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	mr.utils.WriteSuccessResponse(ctx, result)
-	return nil
+	return httpx.WriteSuccess(ctx, result)
 }
 
 // deleteMenuItem 处理软删除菜单请求。
@@ -136,8 +132,7 @@ func (mr *MenuRoutes) deleteMenuItem(ctx httpx.IContext) error {
 	if err := mr.menuService.DeleteMenuItem(ctx.GetRequest().Context(), id); err != nil {
 		return err
 	}
-	mr.utils.WriteSuccessResponse(ctx, map[string]any{"id": id})
-	return nil
+	return httpx.WriteSuccess(ctx, map[string]any{"id": id})
 }
 
 // restoreMenuItem 处理恢复菜单请求。
@@ -150,8 +145,7 @@ func (mr *MenuRoutes) restoreMenuItem(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	mr.utils.WriteSuccessResponse(ctx, item)
-	return nil
+	return httpx.WriteSuccess(ctx, item)
 }
 
 // purgeMenuItem 处理硬删除菜单请求。
@@ -163,8 +157,7 @@ func (mr *MenuRoutes) purgeMenuItem(ctx httpx.IContext) error {
 	if err := mr.menuService.PurgeMenuItem(ctx.GetRequest().Context(), id); err != nil {
 		return err
 	}
-	mr.utils.WriteSuccessResponse(ctx, map[string]any{"id": id})
-	return nil
+	return httpx.WriteSuccess(ctx, map[string]any{"id": id})
 }
 
 // publishMenuItem 处理发布菜单请求。
@@ -187,8 +180,7 @@ func (mr *MenuRoutes) setMenuPublished(ctx httpx.IContext, published bool) error
 	if err != nil {
 		return err
 	}
-	mr.utils.WriteSuccessResponse(ctx, item)
-	return nil
+	return httpx.WriteSuccess(ctx, item)
 }
 
 // getMyMenuTree 返回当前用户可见的菜单树。
@@ -197,6 +189,5 @@ func (mr *MenuRoutes) getMyMenuTree(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	mr.utils.WriteSuccessResponse(ctx, menus)
-	return nil
+	return httpx.WriteSuccess(ctx, menus)
 }

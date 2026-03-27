@@ -135,11 +135,10 @@ func (ur *UserRoutes) activateUser(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"id":     userID,
 		"status": iamsvc.UserStatusActive,
 	})
-	return nil
 }
 
 // deactivateUser 处理deactivate用户。
@@ -154,11 +153,10 @@ func (ur *UserRoutes) deactivateUser(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"id":     userID,
 		"status": iamsvc.UserStatusInactive,
 	})
-	return nil
 }
 
 // lockUser 处理lock用户。
@@ -173,11 +171,10 @@ func (ur *UserRoutes) lockUser(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"id":     userID,
 		"status": iamsvc.UserStatusLocked,
 	})
-	return nil
 }
 
 // unlockUser 处理unlock用户。
@@ -192,11 +189,10 @@ func (ur *UserRoutes) unlockUser(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"id":     userID,
 		"status": iamsvc.UserStatusActive,
 	})
-	return nil
 }
 
 // 用户角色管理处理器
@@ -212,10 +208,9 @@ func (ur *UserRoutes) getUserRoles(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"roles": roles,
 	})
-	return nil
 }
 
 // assignUserRole 分配用户角色。
@@ -241,11 +236,10 @@ func (ur *UserRoutes) assignUserRole(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"user_id": userID,
 		"role_id": req.RoleID,
 	})
-	return nil
 }
 
 // removeUserRole 移除用户角色。
@@ -265,11 +259,10 @@ func (ur *UserRoutes) removeUserRole(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"user_id": userID,
 		"role_id": roleID,
 	})
-	return nil
 }
 
 // 用户组织管理处理器
@@ -285,10 +278,9 @@ func (ur *UserRoutes) getUserGroups(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"groups": groups,
 	})
-	return nil
 }
 
 // assignUserToGroup 分配用户到分组。
@@ -314,11 +306,10 @@ func (ur *UserRoutes) assignUserToGroup(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"user_id":  userID,
 		"group_id": req.GroupID,
 	})
-	return nil
 }
 
 // removeUserFromGroupByUser 移除用户从分组按用户。
@@ -338,11 +329,10 @@ func (ur *UserRoutes) removeUserFromGroupByUser(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"user_id":  userID,
 		"group_id": groupID,
 	})
-	return nil
 }
 
 // 用户权限处理器
@@ -358,11 +348,10 @@ func (ur *UserRoutes) getUserPermissions(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"user_id":     userID,
 		"permissions": permissions,
 	})
-	return nil
 }
 
 // checkUserPermission 处理check用户权限。
@@ -389,12 +378,11 @@ func (ur *UserRoutes) checkUserPermission(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"user_id":    userID,
 		"permission": req.Permission,
 		"allowed":    allowed,
 	})
-	return nil
 }
 
 // 当前用户处理器
@@ -414,8 +402,7 @@ func (ur *UserRoutes) getCurrentUser(ctx httpx.IContext) error {
 		user.Password = ""
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, user)
-	return nil
+	return httpx.WriteSuccess(ctx, user)
 }
 
 // updateCurrentUser 更新当前用户。
@@ -440,8 +427,7 @@ func (ur *UserRoutes) updateCurrentUser(ctx httpx.IContext) error {
 		user.Password = ""
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, user)
-	return nil
+	return httpx.WriteSuccess(ctx, user)
 }
 
 // changePassword 处理change密码。
@@ -462,9 +448,8 @@ func (ur *UserRoutes) changePassword(ctx httpx.IContext) error {
 		return err
 	}
 
-	ur.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"user_id": userID,
 		"status":  "password_changed",
 	})
-	return nil
 }

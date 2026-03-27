@@ -66,8 +66,7 @@ func (ar *AuthRoutes) register(ctx httpx.IContext) error {
 		user.Password = ""
 	}
 
-	ar.utils.WriteSuccessResponse(ctx, user)
-	return nil
+	return httpx.WriteSuccess(ctx, user)
 }
 
 // login 处理login。
@@ -108,16 +107,14 @@ func (ar *AuthRoutes) login(ctx httpx.IContext) error {
 		Permissions: authResult.Permissions,
 	}
 
-	ar.utils.WriteSuccessResponse(ctx, resp)
-	return nil
+	return httpx.WriteSuccess(ctx, resp)
 }
 
 // logout 处理logout。
 func (ar *AuthRoutes) logout(ctx httpx.IContext) error {
-	ar.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"message": "logged_out",
 	})
-	return nil
 }
 
 // refreshToken 处理refresh令牌。
@@ -150,10 +147,9 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 		return err
 	}
 
-	ar.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"token": newToken,
 	})
-	return nil
 }
 
 // forgotPassword 处理forgot密码。
@@ -165,10 +161,9 @@ func (ar *AuthRoutes) forgotPassword(ctx httpx.IContext) error {
 		return err
 	}
 
-	ar.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"message": "If the email exists, reset instructions have been sent.",
 	})
-	return nil
 }
 
 // resetPassword 重置密码。
@@ -181,8 +176,7 @@ func (ar *AuthRoutes) resetPassword(ctx httpx.IContext) error {
 		return err
 	}
 
-	ar.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"message": "Password reset request accepted.",
 	})
-	return nil
 }

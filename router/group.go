@@ -118,8 +118,7 @@ func (gr *GroupRoutes) getGroupTree(ctx httpx.IContext) error {
 		return err
 	}
 
-	gr.utils.WriteSuccessResponse(ctx, tree)
-	return nil
+	return httpx.WriteSuccess(ctx, tree)
 }
 
 // getRootGroups 返回RootGroups。
@@ -131,8 +130,7 @@ func (gr *GroupRoutes) getRootGroups(ctx httpx.IContext) error {
 		return err
 	}
 
-	gr.utils.WriteSuccessResponse(ctx, groups)
-	return nil
+	return httpx.WriteSuccess(ctx, groups)
 }
 
 // getGroupsByLevel 返回Groups按等级。
@@ -155,11 +153,10 @@ func (gr *GroupRoutes) getGroupsByLevel(ctx httpx.IContext) error {
 		return err
 	}
 
-	gr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"level":  level,
 		"groups": groups,
 	})
-	return nil
 }
 
 // 组织成员管理处理器
@@ -175,11 +172,10 @@ func (gr *GroupRoutes) getGroupUsers(ctx httpx.IContext) error {
 		return err
 	}
 
-	gr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"group_id": groupID,
 		"users":    users,
 	})
-	return nil
 }
 
 // addUserToGroup 添加用户到分组。
@@ -205,11 +201,10 @@ func (gr *GroupRoutes) addUserToGroup(ctx httpx.IContext) error {
 		return err
 	}
 
-	gr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"group_id": groupID,
 		"user_id":  req.UserID,
 	})
-	return nil
 }
 
 // removeUserFromGroup 移除用户从分组。
@@ -229,11 +224,10 @@ func (gr *GroupRoutes) removeUserFromGroup(ctx httpx.IContext) error {
 		return err
 	}
 
-	gr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"group_id": groupID,
 		"user_id":  userID,
 	})
-	return nil
 }
 
 // batchAddUsersToGroup 处理批量AddUsers到分组。
@@ -267,13 +261,12 @@ func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IContext) error {
 		}
 	}
 
-	gr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"group_id":      groupID,
 		"success_count": result.SuccessCount,
 		"failure_count": result.FailureCount,
 		"errors":        errorMessages,
 	})
-	return nil
 }
 
 // 组织角色管理处理器
@@ -289,11 +282,10 @@ func (gr *GroupRoutes) getGroupRoles(ctx httpx.IContext) error {
 		return err
 	}
 
-	gr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"group_id": groupID,
 		"roles":    roles,
 	})
-	return nil
 }
 
 // addGroupRole 添加分组角色。
@@ -319,11 +311,10 @@ func (gr *GroupRoutes) addGroupRole(ctx httpx.IContext) error {
 		return err
 	}
 
-	gr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"group_id": groupID,
 		"role_id":  req.RoleID,
 	})
-	return nil
 }
 
 // removeGroupRole 移除分组角色。
@@ -343,11 +334,10 @@ func (gr *GroupRoutes) removeGroupRole(ctx httpx.IContext) error {
 		return err
 	}
 
-	gr.utils.WriteSuccessResponse(ctx, map[string]interface{}{
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"group_id": groupID,
 		"role_id":  roleID,
 	})
-	return nil
 }
 
 // 组织统计处理器
@@ -359,6 +349,5 @@ func (gr *GroupRoutes) getGroupStatistics(ctx httpx.IContext) error {
 		return err
 	}
 
-	gr.utils.WriteSuccessResponse(ctx, stats)
-	return nil
+	return httpx.WriteSuccess(ctx, stats)
 }
