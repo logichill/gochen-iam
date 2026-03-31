@@ -8,7 +8,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
-	api "gochen/api/http"
+	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
 	dataquery "gochen/db/query"
 	domaincrud "gochen/domain/crud"
@@ -64,10 +64,10 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errorx.Wrap(err, errorx.Internal, "failed to create group crud application").WithContext("route", "iam.group")
 	}
 
-	builder, err := api.NewApiBuilder(
+	builder, err := restapi.NewApiBuilder(
 		appService,
-		api.WithQuerySchema[*iamentity.Group, int64](groupQuerySchema),
-		api.WithHooks[*iamentity.Group, int64](func(h *appcrud.Hooks[*iamentity.Group, int64]) {
+		restapi.WithQuerySchema[*iamentity.Group, int64](groupQuerySchema),
+		restapi.WithHooks[*iamentity.Group, int64](func(h *appcrud.Hooks[*iamentity.Group, int64]) {
 			*h = *newGroupCRUDHooks(gr.groupRepo)
 		}),
 	)
@@ -78,7 +78,7 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errorx.Wrap(err, errorx.Internal, "failed to create group api builder").WithContext("route", "iam.group")
 	}
 	if err := builder.
-		Route(func(cfg *api.RouteConfig[int64]) {
+		Route(func(cfg *restapi.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000

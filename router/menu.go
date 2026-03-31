@@ -5,7 +5,7 @@ import (
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
 	menusvc "gochen-iam/service/menu"
-	api "gochen/api/http"
+	restapi "gochen/api/restapi"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 )
@@ -103,7 +103,7 @@ func (mr *MenuRoutes) updateMenuItem(ctx httpx.IContext) error {
 		return err
 	}
 	req := &menusvc.UpdateMenuItemRequest{}
-	fields, err := api.BindJSONBodyFields(ctx, req)
+	fields, err := restapi.BindJSONBodyFields(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -119,7 +119,7 @@ func (mr *MenuRoutes) updateMenuItem(ctx httpx.IContext) error {
 	return httpx.WriteSuccess(ctx, item)
 }
 
-func menuUpdatePatches(fields api.JSONBodyFields, req *menusvc.UpdateMenuItemRequest) []svc.FieldPatch[iamentity.MenuItem] {
+func menuUpdatePatches(fields restapi.JSONBodyFields, req *menusvc.UpdateMenuItemRequest) []svc.FieldPatch[iamentity.MenuItem] {
 	if !fields.Has("parent_id") {
 		return nil
 	}

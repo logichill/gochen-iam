@@ -6,7 +6,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
-	api "gochen/api/http"
+	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
 	dataquery "gochen/db/query"
 	domaincrud "gochen/domain/crud"
@@ -63,7 +63,7 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errorx.Wrap(err, errorx.Internal, "failed to create role crud application").WithContext("route", "iam.role")
 	}
 
-	builder, err := api.NewApiBuilder(appService, api.WithQuerySchema[*iamentity.Role, int64](roleQuerySchema))
+	builder, err := restapi.NewApiBuilder(appService, restapi.WithQuerySchema[*iamentity.Role, int64](roleQuerySchema))
 	if err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("create role api builder").WithContext("route", "iam.role")
@@ -71,7 +71,7 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errorx.Wrap(err, errorx.Internal, "failed to create role api builder").WithContext("route", "iam.role")
 	}
 	if err := builder.
-		Route(func(cfg *api.RouteConfig[int64]) {
+		Route(func(cfg *restapi.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000

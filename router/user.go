@@ -6,7 +6,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	iamsvc "gochen-iam/service"
-	api "gochen/api/http"
+	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
 	dataquery "gochen/db/query"
 	domaincrud "gochen/domain/crud"
@@ -64,7 +64,7 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errorx.Wrap(err, errorx.Internal, "failed to create user crud application").WithContext("route", "iam.user")
 	}
 
-	builder, err := api.NewApiBuilder(appService, api.WithQuerySchema[*iamentity.User, int64](userQuerySchema))
+	builder, err := restapi.NewApiBuilder(appService, restapi.WithQuerySchema[*iamentity.User, int64](userQuerySchema))
 	if err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("create user api builder").WithContext("route", "iam.user")
@@ -73,7 +73,7 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 
 	if err := builder.
-		Route(func(cfg *api.RouteConfig[int64]) {
+		Route(func(cfg *restapi.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000

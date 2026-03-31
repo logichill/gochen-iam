@@ -6,12 +6,12 @@ import (
 
 	iamentity "gochen-iam/entity"
 	menusvc "gochen-iam/service/menu"
-	api "gochen/api/http"
+	restapi "gochen/api/restapi"
 )
 
 func TestMenuUpdatePatches_ParentIDPatchSemantics(t *testing.T) {
 	t.Run("omit parent_id keeps original parent", func(t *testing.T) {
-		patches := menuUpdatePatches(api.JSONBodyFields{
+		patches := menuUpdatePatches(restapi.JSONBodyFields{
 			"title": json.RawMessage(`"菜单"`),
 		}, &menusvc.UpdateMenuItemRequest{
 			Title: "菜单",
@@ -22,7 +22,7 @@ func TestMenuUpdatePatches_ParentIDPatchSemantics(t *testing.T) {
 	})
 
 	t.Run("null parent_id clears parent", func(t *testing.T) {
-		patches := menuUpdatePatches(api.JSONBodyFields{
+		patches := menuUpdatePatches(restapi.JSONBodyFields{
 			"parent_id": json.RawMessage("null"),
 		}, &menusvc.UpdateMenuItemRequest{})
 		if len(patches) != 1 {
@@ -39,7 +39,7 @@ func TestMenuUpdatePatches_ParentIDPatchSemantics(t *testing.T) {
 
 	t.Run("value parent_id creates explicit reparent patch", func(t *testing.T) {
 		parentID := int64(42)
-		patches := menuUpdatePatches(api.JSONBodyFields{
+		patches := menuUpdatePatches(restapi.JSONBodyFields{
 			"parent_id": json.RawMessage("42"),
 		}, &menusvc.UpdateMenuItemRequest{
 			ParentID: &parentID,

@@ -4,7 +4,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
-	api "gochen/api/http"
+	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
@@ -51,7 +51,7 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	// - QuerySchema 为空；
 	// - Allowed* 也为空；
 	// - builder 会直接基于 Tenant struct 自动推导查询 schema。
-	builder, err := api.NewApiBuilder(appService)
+	builder, err := restapi.NewApiBuilder(appService)
 	if err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("create tenant api builder").WithContext("route", "iam.tenant")
@@ -59,7 +59,7 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errorx.Wrap(err, errorx.Internal, "failed to create tenant api builder").WithContext("route", "iam.tenant")
 	}
 	if err := builder.
-		Route(func(cfg *api.RouteConfig[int64]) {
+		Route(func(cfg *restapi.RouteConfig[int64]) {
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 100
