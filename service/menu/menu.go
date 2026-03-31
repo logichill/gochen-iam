@@ -8,6 +8,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	menurepo "gochen-iam/repo/menu"
+	svc "gochen-iam/service"
 	"gochen/errorx"
 	"gochen/httpx"
 	"gochen/logging"
@@ -48,8 +49,14 @@ type CreateMenuItemRequest struct {
 }
 
 // UpdateMenuItemRequest 定义更新菜单的请求体。
+//
+// 说明：
+// - 普通字段继续沿用 request DTO；
+// - `parent_id` 需要区分“缺失/null/具体值”，因此 router 会把字段出现语义翻译成 `FieldPatch`；
+// - service 层不直接依赖 `ParentID` 是否为 nil 来判断是否更新父级。
 type UpdateMenuItemRequest struct {
-	ParentID  *int64  `json:"parent_id,omitempty"`
+	ParentID *int64 `json:"parent_id,omitempty"`
+
 	Title     string  `json:"title,omitempty" binding:"omitempty,max=200"`
 	Path      *string `json:"path,omitempty" binding:"omitempty,max=500"`
 	Icon      *string `json:"icon,omitempty" binding:"omitempty,max=200"`
@@ -163,18 +170,20 @@ func (s *MenuService) CreateMenuItem(ctx context.Context, req *CreateMenuItemReq
 }
 
 // UpdateMenuItem 按 ID 更新菜单定义。
-func (s *MenuService) UpdateMenuItem(ctx context.Context, id int64, req *UpdateMenuItemRequest) (*iamentity.MenuItem, error) {
+func (s *MenuService) UpdateMenuItem(
+	ctx context.Context,
+	id int64,
+	req *UpdateMenuItemRequest,
+	patches ...svc.FieldPatch[iamentity.MenuItem],
+) (*iamentity.MenuItem, error) {
 	if req == nil {
-		return nil, errorx.New(errorx.Validation, "request is required")
+		return nil, errorx.New(errorx.Validation, "update menu item request is required")
 	}
 	item, err := s.menuRepo.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	if req.ParentID != nil {
-		item.ParentID = req.ParentID
-	}
 	if req.Title != "" {
 		item.Title = req.Title
 	}
@@ -196,7 +205,6 @@ func (s *MenuService) UpdateMenuItem(ctx context.Context, id int64, req *UpdateM
 	if req.Component != nil {
 		item.Component = *req.Component
 	}
-
 	if req.Hidden != nil {
 		item.Hidden = *req.Hidden
 	}
@@ -206,22 +214,21 @@ func (s *MenuService) UpdateMenuItem(ctx context.Context, id int64, req *UpdateM
 	if req.Published != nil {
 		item.Published = *req.Published
 	}
-
 	if req.AnyOfPermissions != nil {
-		if err := validateMenuPermissionCodes(req.AnyOfPermissions, nil); err != nil {
-			return nil, err
-		}
 		item.AnyOfPermissions = iamentity.StringArray(req.AnyOfPermissions)
 	}
 	if req.AllOfPermissions != nil {
-		if err := validateMenuPermissionCodes(nil, req.AllOfPermissions); err != nil {
-			return nil, err
-		}
 		item.AllOfPermissions = iamentity.StringArray(req.AllOfPermissions)
+	}
+	if err := svc.ApplyFieldPatches(item, patches...); err != nil {
+		return nil, err
 	}
 
 	item.SetUpdatedAt(time.Now())
 	if err := item.Validate(); err != nil {
+		return nil, err
+	}
+	if err := validateMenuPermissionCodes([]string(item.AnyOfPermissions), []string(item.AllOfPermissions)); err != nil {
 		return nil, err
 	}
 	if err := s.validateParentNoCycle(ctx, id, item.ParentID); err != nil {

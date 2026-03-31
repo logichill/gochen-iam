@@ -158,12 +158,21 @@ gochen-iam 默认启用严格权限字典：仅允许为角色写入“系统已
 
 当前在服务层 `CreateMenuItem/UpdateMenuItem` 中做校验，拒绝写入会形成环的数据；同时 `sort/filter` 递归也做了防御性处理，避免历史脏数据导致栈溢出。
 
-### 更新语义：支持“清空字符串字段”（P1）
+### 更新语义：request + 小型 FieldPatch（P1）
 
-`UpdateMenuItemRequest` 对 `path/icon/route/component` 使用 `*string`，因此：
+当前更新链路采用两层语义：
 
-- 字段缺省（不传）→ 不更新
-- 传空字符串（如 `"path": ""`）→ 清空该字段
+- router 层负责解释 HTTP patch 语义
+- service 层继续接收常规 `UpdateMenuItemRequest`
+- 只有少数字段（当前是 `parent_id`）会额外翻译成 `FieldPatch`
+
+因此：
+
+- `parent_id` 缺省（不传）→ 不更新
+- `parent_id: null` → 解绑为根菜单
+- `parent_id: 123` → 迁移到指定父菜单
+- `path/icon/route/component` 传空字符串（如 `"path": ""`）→ 清空该字段
+- `hidden/disabled/published` 传 `false`、`order` 传 `0` 也会被视为显式更新，而不是被“零值吞掉”
 
 ### HTTP 接口（router/menu.go）
 

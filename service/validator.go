@@ -134,24 +134,44 @@ func (v *BusinessValidator) ValidateGroupCreation(ctx context.Context, req *Crea
 	return nil
 }
 
-// ValidateGroupUpdate 验证组织更新业务规则
-func (v *BusinessValidator) ValidateGroupUpdate(ctx context.Context, groupID int64, req *UpdateGroupRequest) error {
+// ValidateGroupUpdate 验证组织更新业务规则。
+func (v *BusinessValidator) ValidateGroupUpdate(
+	ctx context.Context,
+	groupID int64,
+	req *UpdateGroupRequest,
+	patches ...FieldPatch[iamentity.Group],
+) error {
+	if req == nil {
+		return errorx.New(errorx.Validation, "update group request is required")
+	}
+
 	// 1. 组织是否存在
 	group, err := v.groupRepo.Get(ctx, groupID)
 	if err != nil {
 		return err
 	}
 
+	candidate := *group
+	if req.Name != "" {
+		candidate.Name = req.Name
+	}
+	if req.Description != "" {
+		candidate.Description = req.Description
+	}
+	if err := ApplyFieldPatches(&candidate, patches...); err != nil {
+		return err
+	}
+
 	// 2. 名称唯一性验证（如果更改了名称）
-	if req.Name != "" && req.Name != group.Name {
-		if err := v.validateGroupNameUniqueness(ctx, req.Name, group.ParentID); err != nil {
+	if candidate.Name != group.Name {
+		if err := v.validateGroupNameUniqueness(ctx, candidate.Name, candidate.ParentID); err != nil {
 			return err
 		}
 	}
 
 	// 3. 父组织变更验证
-	if req.ParentID != nil && (group.ParentID == nil || *req.ParentID != *group.ParentID) {
-		if err := v.validateGroupParentChange(ctx, group, req.ParentID); err != nil {
+	if !sameInt64Ptr(group.ParentID, candidate.ParentID) {
+		if err := v.validateGroupParentChange(ctx, group, candidate.ParentID); err != nil {
 			return err
 		}
 	}

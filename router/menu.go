@@ -1,8 +1,11 @@
 package router
 
 import (
+	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
+	svc "gochen-iam/service"
 	menusvc "gochen-iam/service/menu"
+	api "gochen/api/http"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 )
@@ -100,14 +103,31 @@ func (mr *MenuRoutes) updateMenuItem(ctx httpx.IContext) error {
 		return err
 	}
 	req := &menusvc.UpdateMenuItemRequest{}
-	if err := ctx.BindJSON(req); err != nil {
+	fields, err := api.BindJSONBodyFields(ctx, req)
+	if err != nil {
 		return err
 	}
-	item, err := mr.menuService.UpdateMenuItem(ctx.GetRequest().Context(), id, req)
+	item, err := mr.menuService.UpdateMenuItem(
+		ctx.GetRequest().Context(),
+		id,
+		req,
+		menuUpdatePatches(fields, req)...,
+	)
 	if err != nil {
 		return err
 	}
 	return httpx.WriteSuccess(ctx, item)
+}
+
+func menuUpdatePatches(fields api.JSONBodyFields, req *menusvc.UpdateMenuItemRequest) []svc.FieldPatch[iamentity.MenuItem] {
+	if !fields.Has("parent_id") {
+		return nil
+	}
+	return []svc.FieldPatch[iamentity.MenuItem]{
+		svc.ValueFieldPatch(func(item *iamentity.MenuItem, parentID *int64) {
+			item.ParentID = parentID
+		}, req.ParentID),
+	}
 }
 
 // syncMenuItems 处理批量同步菜单请求。

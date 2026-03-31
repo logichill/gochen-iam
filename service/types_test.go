@@ -1,51 +1,53 @@
 package service
 
 import (
-	"encoding/json"
 	"testing"
 )
 
-func TestUpdateGroupRequestUnmarshalJSON(t *testing.T) {
-	tests := []struct {
-		name        string
-		payload     string
-		parentIDSet bool
-		parentID    *int64
-	}{
-		{
-			name:        "omit parent_id",
-			payload:     `{"name":"group-a"}`,
-			parentIDSet: false,
-			parentID:    nil,
-		},
-		{
-			name:        "explicit null parent_id",
-			payload:     `{"name":"group-a","parent_id":null}`,
-			parentIDSet: true,
-			parentID:    nil,
-		},
-		{
-			name:        "explicit value parent_id",
-			payload:     `{"name":"group-a","parent_id":42}`,
-			parentIDSet: true,
-			parentID:    int64Ptr(42),
-		},
-	}
+func TestFieldPatchApply(t *testing.T) {
+	t.Run("unset keeps original value", func(t *testing.T) {
+		current := "keep"
+		patch := FieldPatch[string]{}
+		if err := patch.Apply(&current); err != nil {
+			t.Fatalf("apply empty patch: %v", err)
+		}
+		if current != "keep" {
+			t.Fatalf("expected original value to stay unchanged, got %q", current)
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var req UpdateGroupRequest
-			if err := json.Unmarshal([]byte(tt.payload), &req); err != nil {
-				t.Fatalf("json.Unmarshal: %v", err)
-			}
-			if req.ParentIDSet != tt.parentIDSet {
-				t.Fatalf("expected ParentIDSet=%v, got %v", tt.parentIDSet, req.ParentIDSet)
-			}
-			if !sameInt64Ptr(req.ParentID, tt.parentID) {
-				t.Fatalf("expected ParentID=%v, got %v", tt.parentID, req.ParentID)
-			}
-		})
-	}
+	t.Run("set pointer replaces value", func(t *testing.T) {
+		current := int64Ptr(1)
+		next := int64Ptr(99)
+		patch := ValueFieldPatch(func(target **int64, value *int64) {
+			*target = value
+		}, next)
+		if err := patch.Apply(&current); err != nil {
+			t.Fatalf("apply patch: %v", err)
+		}
+		if !sameInt64Ptr(current, next) {
+			t.Fatalf("expected pointer %v, got %v", next, current)
+		}
+	})
+
+	t.Run("apply multiple patches in order", func(t *testing.T) {
+		type sample struct {
+			Name  string
+			Level int
+		}
+
+		target := sample{Name: "old", Level: 1}
+		if err := ApplyFieldPatches(
+			&target,
+			ValueFieldPatch(func(target *sample, value string) { target.Name = value }, "new"),
+			ValueFieldPatch(func(target *sample, value int) { target.Level = value }, 2),
+		); err != nil {
+			t.Fatalf("ApplyFieldPatches: %v", err)
+		}
+		if target.Name != "new" || target.Level != 2 {
+			t.Fatalf("unexpected target after patches: %+v", target)
+		}
+	})
 }
 
 func TestAllPermissionDefinitions_IncludeActionAndMenuVisibilityPatterns(t *testing.T) {
@@ -65,11 +67,4 @@ func TestAllPermissionDefinitions_IncludeActionAndMenuVisibilityPatterns(t *test
 
 func int64Ptr(v int64) *int64 {
 	return &v
-}
-
-func sameInt64Ptr(left, right *int64) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return *left == *right
 }

@@ -85,43 +85,47 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 	return group, nil
 }
 
-// UpdateGroup 更新组织
-func (s *GroupService) UpdateGroup(ctx context.Context, groupID int64, req *svc.UpdateGroupRequest) (*iamentity.Group, error) {
+// UpdateGroup 更新组织。
+func (s *GroupService) UpdateGroup(
+	ctx context.Context,
+	groupID int64,
+	req *svc.UpdateGroupRequest,
+	patches ...svc.FieldPatch[iamentity.Group],
+) (*iamentity.Group, error) {
+	if req == nil {
+		return nil, errorx.New(errorx.Validation, "update group request is required")
+	}
+
 	// 1. 获取组织
 	group, err := s.groupRepo.Get(ctx, groupID)
 	if err != nil {
 		return nil, err
 	}
 
-	targetParentID := (*group).ParentID
-	parentChanged := req.ParentIDSet && !sameParentID((*group).ParentID, req.ParentID)
-	if req.ParentIDSet {
-		targetParentID = req.ParentID
-	}
-	targetName := (*group).Name
+	// 2. 先在候选对象上应用 request + patches，集中做冲突校验。
+	candidate := *group
 	if req.Name != "" {
-		targetName = req.Name
+		candidate.Name = req.Name
+	}
+	if req.Description != "" {
+		candidate.Description = req.Description
+	}
+	if err := svc.ApplyFieldPatches(&candidate, patches...); err != nil {
+		return nil, err
 	}
 
-	if parentChanged || targetName != (*group).Name {
-		if err := s.checkGroupNameDuplicate(ctx, targetName, targetParentID); err != nil {
+	parentChanged := !sameParentID((*group).ParentID, candidate.ParentID)
+	if parentChanged || candidate.Name != (*group).Name {
+		if err := s.checkGroupNameDuplicate(ctx, candidate.Name, candidate.ParentID); err != nil {
 			return nil, err
 		}
 	}
 
-	// 2. 更新字段
-	if req.Name != "" && req.Name != (*group).Name {
-		(*group).Name = req.Name
-	}
-
-	if req.Description != "" {
-		(*group).Description = req.Description
-	}
-	if parentChanged && req.ParentID != nil {
-		if *req.ParentID == (*group).GetID() {
+	if parentChanged && candidate.ParentID != nil {
+		if *candidate.ParentID == (*group).GetID() {
 			return nil, errorx.New(errorx.Validation, "不能将组织设置为自己的父组织")
 		}
-		parent, err := s.groupRepo.Get(ctx, *req.ParentID)
+		parent, err := s.groupRepo.Get(ctx, *candidate.ParentID)
 		if err != nil {
 			return nil, errorx.Wrap(err, errorx.NotFound, "父组织不存在")
 		}
@@ -132,11 +136,18 @@ func (s *GroupService) UpdateGroup(ctx context.Context, groupID int64, req *svc.
 			return nil, errorx.New(errorx.Validation, "不能将组织移动到其子组织下")
 		}
 		(*group).SetParent(parent)
-	} else if parentChanged && req.ParentID == nil {
+	} else if parentChanged && candidate.ParentID == nil {
 		(*group).SetParent(nil)
 	}
+	(*group).Name = candidate.Name
+	(*group).Description = candidate.Description
+	if err := (*group).Validate(); err != nil {
+		return nil, err
+	}
 
-	(*group).SetUpdatedAt(time.Now())
+	if !parentChanged {
+		(*group).SetUpdatedAt(time.Now())
+	}
 
 	// 3. 保存更新
 	if err := s.groupRepo.Update(ctx, group); err != nil {

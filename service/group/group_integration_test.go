@@ -285,6 +285,57 @@ func TestGroupServiceUpdateGroup_KeepParentWhenParentIDOmitted(t *testing.T) {
 	}
 }
 
+func TestGroupServiceUpdateGroup_UnsetParentWithExplicitNil(t *testing.T) {
+	env := setupGroupServiceTest(t)
+	defer env.teardown(t)
+
+	root, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		Name:        "根组织",
+		Description: "root",
+	})
+	if err != nil {
+		t.Fatalf("create root: %v", err)
+	}
+	rootID := root.GetID()
+
+	child, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		Name:        "子组织",
+		Description: "child",
+		ParentID:    &rootID,
+	})
+	if err != nil {
+		t.Fatalf("create child: %v", err)
+	}
+
+	updated, err := env.groupService.UpdateGroup(
+		env.backgroundCtx,
+		child.GetID(),
+		&svc.UpdateGroupRequest{},
+		svc.ValueFieldPatch(func(group *iamentity.Group, parentID *int64) {
+			group.ParentID = parentID
+		}, (*int64)(nil)),
+		svc.ValueFieldPatch(func(group *iamentity.Group, description string) {
+			group.Description = description
+		}, ""),
+	)
+	if err != nil {
+		t.Fatalf("unset child parent: %v", err)
+	}
+	if updated.ParentID != nil {
+		t.Fatalf("expected parent to be cleared, got %v", updated.ParentID)
+	}
+	if updated.Level != 1 {
+		t.Fatalf("expected level 1, got %d", updated.Level)
+	}
+	expectedPath := "/" + strconv.FormatInt(child.GetID(), 10)
+	if updated.Path != expectedPath {
+		t.Fatalf("expected path %s, got %s", expectedPath, updated.Path)
+	}
+	if updated.Description != "" {
+		t.Fatalf("expected description cleared, got %q", updated.Description)
+	}
+}
+
 func TestGroupServiceUpdateGroup_ReparentsDescendants(t *testing.T) {
 	env := setupGroupServiceTest(t)
 	defer env.teardown(t)
@@ -325,10 +376,14 @@ func TestGroupServiceUpdateGroup_ReparentsDescendants(t *testing.T) {
 	}
 
 	rootBID := rootB.GetID()
-	updatedChild, err := env.groupService.UpdateGroup(env.backgroundCtx, child.GetID(), &svc.UpdateGroupRequest{
-		ParentIDSet: true,
-		ParentID: &rootBID,
-	})
+	updatedChild, err := env.groupService.UpdateGroup(
+		env.backgroundCtx,
+		child.GetID(),
+		&svc.UpdateGroupRequest{},
+		svc.ValueFieldPatch(func(group *iamentity.Group, parentID *int64) {
+			group.ParentID = parentID
+		}, &rootBID),
+	)
 	if err != nil {
 		t.Fatalf("reparent child: %v", err)
 	}
@@ -388,10 +443,14 @@ func TestGroupServiceUpdateGroup_RejectsDuplicateNameInTargetParent(t *testing.T
 		t.Fatalf("create moving child: %v", err)
 	}
 
-	_, err = env.groupService.UpdateGroup(env.backgroundCtx, moving.GetID(), &svc.UpdateGroupRequest{
-		ParentIDSet: true,
-		ParentID:    &rootAID,
-	})
+	_, err = env.groupService.UpdateGroup(
+		env.backgroundCtx,
+		moving.GetID(),
+		&svc.UpdateGroupRequest{},
+		svc.ValueFieldPatch(func(group *iamentity.Group, parentID *int64) {
+			group.ParentID = parentID
+		}, &rootAID),
+	)
 	if err == nil {
 		t.Fatalf("expected duplicate name validation when reparenting into target parent")
 	}
