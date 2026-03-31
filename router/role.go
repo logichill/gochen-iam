@@ -1,16 +1,31 @@
 package router
 
 import (
+	"time"
+
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
 	api "gochen/api/http"
 	appcrud "gochen/app/crud"
+	dataquery "gochen/db/query"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
 	"gochen/httpx/nethttp"
 )
+
+type roleQueryFields struct {
+	ID        int64
+	Code      string
+	Name      string
+	Status    string `query:"type=enum,ops=eq"`
+	IsSystem  bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+var roleQuerySchema = dataquery.MustInferQuerySchema[roleQueryFields](nil)
 
 // RoleRoutes 角色路由注册器
 type RoleRoutes struct {
@@ -48,7 +63,7 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errorx.Wrap(err, errorx.Internal, "failed to create role crud application").WithContext("route", "iam.role")
 	}
 
-	builder, err := api.NewApiBuilder(appService, nil)
+	builder, err := api.NewApiBuilder(appService, api.WithQuerySchema[*iamentity.Role, int64](roleQuerySchema))
 	if err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("create role api builder").WithContext("route", "iam.role")

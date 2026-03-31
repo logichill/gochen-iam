@@ -1,16 +1,31 @@
 package router
 
 import (
+	"time"
+
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	iamsvc "gochen-iam/service"
 	api "gochen/api/http"
 	appcrud "gochen/app/crud"
+	dataquery "gochen/db/query"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 )
+
+type userQueryFields struct {
+	ID          int64
+	Username    string
+	Email       string
+	Status      string `query:"type=enum,ops=eq"`
+	LastLoginAt *time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+var userQuerySchema = dataquery.MustInferQuerySchema[userQueryFields](nil)
 
 // UserRoutes 用户路由注册器
 type UserRoutes struct {
@@ -49,7 +64,7 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errorx.Wrap(err, errorx.Internal, "failed to create user crud application").WithContext("route", "iam.user")
 	}
 
-	builder, err := api.NewApiBuilder(appService, nil)
+	builder, err := api.NewApiBuilder(appService, api.WithQuerySchema[*iamentity.User, int64](userQuerySchema))
 	if err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("create user api builder").WithContext("route", "iam.user")

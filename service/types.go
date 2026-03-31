@@ -1,5 +1,7 @@
 package service
 
+import "encoding/json"
+
 import iammw "gochen-iam/middleware"
 
 // 用户相关请求和响应类型
@@ -52,6 +54,33 @@ type UpdateGroupRequest struct {
 	Name        string `json:"name" binding:"omitempty,max=100"`
 	Description string `json:"description" binding:"omitempty,max=500"`
 	ParentID    *int64 `json:"parent_id" binding:"omitempty"`
+	ParentIDSet bool   `json:"-"`
+}
+
+// UnmarshalJSON 区分 parent_id 缺失与显式传 null 的场景。
+func (r *UpdateGroupRequest) UnmarshalJSON(data []byte) error {
+	type alias UpdateGroupRequest
+	var payload struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		ParentID    *int64 `json:"parent_id"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+
+	raw := make(map[string]json.RawMessage)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	*r = UpdateGroupRequest{
+		Name:        payload.Name,
+		Description: payload.Description,
+		ParentID:    payload.ParentID,
+	}
+	_, r.ParentIDSet = raw["parent_id"]
+	return nil
 }
 
 // GroupTreeNode 组织树节点

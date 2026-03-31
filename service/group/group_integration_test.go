@@ -245,6 +245,161 @@ func TestGroupServiceUpdateGroup(t *testing.T) {
 	}
 }
 
+func TestGroupServiceUpdateGroup_KeepParentWhenParentIDOmitted(t *testing.T) {
+	env := setupGroupServiceTest(t)
+	defer env.teardown(t)
+
+	root, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		Name:        "根组织",
+		Description: "root",
+	})
+	if err != nil {
+		t.Fatalf("create root: %v", err)
+	}
+	rootID := root.GetID()
+
+	child, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		Name:        "子组织",
+		Description: "child",
+		ParentID:    &rootID,
+	})
+	if err != nil {
+		t.Fatalf("create child: %v", err)
+	}
+
+	updated, err := env.groupService.UpdateGroup(env.backgroundCtx, child.GetID(), &svc.UpdateGroupRequest{
+		Name: "子组织-改名",
+	})
+	if err != nil {
+		t.Fatalf("update child name: %v", err)
+	}
+	if updated.ParentID == nil || *updated.ParentID != rootID {
+		t.Fatalf("expected parent to stay %d, got %v", rootID, updated.ParentID)
+	}
+	expectedPath := root.Path + "/" + strconv.FormatInt(child.GetID(), 10)
+	if updated.Path != expectedPath {
+		t.Fatalf("expected path %s, got %s", expectedPath, updated.Path)
+	}
+	if updated.Level != 2 {
+		t.Fatalf("expected level 2, got %d", updated.Level)
+	}
+}
+
+func TestGroupServiceUpdateGroup_ReparentsDescendants(t *testing.T) {
+	env := setupGroupServiceTest(t)
+	defer env.teardown(t)
+
+	rootA, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		Name:        "根组织A",
+		Description: "A",
+	})
+	if err != nil {
+		t.Fatalf("create rootA: %v", err)
+	}
+	rootB, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		Name:        "根组织B",
+		Description: "B",
+	})
+	if err != nil {
+		t.Fatalf("create rootB: %v", err)
+	}
+
+	rootAID := rootA.GetID()
+	child, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		Name:        "子组织",
+		Description: "child",
+		ParentID:    &rootAID,
+	})
+	if err != nil {
+		t.Fatalf("create child: %v", err)
+	}
+
+	childID := child.GetID()
+	grand, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		Name:        "孙组织",
+		Description: "grand",
+		ParentID:    &childID,
+	})
+	if err != nil {
+		t.Fatalf("create grand: %v", err)
+	}
+
+	rootBID := rootB.GetID()
+	updatedChild, err := env.groupService.UpdateGroup(env.backgroundCtx, child.GetID(), &svc.UpdateGroupRequest{
+		ParentIDSet: true,
+		ParentID: &rootBID,
+	})
+	if err != nil {
+		t.Fatalf("reparent child: %v", err)
+	}
+
+	expectedChildPath := rootB.Path + "/" + strconv.FormatInt(child.GetID(), 10)
+	if updatedChild.Path != expectedChildPath {
+		t.Fatalf("expected child path %s, got %s", expectedChildPath, updatedChild.Path)
+	}
+
+	storedGrand, err := env.groupRepo.Get(env.backgroundCtx, grand.GetID())
+	if err != nil {
+		t.Fatalf("get grand after reparent: %v", err)
+	}
+	expectedGrandPath := expectedChildPath + "/" + strconv.FormatInt(grand.GetID(), 10)
+	if storedGrand.Path != expectedGrandPath {
+		t.Fatalf("expected grand path %s, got %s", expectedGrandPath, storedGrand.Path)
+	}
+	if storedGrand.Level != 3 {
+		t.Fatalf("expected grand level 3, got %d", storedGrand.Level)
+	}
+}
+
+func TestGroupServiceUpdateGroup_RejectsDuplicateNameInTargetParent(t *testing.T) {
+	env := setupGroupServiceTest(t)
+	defer env.teardown(t)
+
+	rootA, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		Name:        "根组织A",
+		Description: "A",
+	})
+	if err != nil {
+		t.Fatalf("create rootA: %v", err)
+	}
+	rootB, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		Name:        "根组织B",
+		Description: "B",
+	})
+	if err != nil {
+		t.Fatalf("create rootB: %v", err)
+	}
+
+	rootAID := rootA.GetID()
+	rootBID := rootB.GetID()
+	if _, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		Name:        "共享名称",
+		Description: "target sibling",
+		ParentID:    &rootAID,
+	}); err != nil {
+		t.Fatalf("create target sibling: %v", err)
+	}
+	moving, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		Name:        "共享名称",
+		Description: "moving child",
+		ParentID:    &rootBID,
+	})
+	if err != nil {
+		t.Fatalf("create moving child: %v", err)
+	}
+
+	_, err = env.groupService.UpdateGroup(env.backgroundCtx, moving.GetID(), &svc.UpdateGroupRequest{
+		ParentIDSet: true,
+		ParentID:    &rootAID,
+	})
+	if err == nil {
+		t.Fatalf("expected duplicate name validation when reparenting into target parent")
+	}
+	if !errorx.Is(err, errorx.Validation) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+}
+
 // TestGroupServiceDeleteGroup 测试删除组织
 func TestGroupServiceDeleteGroup(t *testing.T) {
 	env := setupGroupServiceTest(t)

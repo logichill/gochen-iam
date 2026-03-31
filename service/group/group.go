@@ -82,17 +82,6 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 		return nil, errorx.Wrap(err, errorx.Database, "保存组织失败")
 	}
 
-	// 7. 更新路径（需要ID）
-	group.UpdatePath()
-	if err := s.groupRepo.Update(ctx, group); err != nil {
-		// 记录错误但不影响创建流程
-		s.logger.Warn(ctx, "[GroupService] 更新组织路径失败",
-			logging.Error(err),
-			logging.Int64("group_id", group.GetID()),
-			logging.String("group_name", group.Name),
-		)
-	}
-
 	return group, nil
 }
 
@@ -104,17 +93,47 @@ func (s *GroupService) UpdateGroup(ctx context.Context, groupID int64, req *svc.
 		return nil, err
 	}
 
-	// 2. 更新字段
-	if req.Name != "" && req.Name != (*group).Name {
-		// 检查名称是否重复
-		if err := s.checkGroupNameDuplicate(ctx, req.Name, (*group).ParentID); err != nil {
+	targetParentID := (*group).ParentID
+	parentChanged := req.ParentIDSet && !sameParentID((*group).ParentID, req.ParentID)
+	if req.ParentIDSet {
+		targetParentID = req.ParentID
+	}
+	targetName := (*group).Name
+	if req.Name != "" {
+		targetName = req.Name
+	}
+
+	if parentChanged || targetName != (*group).Name {
+		if err := s.checkGroupNameDuplicate(ctx, targetName, targetParentID); err != nil {
 			return nil, err
 		}
+	}
+
+	// 2. 更新字段
+	if req.Name != "" && req.Name != (*group).Name {
 		(*group).Name = req.Name
 	}
 
 	if req.Description != "" {
 		(*group).Description = req.Description
+	}
+	if parentChanged && req.ParentID != nil {
+		if *req.ParentID == (*group).GetID() {
+			return nil, errorx.New(errorx.Validation, "不能将组织设置为自己的父组织")
+		}
+		parent, err := s.groupRepo.Get(ctx, *req.ParentID)
+		if err != nil {
+			return nil, errorx.Wrap(err, errorx.NotFound, "父组织不存在")
+		}
+		if parent.Level >= svc.MaxGroupLevel {
+			return nil, errorx.New(errorx.Validation, "组织层级不能超过10级")
+		}
+		if (*group).IsAncestorOf(parent) {
+			return nil, errorx.New(errorx.Validation, "不能将组织移动到其子组织下")
+		}
+		(*group).SetParent(parent)
+	} else if parentChanged && req.ParentID == nil {
+		(*group).SetParent(nil)
 	}
 
 	(*group).SetUpdatedAt(time.Now())
@@ -125,6 +144,13 @@ func (s *GroupService) UpdateGroup(ctx context.Context, groupID int64, req *svc.
 	}
 
 	return group, nil
+}
+
+func sameParentID(current, next *int64) bool {
+	if current == nil || next == nil {
+		return current == nil && next == nil
+	}
+	return *current == *next
 }
 
 // DeleteGroup 删除组织

@@ -1,17 +1,33 @@
 package router
 
 import (
+	"context"
 	"strconv"
+	"time"
 
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
+	svc "gochen-iam/service"
 	api "gochen/api/http"
 	appcrud "gochen/app/crud"
+	dataquery "gochen/db/query"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 )
+
+type groupQueryFields struct {
+	ID        int64
+	Name      string
+	ParentID  *int64
+	Level     int
+	Path      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+var groupQuerySchema = dataquery.MustInferQuerySchema[groupQueryFields](nil)
 
 // GroupRoutes 组织路由注册器
 type GroupRoutes struct {
@@ -48,7 +64,13 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errorx.Wrap(err, errorx.Internal, "failed to create group crud application").WithContext("route", "iam.group")
 	}
 
-	builder, err := api.NewApiBuilder(appService, nil)
+	builder, err := api.NewApiBuilder(
+		appService,
+		api.WithQuerySchema[*iamentity.Group, int64](groupQuerySchema),
+		api.WithHooks[*iamentity.Group, int64](func(h *appcrud.Hooks[*iamentity.Group, int64]) {
+			*h = *newGroupCRUDHooks(gr.groupRepo)
+		}),
+	)
 	if err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("create group api builder").WithContext("route", "iam.group")
@@ -350,4 +372,54 @@ func (gr *GroupRoutes) getGroupStatistics(ctx httpx.IContext) error {
 	}
 
 	return httpx.WriteSuccess(ctx, stats)
+}
+
+func newGroupCRUDHooks(repo domaincrud.IRepository[*iamentity.Group, int64]) *appcrud.Hooks[*iamentity.Group, int64] {
+	return &appcrud.Hooks[*iamentity.Group, int64]{
+		BeforeCreate: func(ctx context.Context, group *iamentity.Group) error {
+			return prepareGroupHierarchy(ctx, repo, nil, group)
+		},
+		BeforeUpdate: func(ctx context.Context, group *iamentity.Group) error {
+			if group == nil {
+				return errorx.New(errorx.InvalidInput, "group cannot be nil")
+			}
+			current, err := repo.Get(ctx, group.GetID())
+			if err != nil {
+				return err
+			}
+			return prepareGroupHierarchy(ctx, repo, current, group)
+		},
+	}
+}
+
+func prepareGroupHierarchy(
+	ctx context.Context,
+	repo domaincrud.IRepository[*iamentity.Group, int64],
+	current *iamentity.Group,
+	group *iamentity.Group,
+) error {
+	if group == nil {
+		return errorx.New(errorx.InvalidInput, "group cannot be nil")
+	}
+	if group.ParentID == nil {
+		group.SetParent(nil)
+		return nil
+	}
+	if current != nil && *group.ParentID == current.GetID() {
+		return errorx.New(errorx.Validation, "不能将组织设置为自己的父组织")
+	}
+
+	parent, err := repo.Get(ctx, *group.ParentID)
+	if err != nil {
+		return errorx.Wrap(err, errorx.NotFound, "父组织不存在")
+	}
+	if parent.Level >= svc.MaxGroupLevel {
+		return errorx.New(errorx.Validation, "组织层级不能超过10级")
+	}
+	if current != nil && current.IsAncestorOf(parent) {
+		return errorx.New(errorx.Validation, "不能将组织移动到其子组织下")
+	}
+
+	group.SetParent(parent)
+	return nil
 }

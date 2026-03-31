@@ -18,7 +18,9 @@ type Group struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	Name        string `json:"name" gorm:"size:100;not null"`
+	Name string `json:"name" gorm:"size:100;not null"`
+	// Code 仅用于兼容管理端当前仍会回传的组织编码字段；当前 groups 表未持久化该列。
+	Code        string `json:"code,omitempty" gorm:"-"`
 	Description string `json:"description" gorm:"size:500"`
 	ParentID    *int64 `json:"parent_id" gorm:"index"`
 	Level       int    `json:"level" gorm:"default:1"`

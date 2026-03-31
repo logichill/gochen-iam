@@ -47,7 +47,11 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errorx.Wrap(err, errorx.Internal, "failed to create tenant crud application").WithContext("route", "iam.tenant")
 	}
 
-	builder, err := api.NewApiBuilder(appService, nil)
+	// 这里故意不传 QuerySchema，直接演示 CRUD builder 的全默认 auto-infer 流程：
+	// - QuerySchema 为空；
+	// - Allowed* 也为空；
+	// - builder 会直接基于 Tenant struct 自动推导查询 schema。
+	builder, err := api.NewApiBuilder(appService)
 	if err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("create tenant api builder").WithContext("route", "iam.tenant")

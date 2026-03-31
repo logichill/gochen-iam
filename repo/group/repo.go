@@ -31,6 +31,73 @@ func NewGroupRepository(o orm.IOrm) (*GroupRepo, error) {
 
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供
 
+// Create 创建组织，并在同一事务内补齐 path/level 派生字段。
+func (r *GroupRepo) Create(ctx context.Context, group *iamentity.Group) (err error) {
+	if group == nil {
+		return errorx.New(errorx.InvalidInput, "group cannot be nil")
+	}
+	txCtx, err := r.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = r.Rollback(txCtx)
+		}
+	}()
+
+	if err := r.Repo.Create(txCtx, group); err != nil {
+		return err
+	}
+	group.UpdatePath()
+	if err := r.Repo.Update(txCtx, group); err != nil {
+		return err
+	}
+	if err := r.Commit(txCtx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+// Update 更新组织，并在父链变化时同步修复整个子树的 path/level。
+func (r *GroupRepo) Update(ctx context.Context, group *iamentity.Group) (err error) {
+	if group == nil {
+		return errorx.New(errorx.InvalidInput, "group cannot be nil")
+	}
+	txCtx, err := r.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = r.Rollback(txCtx)
+		}
+	}()
+
+	current, err := r.Get(txCtx, group.GetID())
+	if err != nil {
+		return err
+	}
+	pathChanged := current.Path != group.Path || current.Level != group.Level || int64PtrValue(current.ParentID) != int64PtrValue(group.ParentID)
+
+	if err := r.Repo.Update(txCtx, group); err != nil {
+		return err
+	}
+	if pathChanged {
+		if err := r.repairDescendantHierarchy(txCtx, group); err != nil {
+			return err
+		}
+	}
+	if err := r.Commit(txCtx); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 // Get 根据ID获取组织（过滤软删记录）
 func (r *GroupRepo) Get(ctx context.Context, id int64) (*iamentity.Group, error) {
 	model, err := r.ModelFor(ctx)
@@ -210,6 +277,30 @@ func (r *GroupRepo) findDescendantsRecursive(ctx context.Context, parentID int64
 	}
 
 	return nil
+}
+
+func (r *GroupRepo) repairDescendantHierarchy(ctx context.Context, parent *iamentity.Group) error {
+	children, err := r.FindChildren(ctx, parent.GetID())
+	if err != nil {
+		return err
+	}
+	for _, child := range children {
+		child.SetParent(parent)
+		if err := r.Repo.Update(ctx, child); err != nil {
+			return err
+		}
+		if err := r.repairDescendantHierarchy(ctx, child); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func int64PtrValue(v *int64) int64 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 // AddUserToGroup 将用户添加到组织
