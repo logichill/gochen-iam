@@ -51,7 +51,7 @@ func (t *Tenant) GetEntityType() string {
 	return "tenant"
 }
 
-// 兼容 domain.IEntity 方法
+// 实现 domain.IEntity 方法
 func (t *Tenant) GetID() int64 { return t.ID }
 
 // SetID 设置ID。

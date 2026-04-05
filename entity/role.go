@@ -84,7 +84,7 @@ func (r *Role) GetEntityType() string {
 	return "role"
 }
 
-// 兼容 domain.IEntity 方法
+// 实现 domain.IEntity 方法
 func (r *Role) GetID() int64 { return r.ID }
 
 // SetID 设置ID。

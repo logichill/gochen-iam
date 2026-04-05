@@ -19,7 +19,7 @@ type Group struct {
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
 	Name string `json:"name" gorm:"size:100;not null"`
-	// Code 仅用于兼容管理端当前仍会回传的组织编码字段；当前 groups 表未持久化该列。
+	// Code 用于承接管理端当前仍会回传的组织编码字段；当前 groups 表未持久化该列。
 	Code        string `json:"code,omitempty" gorm:"-"`
 	Description string `json:"description" gorm:"size:500"`
 	ParentID    *int64 `json:"parent_id" gorm:"index"`
@@ -57,7 +57,7 @@ func (g *Group) GetEntityType() string {
 	return "group"
 }
 
-// 兼容 domain.IEntity 方法
+// 实现 domain.IEntity 方法
 func (g *Group) GetID() int64 { return g.ID }
 
 // SetID 设置ID。

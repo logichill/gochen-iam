@@ -67,7 +67,7 @@ func (u *User) GetEntityType() string {
 	return "user"
 }
 
-// 兼容 domain.IEntity 方法
+// 实现 domain.IEntity 方法
 func (u *User) GetID() int64 { return u.ID }
 
 // SetID 设置ID。

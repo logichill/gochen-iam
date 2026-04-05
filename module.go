@@ -14,6 +14,7 @@ import (
 	rolesvc "gochen-iam/service/role"
 	tenantsvc "gochen-iam/service/tenant"
 	usersvc "gochen-iam/service/user"
+	"gochen/boot"
 	"gochen/errorx"
 	"gochen/httpx"
 	"gochen/server"
@@ -21,10 +22,10 @@ import (
 
 // NewModule 创建 IAM 领域模块
 func NewModule() (server.IModule, error) {
-	return server.BuildModule(server.ModuleConfig{
+	return boot.BuildModule(boot.ModuleConfig{
 		ID:   "iam",
 		Name: "IAM",
-		Constructors: []any{
+		Providers: []any{
 			// Repos
 			tenantrepo.NewTenantRepository,
 			userrepo.NewUserRepository,

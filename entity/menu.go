@@ -115,7 +115,7 @@ func (m *MenuItem) GetEntityType() string {
 	return "menu_item"
 }
 
-// 兼容 domain.IEntity 方法
+// 实现 domain.IEntity 方法
 func (m *MenuItem) GetID() int64 { return m.ID }
 
 // SetID 设置ID。
