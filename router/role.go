@@ -8,7 +8,7 @@ import (
 	svc "gochen-iam/service"
 	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
-	dataquery "gochen/db/query"
+	queryhelper "gochen/app/helper/query"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
@@ -25,7 +25,7 @@ type roleQueryFields struct {
 	UpdatedAt time.Time
 }
 
-var roleQuerySchema = dataquery.MustInferQuerySchema[roleQueryFields](nil)
+var roleQuerySchema = queryhelper.MustInferQuerySchema[roleQueryFields](nil)
 
 // RoleRoutes 角色路由注册器
 type RoleRoutes struct {

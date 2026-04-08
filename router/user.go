@@ -8,7 +8,7 @@ import (
 	iamsvc "gochen-iam/service"
 	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
-	dataquery "gochen/db/query"
+	queryhelper "gochen/app/helper/query"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
@@ -25,7 +25,7 @@ type userQueryFields struct {
 	UpdatedAt   time.Time
 }
 
-var userQuerySchema = dataquery.MustInferQuerySchema[userQueryFields](nil)
+var userQuerySchema = queryhelper.MustInferQuerySchema[userQueryFields](nil)
 
 // UserRoutes 用户路由注册器
 type UserRoutes struct {

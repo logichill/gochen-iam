@@ -10,7 +10,7 @@ import (
 	svc "gochen-iam/service"
 	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
-	dataquery "gochen/db/query"
+	queryhelper "gochen/app/helper/query"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
@@ -27,7 +27,7 @@ type groupQueryFields struct {
 	UpdatedAt time.Time
 }
 
-var groupQuerySchema = dataquery.MustInferQuerySchema[groupQueryFields](nil)
+var groupQuerySchema = queryhelper.MustInferQuerySchema[groupQueryFields](nil)
 
 // GroupRoutes 组织路由注册器
 type GroupRoutes struct {
