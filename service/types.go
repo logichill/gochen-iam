@@ -5,6 +5,9 @@ import iammw "gochen-iam/middleware"
 // 用户相关请求和响应类型
 
 // RegisterRequest 用户注册请求
+//
+// 注意：TenantID 不再从请求体获取，而是从上下文中提取（由 middleware 注入），
+// 以防止客户端伪造租户 ID 导致跨租户写入。
 type RegisterRequest struct {
 	Username string `json:"username" binding:"required,min=3,max=50"`
 	Email    string `json:"email" binding:"required,email"`
@@ -19,11 +22,15 @@ type AuthenticateRequest struct {
 
 // AuthenticateResult 用户认证结果（不包含 token；token 由协议层按配置生成）。
 type AuthenticateResult struct {
-	UserID      int64    `json:"user_id"`
-	Username    string   `json:"username"`
-	Email       string   `json:"email"`
-	Roles       []string `json:"roles"`
-	Permissions []string `json:"permissions"`
+	UserID          int64    `json:"user_id"`
+	TenantID        string   `json:"tenant_id"`
+	Username        string   `json:"username"`
+	Email           string   `json:"email"`
+	Roles           []string `json:"roles"`
+	Permissions     []string `json:"permissions"`
+	ActiveScopeID   int64    `json:"active_scope_id"`
+	ActiveScopeKey  string   `json:"active_scope_key"`
+	ActiveScopeType string   `json:"active_scope_type"`
 }
 
 // ChangePasswordRequest 修改密码请求
@@ -42,6 +49,7 @@ type UpdateUserRequest struct {
 
 // CreateGroupRequest 创建组织请求
 type CreateGroupRequest struct {
+	TenantID    string `json:"tenant_id" binding:"omitempty,max=64"`
 	Name        string `json:"name" binding:"required,max=100"`
 	Description string `json:"description" binding:"omitempty,max=500"`
 	ParentID    *int64 `json:"parent_id" binding:"omitempty"`
@@ -71,6 +79,7 @@ type GroupTreeNode struct {
 
 // CreateRoleRequest 定义创建角色请求参数。
 type CreateRoleRequest struct {
+	TenantID    string   `json:"tenant_id" binding:"omitempty,max=64"`
 	Name        string   `json:"name" binding:"required,max=50"`
 	Description string   `json:"description" binding:"omitempty,max=500"`
 	Permissions []string `json:"permissions" binding:"required"`
@@ -141,6 +150,7 @@ const (
 
 	// 系统角色名称
 	SystemAdminRoleName = "system_admin"
+	AdminRoleName       = "admin"
 	UserRoleName        = "user"
 
 	// 业务限制
@@ -162,6 +172,7 @@ var (
 
 	// 用户权限
 	UserPermissions = []string{
+		"api:user:manage",
 		"api:user:read",
 		"api:user:write",
 		"api:user:delete",
@@ -171,6 +182,7 @@ var (
 
 	// 组织权限
 	GroupPermissions = []string{
+		"api:group:manage",
 		"api:group:read",
 		"api:group:write",
 		"api:group:delete",
@@ -203,9 +215,19 @@ var (
 
 	// 角色权限
 	RolePermissions = []string{
+		"api:role:manage",
 		"api:role:read",
 		"api:role:write",
 		"api:role:delete",
+	}
+
+	// 租户权限
+	TenantPermissions = []string{
+		"api:tenant:manage",
+		"api:tenant:read",
+		"api:tenant:write",
+		"api:tenant:delete",
+		"api:tenant:activate",
 	}
 
 	// 菜单权限（后台导航可见性配置）
@@ -238,7 +260,7 @@ var (
 			LevelPermissions...),
 		append(
 			append(
-				append(append(PlanPermissions, RolePermissions...), MenuPermissions...),
+				append(append(append(PlanPermissions, RolePermissions...), TenantPermissions...), MenuPermissions...),
 				ActionPermissions...,
 			),
 			MenuVisibilityPermissionPatterns...,
@@ -257,7 +279,7 @@ var (
 			apiPermissionDefinitions(LevelPermissions)...),
 		append(
 			append(
-				append(apiPermissionDefinitions(PlanPermissions), append(apiPermissionDefinitions(RolePermissions), apiPermissionDefinitions(MenuPermissions)...)...),
+				append(apiPermissionDefinitions(PlanPermissions), append(append(apiPermissionDefinitions(RolePermissions), apiPermissionDefinitions(TenantPermissions)...), apiPermissionDefinitions(MenuPermissions)...)...),
 				actionPermissionDefinitions(ActionPermissions)...,
 			),
 			patternPermissionDefinitions(MenuVisibilityPermissionPatterns, iammw.PermissionTypeMenu)...,
@@ -284,12 +306,21 @@ func patternPermissionDefinitions(permissions []string, permissionType iammw.Per
 func permissionDefinitions(permissions []string, permissionType iammw.PermissionType) []iammw.PermissionDefinition {
 	definitions := make([]iammw.PermissionDefinition, 0, len(permissions))
 	for _, permission := range permissions {
-		definitions = append(definitions, iammw.PermissionDefinition{
-			Code: permission,
-			Type: permissionType,
-		})
+		spec := iammw.PermissionCode(permission).Definition()
+		spec.Type = permissionType
+		spec.Scopes = defaultPermissionScopes(spec)
+		definitions = append(definitions, spec)
 	}
 	return definitions
+}
+
+func defaultPermissionScopes(def iammw.PermissionDefinition) []string {
+	switch def.Resource {
+	case string(iammw.ResourceTenant), string(iammw.ResourceMenu), string(iammw.ResourceSystem):
+		return []string{string(iammw.ScopePlatform)}
+	default:
+		return []string{string(iammw.ScopePlatform), string(iammw.ScopeTenant)}
+	}
 }
 
 // 租户相关请求类型
@@ -299,6 +330,7 @@ type CreateTenantRequest struct {
 	Key         string `json:"key" binding:"required,max=64"`
 	Name        string `json:"name" binding:"required,max=100"`
 	Description string `json:"description" binding:"omitempty,max=500"`
+	IsPlatform  bool   `json:"is_platform"`
 }
 
 // UpdateTenantRequest 定义Update租户请求参数。

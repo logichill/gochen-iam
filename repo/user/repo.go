@@ -95,15 +95,15 @@ func (r *UserRepo) GetWithRelations(ctx context.Context, id int64) (*iamentity.U
 	return &user, nil
 }
 
-// FindByEmail 根据邮箱查找用户
-func (r *UserRepo) FindByEmail(ctx context.Context, email string) (*iamentity.User, error) {
+// FindByEmail 根据邮箱查找用户（租户内唯一）
+func (r *UserRepo) FindByEmail(ctx context.Context, tenantID, email string) (*iamentity.User, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var user iamentity.User
 	err = model.First(ctx, &user,
-		orm.WithWhere("email = ? AND deleted_at IS NULL", email),
+		orm.WithWhere("tenant_id = ? AND email = ? AND deleted_at IS NULL", tenantID, email),
 		orm.WithPreload("Groups"),
 		orm.WithPreload("Roles"),
 	)
@@ -118,15 +118,15 @@ func (r *UserRepo) FindByEmail(ctx context.Context, email string) (*iamentity.Us
 	return &user, nil
 }
 
-// FindByUsername 根据用户名查找用户
-func (r *UserRepo) FindByUsername(ctx context.Context, username string) (*iamentity.User, error) {
+// FindByUsername 根据用户名查找用户（租户内唯一）
+func (r *UserRepo) FindByUsername(ctx context.Context, tenantID, username string) (*iamentity.User, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var user iamentity.User
 	err = model.First(ctx, &user,
-		orm.WithWhere("username = ? AND deleted_at IS NULL", username),
+		orm.WithWhere("tenant_id = ? AND username = ? AND deleted_at IS NULL", tenantID, username),
 		orm.WithPreload("Groups"),
 		orm.WithPreload("Roles"),
 	)
@@ -158,15 +158,15 @@ func (r *UserRepo) UpdateLastLogin(ctx context.Context, userID int64) error {
 	return nil
 }
 
-// FindByStatus 根据状态查找用户
-func (r *UserRepo) FindByStatus(ctx context.Context, status string) ([]*iamentity.User, error) {
+// FindByStatus 根据状态查找用户（租户隔离）
+func (r *UserRepo) FindByStatus(ctx context.Context, tenantID, status string) ([]*iamentity.User, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var users []*iamentity.User
 	err = model.Find(ctx, &users,
-		orm.WithWhere("status = ? AND deleted_at IS NULL", status),
+		orm.WithWhere("tenant_id = ? AND status = ? AND deleted_at IS NULL", tenantID, status),
 		orm.WithPreload("Groups"),
 		orm.WithPreload("Roles"),
 	)
@@ -178,8 +178,8 @@ func (r *UserRepo) FindByStatus(ctx context.Context, status string) ([]*iamentit
 	return users, nil
 }
 
-// FindByGroupID 根据组织ID查找用户
-func (r *UserRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamentity.User, error) {
+// FindByGroupID 根据组织ID查找用户（租户隔离）
+func (r *UserRepo) FindByGroupID(ctx context.Context, tenantID string, groupID int64) ([]*iamentity.User, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err
@@ -187,7 +187,7 @@ func (r *UserRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamenti
 	var users []*iamentity.User
 	err = model.Find(ctx, &users,
 		orm.WithJoin(orm.InnerJoin("user_groups", "", orm.On("users.id", "user_groups.user_id"))),
-		orm.WithWhere("user_groups.group_id = ? AND users.deleted_at IS NULL", groupID),
+		orm.WithWhere("user_groups.group_id = ? AND users.tenant_id = ? AND users.deleted_at IS NULL", groupID, tenantID),
 		orm.WithPreload("Groups"),
 		orm.WithPreload("Roles"),
 	)
@@ -199,8 +199,8 @@ func (r *UserRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamenti
 	return users, nil
 }
 
-// FindByRoleID 根据角色ID查找用户
-func (r *UserRepo) FindByRoleID(ctx context.Context, roleID int64) ([]*iamentity.User, error) {
+// FindByRoleID 根据角色ID查找用户（租户隔离）
+func (r *UserRepo) FindByRoleID(ctx context.Context, tenantID string, roleID int64) ([]*iamentity.User, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err
@@ -208,7 +208,7 @@ func (r *UserRepo) FindByRoleID(ctx context.Context, roleID int64) ([]*iamentity
 	var users []*iamentity.User
 	err = model.Find(ctx, &users,
 		orm.WithJoin(orm.InnerJoin("user_roles", "", orm.On("users.id", "user_roles.user_id"))),
-		orm.WithWhere("user_roles.role_id = ? AND users.deleted_at IS NULL", roleID),
+		orm.WithWhere("user_roles.role_id = ? AND users.tenant_id = ? AND users.deleted_at IS NULL", roleID, tenantID),
 		orm.WithPreload("Groups"),
 		orm.WithPreload("Roles"),
 	)
@@ -220,9 +220,31 @@ func (r *UserRepo) FindByRoleID(ctx context.Context, roleID int64) ([]*iamentity
 	return users, nil
 }
 
+// CountByRoleID 统计拥有指定角色的用户数量（不依赖 preload）
+func (r *UserRepo) CountByRoleID(ctx context.Context, roleID int64) (int64, error) {
+	engine := r.Orm()
+	if session, ok := orm.SessionFromContext(ctx); ok && session != nil {
+		engine = session
+	}
+	userRoleModel, err := engine.Model(&orm.ModelMeta{
+		ModelFactory: orm.NewModelFactory[struct {
+			RoleID int64
+			UserID int64
+		}](),
+		Table: "user_roles",
+	})
+	if err != nil {
+		return 0, errorx.Wrap(err, errorx.Database, "初始化 user_roles 模型失败")
+	}
+	count, err := userRoleModel.Count(ctx, orm.WithWhere("role_id = ?", roleID))
+	if err != nil {
+		return 0, errorx.Wrap(err, errorx.Database, "统计角色用户数量失败")
+	}
+	return count, nil
+}
+
 // AssignToGroup 将用户分配到组织
 func (r *UserRepo) AssignToGroup(ctx context.Context, userID, groupID int64) error {
-	// 检查用户是否存在
 	user, err := r.Repo.Get(ctx, userID)
 	if err != nil {
 		return err
@@ -244,7 +266,6 @@ func (r *UserRepo) AssignToGroup(ctx context.Context, userID, groupID int64) err
 
 // RemoveFromGroup 从组织中移除用户
 func (r *UserRepo) RemoveFromGroup(ctx context.Context, userID, groupID int64) error {
-	// 检查用户是否存在
 	user, err := r.Repo.Get(ctx, userID)
 	if err != nil {
 		return err
@@ -266,7 +287,6 @@ func (r *UserRepo) RemoveFromGroup(ctx context.Context, userID, groupID int64) e
 
 // AssignRole 为用户分配角色
 func (r *UserRepo) AssignRole(ctx context.Context, userID, roleID int64) error {
-	// 检查用户是否存在
 	user, err := r.Repo.Get(ctx, userID)
 	if err != nil {
 		return err
@@ -288,7 +308,6 @@ func (r *UserRepo) AssignRole(ctx context.Context, userID, roleID int64) error {
 
 // RemoveRole 移除用户角色
 func (r *UserRepo) RemoveRole(ctx context.Context, userID, roleID int64) error {
-	// 检查用户是否存在
 	user, err := r.Repo.Get(ctx, userID)
 	if err != nil {
 		return err
@@ -308,8 +327,8 @@ func (r *UserRepo) RemoveRole(ctx context.Context, userID, roleID int64) error {
 	return nil
 }
 
-// CountByStatus 统计各状态用户数量
-func (r *UserRepo) CountByStatus(ctx context.Context) (map[string]int64, error) {
+// CountByStatus 统计各状态用户数量（租户隔离）
+func (r *UserRepo) CountByStatus(ctx context.Context, tenantID string) (map[string]int64, error) {
 	type StatusCount struct {
 		Status string `json:"status"`
 		Count  int64  `json:"count"`
@@ -322,7 +341,7 @@ func (r *UserRepo) CountByStatus(ctx context.Context) (map[string]int64, error) 
 	}
 	err = model.Find(ctx, &results,
 		orm.WithSelect("status", "COUNT(*) as count"),
-		orm.WithWhere("deleted_at IS NULL"),
+		orm.WithWhere("tenant_id = ? AND deleted_at IS NULL", tenantID),
 		orm.WithGroupBy("status"),
 	)
 
@@ -338,15 +357,15 @@ func (r *UserRepo) CountByStatus(ctx context.Context) (map[string]int64, error) 
 	return statusMap, nil
 }
 
-// SearchUsers 搜索用户（支持用户名、邮箱模糊搜索）
-func (r *UserRepo) SearchUsers(ctx context.Context, keyword string, limit int) ([]*iamentity.User, error) {
+// SearchUsers 搜索用户（支持用户名、邮箱模糊搜索，租户隔离）
+func (r *UserRepo) SearchUsers(ctx context.Context, tenantID, keyword string, limit int) ([]*iamentity.User, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var users []*iamentity.User
 	opts := []orm.QueryOption{
-		orm.WithWhere("deleted_at IS NULL"),
+		orm.WithWhere("tenant_id = ? AND deleted_at IS NULL", tenantID),
 		orm.WithPreload("Groups"),
 		orm.WithPreload("Roles"),
 	}

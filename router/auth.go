@@ -1,12 +1,17 @@
 package router
 
 import (
+	"strings"
+	"time"
+
+	iamauth "gochen-iam/auth"
 	iammw "gochen-iam/middleware"
 	iamsvc "gochen-iam/service"
+	"gochen-iam/tenant"
+	ctxx "gochen/contextx"
 	"gochen/errorx"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
-	"time"
 )
 
 // AuthRoutes 认证路由注册器
@@ -48,16 +53,56 @@ func (ar *AuthRoutes) GetPriority() int {
 	return 10 // 认证路由优先级最高
 }
 
+func (ar *AuthRoutes) readRequestTenantID(ctx httpx.IContext) string {
+	if ctx == nil {
+		return ""
+	}
+	cfg := ar.authConfig
+	if cfg == nil {
+		cfg = iammw.DefaultAuthConfig()
+	}
+	tenantID := strings.TrimSpace(ctx.GetHeader(cfg.TenantHeader))
+	if tenantID == "" && cfg.AllowTenantQuery {
+		tenantID = strings.TrimSpace(ctx.GetQuery("tenant_id"))
+	}
+	return tenantID
+}
+
+func (ar *AuthRoutes) ensureTenantContext(ctx httpx.IContext) (httpx.IRequestContext, string, error) {
+	reqCtx := ctx.GetContext()
+	currentTenantID := ctxx.GetTenantID(reqCtx)
+	cfg := ar.authConfig
+	if cfg == nil {
+		cfg = iammw.DefaultAuthConfig()
+	}
+	tenantID, err := tenant.ResolveRequestTenantID(ar.readRequestTenantID(ctx), currentTenantID, cfg.RequireTenant)
+	if err != nil {
+		return reqCtx, "", err
+	}
+	if tenantID == "" || currentTenantID == tenantID {
+		return reqCtx, tenantID, nil
+	}
+	derived, err := ctxx.WithTenantID(reqCtx, tenantID)
+	if err != nil {
+		return reqCtx, "", err
+	}
+	reqCtx = reqCtx.WithContext(derived)
+	ctx.SetContext(reqCtx)
+	return reqCtx, tenantID, nil
+}
+
 // 认证处理器方法
 func (ar *AuthRoutes) register(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx, tenantID, err := ar.ensureTenantContext(ctx)
+	if err != nil {
+		return err
+	}
 	req := &iamsvc.RegisterRequest{}
-
 	if err := ctx.BindJSON(req); err != nil {
 		return err
 	}
 
-	user, err := ar.userService.Register(reqCtx, req)
+	user, err := ar.userService.Register(reqCtx, tenantID, req)
 	if err != nil {
 		return err
 	}
@@ -71,20 +116,32 @@ func (ar *AuthRoutes) register(ctx httpx.IContext) error {
 
 // login 处理login。
 func (ar *AuthRoutes) login(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx, tenantID, err := ar.ensureTenantContext(ctx)
+	if err != nil {
+		return err
+	}
 	req := &iamsvc.AuthenticateRequest{}
-
 	if err := ctx.BindJSON(req); err != nil {
 		return err
 	}
-
-	authResult, err := ar.userService.Authenticate(reqCtx, req)
+	authResult, err := ar.userService.Authenticate(reqCtx, tenantID, req)
 	if err != nil {
 		return err
 	}
 
 	// 基于用户信息生成 JWT，携带角色与权限声明
-	token, err := iammw.GenerateTokenWithTTL(authResult.UserID, authResult.Username, authResult.Roles, authResult.Permissions, ar.authConfig.SecretKey, ar.authConfig.AccessTokenTTL)
+	token, err := iammw.GenerateTokenWithScope(
+		authResult.UserID,
+		authResult.TenantID,
+		authResult.Username,
+		authResult.Roles,
+		authResult.Permissions,
+		authResult.ActiveScopeID,
+		authResult.ActiveScopeKey,
+		authResult.ActiveScopeType,
+		ar.authConfig.SecretKey,
+		ar.authConfig.AccessTokenTTL,
+	)
 	if err != nil {
 		return err
 	}
@@ -136,13 +193,46 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 		return err
 	}
 
+	reqCtx := ctx.GetContext()
+	requestTenantID := ar.readRequestTenantID(ctx)
+	if requestTenantID == "" {
+		requestTenantID = ctxx.GetTenantID(reqCtx)
+	}
+	tenantID, err := tenant.ResolveRequestTenantIDWithScope(requestTenantID, strings.TrimSpace(claims.TenantID), claims.ActiveScopeType, true)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(ctxx.GetTenantID(reqCtx)) != tenantID {
+		derived, err := ctxx.WithTenantID(reqCtx, tenantID)
+		if err != nil {
+			return err
+		}
+		reqCtx = reqCtx.WithContext(derived)
+		ctx.SetContext(reqCtx)
+	}
+	reqCtx = iamauth.WithRoles(reqCtx, claims.Roles)
+	reqCtx = iamauth.WithPermissions(reqCtx, claims.Permissions)
+	reqCtx = iamauth.WithActiveScope(reqCtx, claims.ActiveScopeID, claims.ActiveScopeKey, claims.ActiveScopeType)
+	ctx.SetContext(reqCtx)
+
 	// 2) 重新从数据源获取最新有效 RBAC（过滤软删/非激活角色，避免沿用旧 token 快照）
-	authSnapshot, err := ar.userService.GetAuthSnapshot(ctx.GetRequest().Context(), claims.UserID)
+	authSnapshot, err := ar.userService.GetAuthSnapshot(reqCtx, claims.UserID)
 	if err != nil {
 		return err
 	}
 
-	newToken, err := iammw.GenerateTokenWithTTL(authSnapshot.UserID, authSnapshot.Username, authSnapshot.Roles, authSnapshot.Permissions, ar.authConfig.SecretKey, ar.authConfig.AccessTokenTTL)
+	newToken, err := iammw.GenerateTokenWithScope(
+		authSnapshot.UserID,
+		authSnapshot.TenantID,
+		authSnapshot.Username,
+		authSnapshot.Roles,
+		authSnapshot.Permissions,
+		authSnapshot.ActiveScopeID,
+		authSnapshot.ActiveScopeKey,
+		authSnapshot.ActiveScopeType,
+		ar.authConfig.SecretKey,
+		ar.authConfig.AccessTokenTTL,
+	)
 	if err != nil {
 		return err
 	}

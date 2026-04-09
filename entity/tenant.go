@@ -15,10 +15,13 @@ type Tenant struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	Key         string `json:"key" gorm:"uniqueIndex;size:64;not null"` // 业务主键
-	Name        string `json:"name" gorm:"size:100;not null"`           // 租户名称
-	Description string `json:"description" gorm:"size:500"`             // 描述
-	Status      string `json:"status" gorm:"size:20;default:inactive"`  // 状态：active/inactive
+	Key          string `json:"key" gorm:"uniqueIndex;size:64;not null"` // 业务主键
+	Name         string `json:"name" gorm:"size:100;not null"`           // 租户名称
+	Description  string `json:"description" gorm:"size:500"`             // 描述
+	Status       string `json:"status" gorm:"size:20;default:inactive"`  // 状态：active/inactive
+	IsPlatform   bool   `json:"is_platform" gorm:"default:false;index"`
+	PlatformSlot *int   `json:"-" query:"-" gorm:"uniqueIndex"`
+	RootScopeID  *int64 `json:"root_scope_id,omitempty" gorm:"index"`
 }
 
 // TableName 指定表名
@@ -93,4 +96,16 @@ func (t *Tenant) Activate() {
 func (t *Tenant) Deactivate() {
 	t.Status = "inactive"
 	t.SetUpdatedAt(time.Now())
+}
+
+// SyncPlatformSlot 根据 IsPlatform 同步数据库唯一哨兵列，用于兜住“只允许一个 platform tenant”。
+func (t *Tenant) SyncPlatformSlot() {
+	if t != nil && t.IsPlatform {
+		slot := 1
+		t.PlatformSlot = &slot
+		return
+	}
+	if t != nil {
+		t.PlatformSlot = nil
+	}
 }

@@ -11,8 +11,8 @@ import (
 
 // IUserService 定义用户服务能力接口。
 type IUserService interface {
-	Register(ctx context.Context, req *svc.RegisterRequest) (*iamentity.User, error)
-	Authenticate(ctx context.Context, req *svc.AuthenticateRequest) (*svc.AuthenticateResult, error)
+	Register(ctx context.Context, tenantID string, req *svc.RegisterRequest) (*iamentity.User, error)
+	Authenticate(ctx context.Context, tenantID string, req *svc.AuthenticateRequest) (*svc.AuthenticateResult, error)
 	GetAuthSnapshot(ctx context.Context, userID int64) (*svc.AuthenticateResult, error)
 	ChangePassword(ctx context.Context, userID int64, req *svc.ChangePasswordRequest) error
 	UpdateProfile(ctx context.Context, userID int64, req *svc.UpdateUserRequest) (*iamentity.User, error)
@@ -34,7 +34,7 @@ type IUserService interface {
 // IGroupService 定义分组服务能力接口。
 type IGroupService interface {
 	GetGroupTree(ctx context.Context) ([]*svc.GroupTreeNode, error)
-	GetRootGroups(ctx context.Context) ([]*iamentity.Group, error)
+	GetRootGroups(ctx context.Context, tenantID string) ([]*iamentity.Group, error)
 	GetGroupsByLevel(ctx context.Context, level int) ([]*iamentity.Group, error)
 	GetGroupUsers(ctx context.Context, groupID int64) ([]*iamentity.User, error)
 	AddUserToGroup(ctx context.Context, groupID, userID int64) error
@@ -57,7 +57,7 @@ type IRoleService interface {
 	DeactivateRole(ctx context.Context, roleID int64) error
 	CloneRole(ctx context.Context, roleID int64, newName string) (*iamentity.Role, error)
 	GetSystemRoles(ctx context.Context) ([]*iamentity.Role, error)
-	InitializeSystemRoles(ctx context.Context) error
+	InitializeSystemRoles(ctx context.Context, tenantID string) error
 	GetRoleStatistics(ctx context.Context) (map[string]interface{}, error)
 }
 

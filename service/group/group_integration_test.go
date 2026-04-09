@@ -14,6 +14,7 @@ import (
 	svc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
+	ctxx "gochen/contextx"
 	"gochen/errorx"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -29,6 +30,7 @@ type groupServiceTestEnv struct {
 	roleRepo      *rolerepo.RoleRepo
 	backgroundCtx context.Context
 	cancelFunc    context.CancelFunc
+	tenantID      string
 }
 
 // setupGroupServiceTest 设置测试环境
@@ -40,6 +42,7 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	// 配置环境变量
 	t.Setenv("DB_DRIVER", "sqlite")
 	t.Setenv("DB_DATABASE", dbPath)
+	t.Setenv("IAM_TENANT_MODE", "required") // 测试使用 required 模式
 
 	// 打开数据库
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
@@ -51,6 +54,7 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 
 	// 自动迁移表结构
 	if err := db.AutoMigrate(
+		&iamentity.Scope{},
 		&iamentity.Group{},
 		&iamentity.User{},
 		&iamentity.Role{},
@@ -73,11 +77,15 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	}
 
 	// 创建服务
-	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo)
-	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo)
+	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, nil)
+	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, nil)
 
 	// 创建背景上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, err = ctxx.WithTenantID(ctx, "test-tenant")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
 
 	return &groupServiceTestEnv{
 		db:            db,
@@ -88,6 +96,7 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 		roleRepo:      roleRepo,
 		backgroundCtx: ctx,
 		cancelFunc:    cancel,
+		tenantID:      "test-tenant",
 	}
 }
 
@@ -104,11 +113,12 @@ func (env *groupServiceTestEnv) teardown(t *testing.T) {
 // createTestUser 创建测试用户
 func (env *groupServiceTestEnv) createTestUser(t *testing.T, username, email string) *iamentity.User {
 	req := &svc.RegisterRequest{
+
 		Username: username,
 		Email:    email,
 		Password: "password123",
 	}
-	user, err := env.userService.Register(env.backgroundCtx, req)
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, req)
 	if err != nil {
 		t.Fatalf("create test user: %v", err)
 	}
@@ -118,10 +128,12 @@ func (env *groupServiceTestEnv) createTestUser(t *testing.T, username, email str
 // createTestRole 创建测试角色
 func (env *groupServiceTestEnv) createTestRole(t *testing.T, name string) *iamentity.Role {
 	role := &iamentity.Role{
-		Name:        name,
-		Description: "测试角色",
-		Permissions: iamentity.PermissionArray([]string{"api:test:read"}),
-		Status:      svc.RoleStatusActive,
+		TenantID:         "test-tenant",
+		NamespaceScopeID: 1,
+		Name:             name,
+		Description:      "测试角色",
+		Permissions:      iamentity.PermissionArray([]string{"api:test:read"}),
+		Status:           svc.RoleStatusActive,
 	}
 	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
 		t.Fatalf("create test role: %v", err)
@@ -136,6 +148,8 @@ func TestGroupServiceCreateGroup(t *testing.T) {
 
 	// 创建根组织
 	req := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "根组织",
 		Description: "这是一个根组织",
 	}
@@ -160,6 +174,8 @@ func TestGroupServiceCreateGroup(t *testing.T) {
 	// 创建子组织
 	parentID := group.GetID()
 	childReq := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "子组织",
 		Description: "这是一个子组织",
 		ParentID:    &parentID,
@@ -188,6 +204,8 @@ func TestGroupServiceCreateDuplicateName(t *testing.T) {
 
 	// 创建第一个组织
 	req := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "测试组织",
 		Description: "第一个",
 	}
@@ -198,6 +216,8 @@ func TestGroupServiceCreateDuplicateName(t *testing.T) {
 
 	// 尝试创建同名组织
 	req2 := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "测试组织",
 		Description: "第二个",
 	}
@@ -219,6 +239,8 @@ func TestGroupServiceUpdateGroup(t *testing.T) {
 
 	// 创建组织
 	req := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "原组织名",
 		Description: "原描述",
 	}
@@ -250,6 +272,8 @@ func TestGroupServiceUpdateGroup_KeepParentWhenParentIDOmitted(t *testing.T) {
 	defer env.teardown(t)
 
 	root, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "根组织",
 		Description: "root",
 	})
@@ -259,6 +283,8 @@ func TestGroupServiceUpdateGroup_KeepParentWhenParentIDOmitted(t *testing.T) {
 	rootID := root.GetID()
 
 	child, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "子组织",
 		Description: "child",
 		ParentID:    &rootID,
@@ -290,6 +316,8 @@ func TestGroupServiceUpdateGroup_UnsetParentWithExplicitNil(t *testing.T) {
 	defer env.teardown(t)
 
 	root, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "根组织",
 		Description: "root",
 	})
@@ -299,6 +327,8 @@ func TestGroupServiceUpdateGroup_UnsetParentWithExplicitNil(t *testing.T) {
 	rootID := root.GetID()
 
 	child, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "子组织",
 		Description: "child",
 		ParentID:    &rootID,
@@ -341,6 +371,8 @@ func TestGroupServiceUpdateGroup_ReparentsDescendants(t *testing.T) {
 	defer env.teardown(t)
 
 	rootA, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "根组织A",
 		Description: "A",
 	})
@@ -348,6 +380,8 @@ func TestGroupServiceUpdateGroup_ReparentsDescendants(t *testing.T) {
 		t.Fatalf("create rootA: %v", err)
 	}
 	rootB, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "根组织B",
 		Description: "B",
 	})
@@ -357,6 +391,8 @@ func TestGroupServiceUpdateGroup_ReparentsDescendants(t *testing.T) {
 
 	rootAID := rootA.GetID()
 	child, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "子组织",
 		Description: "child",
 		ParentID:    &rootAID,
@@ -367,6 +403,8 @@ func TestGroupServiceUpdateGroup_ReparentsDescendants(t *testing.T) {
 
 	childID := child.GetID()
 	grand, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "孙组织",
 		Description: "grand",
 		ParentID:    &childID,
@@ -411,6 +449,8 @@ func TestGroupServiceUpdateGroup_RejectsDuplicateNameInTargetParent(t *testing.T
 	defer env.teardown(t)
 
 	rootA, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "根组织A",
 		Description: "A",
 	})
@@ -418,6 +458,8 @@ func TestGroupServiceUpdateGroup_RejectsDuplicateNameInTargetParent(t *testing.T
 		t.Fatalf("create rootA: %v", err)
 	}
 	rootB, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "根组织B",
 		Description: "B",
 	})
@@ -428,6 +470,8 @@ func TestGroupServiceUpdateGroup_RejectsDuplicateNameInTargetParent(t *testing.T
 	rootAID := rootA.GetID()
 	rootBID := rootB.GetID()
 	if _, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "共享名称",
 		Description: "target sibling",
 		ParentID:    &rootAID,
@@ -435,6 +479,8 @@ func TestGroupServiceUpdateGroup_RejectsDuplicateNameInTargetParent(t *testing.T
 		t.Fatalf("create target sibling: %v", err)
 	}
 	moving, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "共享名称",
 		Description: "moving child",
 		ParentID:    &rootBID,
@@ -466,6 +512,8 @@ func TestGroupServiceDeleteGroup(t *testing.T) {
 
 	// 创建组织
 	req := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "待删除组织",
 		Description: "这个组织将被删除",
 	}
@@ -475,7 +523,7 @@ func TestGroupServiceDeleteGroup(t *testing.T) {
 	}
 
 	// 删除组织
-	err = env.groupService.DeleteGroup(env.backgroundCtx, group.GetID())
+	err = env.groupService.DeleteGroup(env.backgroundCtx, env.tenantID, group.GetID())
 	if err != nil {
 		t.Fatalf("delete group: %v", err)
 	}
@@ -494,6 +542,8 @@ func TestGroupServiceAddUserToGroup(t *testing.T) {
 
 	// 创建组织
 	req := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "测试组织",
 		Description: "添加用户测试",
 	}
@@ -531,6 +581,8 @@ func TestGroupServiceRemoveUserFromGroup(t *testing.T) {
 
 	// 创建组织
 	req := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "移除测试组织",
 		Description: "移除用户测试",
 	}
@@ -569,6 +621,8 @@ func TestGroupServiceBatchAddUsersToGroup(t *testing.T) {
 
 	// 创建组织
 	req := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "批量添加测试",
 		Description: "批量添加用户测试",
 	}
@@ -613,6 +667,8 @@ func TestGroupServiceAddGroupRole(t *testing.T) {
 
 	// 创建组织
 	req := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "角色测试组织",
 		Description: "角色测试",
 	}
@@ -650,6 +706,8 @@ func TestGroupServiceGetRootGroups(t *testing.T) {
 
 	// 创建两个根组织
 	req1 := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "根组织1",
 		Description: "第一个根组织",
 	}
@@ -659,6 +717,8 @@ func TestGroupServiceGetRootGroups(t *testing.T) {
 	}
 
 	req2 := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "根组织2",
 		Description: "第二个根组织",
 	}
@@ -668,7 +728,7 @@ func TestGroupServiceGetRootGroups(t *testing.T) {
 	}
 
 	// 获取根组织
-	rootGroups, err := env.groupService.GetRootGroups(env.backgroundCtx)
+	rootGroups, err := env.groupService.GetRootGroups(env.backgroundCtx, env.tenantID)
 	if err != nil {
 		t.Fatalf("get root groups: %v", err)
 	}
@@ -684,6 +744,8 @@ func TestGroupServiceGetGroupsByLevel(t *testing.T) {
 
 	// 创建根组织
 	rootReq := &svc.CreateGroupRequest{
+
+		TenantID:    env.tenantID,
 		Name:        "根组织",
 		Description: "根组织",
 	}
@@ -696,6 +758,7 @@ func TestGroupServiceGetGroupsByLevel(t *testing.T) {
 	parentID := rootGroup.GetID()
 	for i := 1; i <= 2; i++ {
 		childReq := &svc.CreateGroupRequest{
+			TenantID:    env.tenantID,
 			Name:        "二级组织" + string(rune('0'+i)),
 			Description: "二级",
 			ParentID:    &parentID,
@@ -713,5 +776,142 @@ func TestGroupServiceGetGroupsByLevel(t *testing.T) {
 	}
 	if len(level2Groups) != 2 {
 		t.Errorf("expected 2 level 2 groups, got %d", len(level2Groups))
+	}
+}
+
+func TestGroupServiceGetGroupTree_IsTenantScoped(t *testing.T) {
+	env := setupGroupServiceTest(t)
+	defer env.teardown(t)
+
+	if _, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		TenantID:    env.tenantID,
+		Name:        "tenant-a-root",
+		Description: "tenant a",
+	}); err != nil {
+		t.Fatalf("create tenant-a root: %v", err)
+	}
+
+	otherCtx, err := ctxx.WithTenantID(context.Background(), "other-tenant")
+	if err != nil {
+		t.Fatalf("WithTenantID(other): %v", err)
+	}
+	if _, err := env.groupService.CreateGroup(otherCtx, &svc.CreateGroupRequest{
+		TenantID:    "other-tenant",
+		Name:        "tenant-b-root",
+		Description: "tenant b",
+	}); err != nil {
+		t.Fatalf("create tenant-b root: %v", err)
+	}
+
+	tree, err := env.groupService.GetGroupTree(env.backgroundCtx)
+	if err != nil {
+		t.Fatalf("GetGroupTree: %v", err)
+	}
+	if len(tree) != 1 {
+		t.Fatalf("expected 1 root node for tenant %s, got %d", env.tenantID, len(tree))
+	}
+	if tree[0].Name != "tenant-a-root" {
+		t.Fatalf("expected tenant-a tree only, got %s", tree[0].Name)
+	}
+}
+
+func TestGroupRepoCreateRejectsDuplicateRootGroupPerTenant(t *testing.T) {
+	env := setupGroupServiceTest(t)
+	defer env.teardown(t)
+
+	first := &iamentity.Group{TenantID: env.tenantID, Name: "root"}
+	if err := env.groupRepo.Create(env.backgroundCtx, first); err != nil {
+		t.Fatalf("create first root group: %v", err)
+	}
+
+	second := &iamentity.Group{TenantID: env.tenantID, Name: "root"}
+	if err := env.groupRepo.Create(env.backgroundCtx, second); err == nil {
+		t.Fatalf("expected duplicate root group to be rejected")
+	}
+}
+
+func TestGroupRepoCreateSyncsHierarchyFromParentID(t *testing.T) {
+	env := setupGroupServiceTest(t)
+	defer env.teardown(t)
+
+	parent, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		TenantID:    env.tenantID,
+		Name:        "root",
+		Description: "root",
+	})
+	if err != nil {
+		t.Fatalf("create parent group: %v", err)
+	}
+
+	parentID := parent.GetID()
+	child := &iamentity.Group{
+		TenantID: env.tenantID,
+		Name:     "child",
+		ParentID: &parentID,
+	}
+	if err := env.groupRepo.Create(env.backgroundCtx, child); err != nil {
+		t.Fatalf("create child group via repo: %v", err)
+	}
+
+	if child.ParentKey != parentID {
+		t.Fatalf("expected parent_key %d, got %d", parentID, child.ParentKey)
+	}
+	if child.Level != 2 {
+		t.Fatalf("expected level 2, got %d", child.Level)
+	}
+	wantPath := parent.Path + "/" + strconv.FormatInt(child.GetID(), 10)
+	if child.Path != wantPath {
+		t.Fatalf("expected path %s, got %s", wantPath, child.Path)
+	}
+}
+
+func TestGroupRepoUpdateSyncsHierarchyFromParentID(t *testing.T) {
+	env := setupGroupServiceTest(t)
+	defer env.teardown(t)
+
+	rootA, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		TenantID:    env.tenantID,
+		Name:        "root-a",
+		Description: "root a",
+	})
+	if err != nil {
+		t.Fatalf("create root-a: %v", err)
+	}
+	rootB, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		TenantID:    env.tenantID,
+		Name:        "root-b",
+		Description: "root b",
+	})
+	if err != nil {
+		t.Fatalf("create root-b: %v", err)
+	}
+
+	rootAID := rootA.GetID()
+	child, err := env.groupService.CreateGroup(env.backgroundCtx, &svc.CreateGroupRequest{
+		TenantID:    env.tenantID,
+		Name:        "child",
+		Description: "child",
+		ParentID:    &rootAID,
+	})
+	if err != nil {
+		t.Fatalf("create child: %v", err)
+	}
+
+	rootBID := rootB.GetID()
+	child.Parent = nil
+	child.ParentID = &rootBID
+	if err := env.groupRepo.Update(env.backgroundCtx, child); err != nil {
+		t.Fatalf("update child via repo: %v", err)
+	}
+
+	if child.ParentKey != rootBID {
+		t.Fatalf("expected parent_key %d, got %d", rootBID, child.ParentKey)
+	}
+	if child.Level != 2 {
+		t.Fatalf("expected level 2, got %d", child.Level)
+	}
+	wantPath := rootB.Path + "/" + strconv.FormatInt(child.GetID(), 10)
+	if child.Path != wantPath {
+		t.Fatalf("expected path %s, got %s", wantPath, child.Path)
 	}
 }

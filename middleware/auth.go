@@ -9,6 +9,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 
 	"gochen-iam/auth"
+	"gochen-iam/tenant"
 	ctxx "gochen/contextx"
 	"gochen/errorx"
 	"gochen/httpx"
@@ -174,16 +175,13 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 		}
 		reqCtx = reqCtx.WithContext(derived)
 
-		tenantID := ctx.GetHeader(config.TenantHeader)
-		if tenantID == "" && config.AllowTenantQuery {
-			tenantID = ctx.GetQuery("tenant_id")
-		}
-		if tenantID == "" && config.RequireTenant {
+		tenantID, err := tenant.ResolveRequestTenantIDWithScope(readRequestTenantID(ctx, config), claims.TenantID, claims.ActiveScopeType, config.RequireTenant)
+		if err != nil {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision: "deny",
-				Reason:   "tenant_id is required",
+				Reason:   err.Error(),
 			})
-			return errorx.New(errorx.Validation, "tenant_id is required")
+			return err
 		}
 		if tenantID != "" {
 			derived, err := ctxx.WithTenantID(reqCtx, tenantID)
@@ -197,9 +195,10 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 			reqCtx = reqCtx.WithContext(derived)
 		}
 
-		// 注入角色与权限信息，供后续 RBAC 使用
+		// 注入角色、权限与 active scope 信息，供后续 RBAC / scope authorizer 使用
 		reqCtx = auth.WithRoles(reqCtx, claims.Roles)
 		reqCtx = auth.WithPermissions(reqCtx, claims.Permissions)
+		reqCtx = auth.WithActiveScope(reqCtx, claims.ActiveScopeID, claims.ActiveScopeKey, claims.ActiveScopeType)
 
 		ctx.SetContext(reqCtx)
 
@@ -231,16 +230,18 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 		}
 
 		reqCtx := ctx.GetContext()
-		tenantID := ctx.GetHeader(config.TenantHeader)
-		if tenantID == "" && config.AllowTenantQuery {
-			tenantID = ctx.GetQuery("tenant_id")
-		}
-		if tenantID == "" && config.RequireTenant {
-			recordAuthzDenied(ctx, AuditRecord{
-				Decision: "deny",
-				Reason:   "tenant_id is required",
-			})
-			return errorx.New(errorx.Validation, "tenant_id is required")
+		requestTenantID := readRequestTenantID(ctx, config)
+		tenantID := requestTenantID
+		if tenant.Current().IsFixed() {
+			var err error
+			tenantID, err = tenant.ResolveRequestTenantID(requestTenantID, "", config.RequireTenant)
+			if err != nil {
+				recordAuthzDenied(ctx, AuditRecord{
+					Decision: "deny",
+					Reason:   err.Error(),
+				})
+				return err
+			}
 		}
 		if tenantID != "" {
 			derived, err := ctxx.WithTenantID(reqCtx, tenantID)
@@ -258,6 +259,14 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 		// 尝试获取token
 		token := extractToken(ctx, config)
 		if token == "" {
+			if tenantID == "" && config.RequireTenant {
+				err := errorx.New(errorx.Validation, "tenant_id is required")
+				recordAuthzDenied(ctx, AuditRecord{
+					Decision: "deny",
+					Reason:   err.Error(),
+				})
+				return err
+			}
 			// 无 token：保持匿名请求，不校验 AUTH_SECRET（避免误把“缺 token”变成 500）。
 			return next()
 		}
@@ -286,8 +295,28 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return derr
 		}
 		reqCtx = reqCtx.WithContext(derived)
+		tenantID, err = tenant.ResolveRequestTenantIDWithScope(requestTenantID, claims.TenantID, claims.ActiveScopeType, config.RequireTenant)
+		if err != nil {
+			recordAuthzDenied(ctx, AuditRecord{
+				Decision: "deny",
+				Reason:   err.Error(),
+			})
+			return err
+		}
+		if tenantID != "" {
+			derived, err = ctxx.WithTenantID(reqCtx, tenantID)
+			if err != nil {
+				recordAuthzDenied(ctx, AuditRecord{
+					Decision: "deny",
+					Reason:   "invalid tenant_id",
+				})
+				return err
+			}
+			reqCtx = reqCtx.WithContext(derived)
+		}
 		reqCtx = auth.WithRoles(reqCtx, claims.Roles)
 		reqCtx = auth.WithPermissions(reqCtx, claims.Permissions)
+		reqCtx = auth.WithActiveScope(reqCtx, claims.ActiveScopeID, claims.ActiveScopeKey, claims.ActiveScopeType)
 		ctx.SetContext(reqCtx)
 
 		// 认证成功后继续处理（无 token 已在上方直接放行；有 token 但无效会返回 401）。
@@ -322,6 +351,17 @@ func extractToken(ctx httpx.IContext, config *AuthConfig) string {
 	return extractTokenFromHeadersAndQuery(ctx.GetHeader, ctx.GetQuery, config)
 }
 
+func readRequestTenantID(ctx httpx.IContext, config *AuthConfig) string {
+	if ctx == nil {
+		return ""
+	}
+	tenantID := strings.TrimSpace(ctx.GetHeader(config.TenantHeader))
+	if tenantID == "" && config.AllowTenantQuery {
+		tenantID = strings.TrimSpace(ctx.GetQuery("tenant_id"))
+	}
+	return tenantID
+}
+
 // validateToken 校验令牌。
 func validateToken(token, secretKey string) (*JWTClaims, error) {
 	claims, err := ParseToken(token, secretKey)
@@ -336,20 +376,32 @@ func validateToken(token, secretKey string) (*JWTClaims, error) {
 
 // JWTClaims JWT声明结构
 type JWTClaims struct {
-	UserID      int64    `json:"user_id"`
-	Username    string   `json:"username"`
-	Roles       []string `json:"roles"`
-	Permissions []string `json:"permissions"`
+	UserID          int64    `json:"user_id"`
+	TenantID        string   `json:"tenant_id"`
+	Username        string   `json:"username"`
+	Roles           []string `json:"roles"`
+	Permissions     []string `json:"permissions"`
+	ActiveScopeID   int64    `json:"active_scope_id,omitempty"`
+	ActiveScopeKey  string   `json:"active_scope_key,omitempty"`
+	ActiveScopeType string   `json:"active_scope_type,omitempty"`
 	jwt.RegisteredClaims
 }
 
 // GenerateToken 生成 JWT 访问令牌
-func GenerateToken(userID int64, username string, roles, permissions []string, secretKey string) (string, error) {
-	return GenerateTokenWithTTL(userID, username, roles, permissions, secretKey, defaultAccessTokenTTL)
+func GenerateToken(userID int64, tenantID, username string, roles, permissions []string, secretKey string) (string, error) {
+	return GenerateTokenWithTTL(userID, tenantID, username, roles, permissions, secretKey, defaultAccessTokenTTL)
 }
 
-// GenerateTokenWithTTL 生成 JWT 访问令牌（可配置 TTL）
-func GenerateTokenWithTTL(userID int64, username string, roles, permissions []string, secretKey string, ttl time.Duration) (string, error) {
+// GenerateTokenWithScope 生成带 active scope 语义的 JWT。
+func GenerateTokenWithScope(
+	userID int64,
+	tenantID, username string,
+	roles, permissions []string,
+	activeScopeID int64,
+	activeScopeKey, activeScopeType string,
+	secretKey string,
+	ttl time.Duration,
+) (string, error) {
 	if secretKey == "" {
 		return "", errorx.New(errorx.Internal, "JWT 密钥未配置")
 	}
@@ -359,10 +411,14 @@ func GenerateTokenWithTTL(userID int64, username string, roles, permissions []st
 
 	now := time.Now()
 	claims := &JWTClaims{
-		UserID:      userID,
-		Username:    username,
-		Roles:       roles,
-		Permissions: permissions,
+		UserID:          userID,
+		TenantID:        tenantID,
+		Username:        username,
+		Roles:           roles,
+		Permissions:     permissions,
+		ActiveScopeID:   activeScopeID,
+		ActiveScopeKey:  activeScopeKey,
+		ActiveScopeType: activeScopeType,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -375,6 +431,11 @@ func GenerateTokenWithTTL(userID int64, username string, roles, permissions []st
 		return "", errorx.New(errorx.Internal, "生成token失败")
 	}
 	return signed, nil
+}
+
+// GenerateTokenWithTTL 生成 JWT 访问令牌（可配置 TTL）
+func GenerateTokenWithTTL(userID int64, tenantID, username string, roles, permissions []string, secretKey string, ttl time.Duration) (string, error) {
+	return GenerateTokenWithScope(userID, tenantID, username, roles, permissions, 0, "", "", secretKey, ttl)
 }
 
 // ParseToken 解析并验证 JWT 令牌
@@ -410,5 +471,16 @@ func RefreshToken(token, secretKey string) (string, error) {
 	}
 
 	// 生成新token
-	return GenerateToken(claims.UserID, claims.Username, claims.Roles, claims.Permissions, secretKey)
+	return GenerateTokenWithScope(
+		claims.UserID,
+		claims.TenantID,
+		claims.Username,
+		claims.Roles,
+		claims.Permissions,
+		claims.ActiveScopeID,
+		claims.ActiveScopeKey,
+		claims.ActiveScopeType,
+		secretKey,
+		defaultAccessTokenTTL,
+	)
 }

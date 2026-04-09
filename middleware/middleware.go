@@ -86,30 +86,43 @@ func RoleMiddleware(requiredRole string) httpx.Middleware {
 	}
 }
 
-// PermissionMiddleware 权限验证中间件
-func PermissionMiddleware(requiredPermission string) httpx.Middleware {
-	if !IsValidPermissionCode(requiredPermission) {
+// PermissionMiddleware 权限验证中间件。
+//
+// 为了平滑承接现有字符串调用点，这里同时接受：
+// - `PermissionSpec`
+// - `string`（内部会转换成 `PermissionCode(...)`）
+func PermissionMiddleware(required any) httpx.Middleware {
+	var requiredPermission PermissionDefinition
+	switch v := required.(type) {
+	case PermissionSpec:
+		requiredPermission = v.Definition()
+	case string:
+		requiredPermission = PermissionCode(v).Definition()
+	default:
+		requiredPermission = PermissionDefinition{}
+	}
+	if !IsValidPermissionCode(requiredPermission.Code) {
 		// 这是“装配期配置错误”，直接 fail-close，避免无意间放开保护。
 		return func(ctx httpx.IContext, next func() error) error {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision:   "deny",
 				Reason:     "invalid permission definition",
-				Permission: requiredPermission,
+				Permission: requiredPermission.Code,
 			})
 			return errorx.New(errorx.Internal, "invalid permission definition")
 		}
 	}
 
-	registerRequiredPermission(PermissionDefinition{Code: requiredPermission})
+	registerRequiredPermission(requiredPermission)
 
-	base := httpx.PermissionMiddleware(permissionChecker{}, requiredPermission)
+	base := httpx.PermissionMiddleware(permissionChecker{}, requiredPermission.Code)
 	return func(ctx httpx.IContext, next func() error) error {
 		reqCtx := ctx.GetContext()
 		if reqCtx == nil || GetUserID(reqCtx) == 0 {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision:   "deny",
 				Reason:     "用户未认证",
-				Permission: requiredPermission,
+				Permission: requiredPermission.Code,
 			})
 			return errorx.New(errorx.Unauthorized, "用户未认证")
 		}
@@ -123,16 +136,33 @@ func PermissionMiddleware(requiredPermission string) httpx.Middleware {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision:   "deny",
 				Reason:     "权限不足",
-				Permission: requiredPermission,
+				Permission: requiredPermission.Code,
 			})
 		}
 		return err
 	}
 }
 
-// AdminOnlyMiddleware 仅管理员中间件
+// AdminOnlyMiddleware 要求当前 active scope 具备管理员级全量权限。
+//
+// 这里不再依赖 `system_admin` 角色名，而是依赖角色真正授予出的权限集合；
+// 平台管理员与租户管理员都可以通过各自 scope 内的 `*:*:*` 进入对应后台。
 func AdminOnlyMiddleware() httpx.Middleware {
-	return RoleMiddleware("system_admin")
+	return PermissionMiddleware(PermissionCode("*:*:*").Desc("管理员入口").Scope(ScopePlatform, ScopeTenant))
+}
+
+// PlatformScopeMiddleware 要求当前 token 的 active scope 是 platform。
+func PlatformScopeMiddleware() httpx.Middleware {
+	return func(ctx httpx.IContext, next func() error) error {
+		reqCtx := ctx.GetContext()
+		if reqCtx == nil || GetUserID(reqCtx) == 0 {
+			return errorx.New(errorx.Unauthorized, "用户未认证")
+		}
+		if auth.GetActiveScopeType(reqCtx) != string(ScopePlatform) {
+			return errorx.New(errorx.Forbidden, "当前授权域不是 platform")
+		}
+		return next()
+	}
 }
 
 // UserOnlyMiddleware 仅用户中间件（已认证用户）

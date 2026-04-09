@@ -51,6 +51,7 @@
 - `tenant_id`（可选）
 - `roles`
 - `permissions`
+- `active_scope_id / active_scope_key / active_scope_type`
 
 ### 关键环境变量（AuthConfig）
 
@@ -62,6 +63,8 @@
 - `AUTH_REQUIRE_TENANT`：是否强制要求 `tenant_id`
 - `AUTH_ALLOW_TENANT_QUERY`：是否允许从 query 读取 `tenant_id`
 - `AUTH_TENANT_HEADER`：tenant header key（默认 `X-Tenant-ID`）
+- `IAM_TENANT_MODE`：tenant 模式，支持 `fixed`（默认）/ `required`
+- `IAM_FIXED_TENANT_ID`：默认 tenant ID（默认值 `default`）。当 `IAM_TENANT_MODE` 为空或 `fixed` 时使用
 
 ---
 
@@ -71,7 +74,8 @@
 
 - `middleware.RoleMiddleware(role)`
 - `middleware.PermissionMiddleware(permission)`
-- `middleware.AdminOnlyMiddleware()`：等价于 `RoleMiddleware("system_admin")`
+- `middleware.AdminOnlyMiddleware()`：要求当前 active scope 内具备 `*:*:*`
+- `middleware.PlatformScopeMiddleware()`：要求当前 token 的 active scope 为 `platform`
 - `middleware.UserOnlyMiddleware()`：要求已登录用户
 
 `PermissionMiddleware` 会在运行期校验权限，同时在启动期向 “required permissions registry” 注册权限码（见下节）。
@@ -113,10 +117,27 @@ gochen-iam 默认启用严格权限字典：仅允许为角色写入“系统已
 
 ## 多租户（tenant）
 
-约定 tenant 通过 HTTP Header `X-Tenant-ID`（或 `AUTH_TENANT_HEADER` 指定的 key）传入：
+默认约定 tenant 通过 HTTP Header `X-Tenant-ID`（或 `AUTH_TENANT_HEADER` 指定的 key）传入：
 
 - `middleware.AuthMiddleware` / `OptionalAuthMiddleware` 会把 tenant 写入 `gochen/metadata.GetTenantID(ctx)`
 - 业务侧可用 `middleware.RequireTenant(ctx)` / `middleware.RequireSameTenant(ctx, targetTenantID)` 做租户校验
+
+也支持“固定 tenant / 单租户模式”：
+
+- 设置 `IAM_TENANT_MODE=fixed`
+- 可选设置 `IAM_FIXED_TENANT_ID=<your-tenant>`，默认 `default`
+- 该模式下：
+  - 请求无需显式传 `tenant_id`
+  - 内部仍然保留 `tenant_id NOT NULL` 数据模型
+  - CRUD / service / JWT / refresh 都会统一使用固定 tenant，而不是走“无 tenant”分支
+
+若需要让 `system_admin` 以 platform scope 工作，不要依赖租户编码魔法值，而是显式创建一个 `is_platform=true` 的租户：
+
+- 该租户的 `root_scope_id` 会自动指向正式的 `platform scope`
+- 该租户下登录得到的 JWT `active_scope_type=platform`
+- 当平台管理员要操作目标业务 tenant 时，请求头仍应显式携带目标 `X-Tenant-ID`；鉴权层会保留 `active_scope_type=platform`，但允许“platform token tenant != request tenant”
+- `PlatformScopeMiddleware()`、跨租户 service guard、菜单/租户后台都会基于这个 active scope 生效
+- 数据库层也会兜住“只能存在一个 platform tenant”，避免并发创建时出现双 platform
 
 ---
 
@@ -203,9 +224,165 @@ gochen-iam 默认启用严格权限字典：仅允许为角色写入“系统已
 
 ## 数据库迁移 / 建表
 
-本仓库本身不内置迁移脚本。典型做法是由上层应用在开发/测试环境通过 AutoMigrate 建表（例如 `alife/cmd/automigrate` 将 `&iamentity.MenuItem{}` 加入 models 列表）。
+本仓库本身不内置迁移脚本。典型做法是由上层应用在开发/测试环境通过 AutoMigrate 建表（例如 `alife/cmd/automigrate` 将 `&iamentity.Scope{}`、`&iamentity.MenuItem{}` 等模型加入列表）。
 
 生产环境建议使用显式迁移脚本（避免 AutoMigrate 的不确定性）。
+
+### 多租户 / Scope 字段迁移参考
+
+当前版本不仅把 `users/groups/roles` 收口到 `tenant_id`，还引入了正式的 `scopes` 授权域模型：
+
+- `tenants.root_scope_id -> scopes.id`
+- `roles.namespace_scope_id -> scopes.id`
+- `tenants.is_platform + tenants.platform_slot` 用于显式标记并唯一约束 platform tenant
+- `groups.parent_key` 用于让“根组织同名唯一”在数据库层也能兜底
+
+旧版本升级时，建议把“租户字段 backfill”和“scope 建模”一起完成。下面 SQL 以 PostgreSQL 为例，生产环境请按实际方言调整：
+
+```sql
+-- 1. 添加租户 / scope 相关列（先允许为空，便于分步回填）
+ALTER TABLE users  ADD COLUMN tenant_id VARCHAR(64);
+ALTER TABLE groups ADD COLUMN tenant_id VARCHAR(64);
+ALTER TABLE roles  ADD COLUMN tenant_id VARCHAR(64);
+ALTER TABLE groups ADD COLUMN parent_key BIGINT DEFAULT 0;
+ALTER TABLE roles  ADD COLUMN namespace_scope_id BIGINT;
+ALTER TABLE tenants ADD COLUMN is_platform BOOLEAN DEFAULT FALSE;
+ALTER TABLE tenants ADD COLUMN platform_slot INTEGER;
+ALTER TABLE tenants ADD COLUMN root_scope_id BIGINT;
+
+-- 2. 创建 scopes 表（若尚不存在）
+CREATE TABLE scopes (
+    id BIGINT PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    deleted_at TIMESTAMP NULL,
+    key VARCHAR(128) NOT NULL,
+    name VARCHAR(100) NOT NULL,
+    type VARCHAR(32) NOT NULL,
+    parent_id BIGINT NULL,
+    path VARCHAR(1024) NOT NULL,
+    depth INTEGER NOT NULL DEFAULT 0,
+    description VARCHAR(500) NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'active'
+);
+
+CREATE UNIQUE INDEX uq_scopes_key  ON scopes (key);
+CREATE UNIQUE INDEX uq_scopes_path ON scopes (path);
+CREATE INDEX idx_scopes_type      ON scopes (type);
+CREATE INDEX idx_scopes_parent_id ON scopes (parent_id);
+
+-- 3. 回填现有数据的 tenant_id / parent_key（根据实际租户策略调整）
+UPDATE users  SET tenant_id = 'default' WHERE tenant_id IS NULL;
+UPDATE groups SET tenant_id = 'default' WHERE tenant_id IS NULL;
+UPDATE roles  SET tenant_id = 'default' WHERE tenant_id IS NULL;
+UPDATE groups SET parent_key = COALESCE(parent_id, 0) WHERE parent_key IS NULL OR parent_key = 0;
+
+-- 4. 初始化 platform scope（若不存在）
+INSERT INTO scopes (id, version, created_at, updated_at, deleted_at, key, name, type, parent_id, path, depth, description, status)
+SELECT
+    1000000,
+    0,
+    NOW(),
+    NOW(),
+    NULL,
+    'platform',
+    'Platform',
+    'platform',
+    NULL,
+    '/platform/',
+    0,
+    'Platform root scope',
+    'active'
+WHERE NOT EXISTS (
+    SELECT 1 FROM scopes WHERE key = 'platform'
+);
+
+-- 5. 为历史 tenant 创建 tenant root scope（platform tenant 例外）
+INSERT INTO scopes (id, version, created_at, updated_at, deleted_at, key, name, type, parent_id, path, depth, description, status)
+SELECT
+    1000000 + t.id,
+    0,
+    NOW(),
+    NOW(),
+    NULL,
+    'tenant:' || t.key,
+    t.name,
+    'tenant',
+    ps.id,
+    '/platform/' || 'tenant:' || t.key || '/',
+    1,
+    t.description,
+    'active'
+FROM tenants t
+JOIN scopes ps ON ps.key = 'platform'
+WHERE COALESCE(t.is_platform, FALSE) = FALSE
+  AND NOT EXISTS (
+      SELECT 1 FROM scopes s WHERE s.key = 'tenant:' || t.key
+  );
+
+-- 6. 回填 tenant.root_scope_id / tenant.is_platform / tenant.platform_slot
+--    若你的历史数据里已有明确的“平台租户”，请先把它标记为 is_platform = TRUE。
+UPDATE tenants
+SET root_scope_id = ps.id,
+    platform_slot = 1
+FROM scopes ps
+WHERE COALESCE(tenants.is_platform, FALSE) = TRUE
+  AND ps.key = 'platform';
+
+UPDATE tenants
+SET root_scope_id = ts.id
+FROM scopes ts
+WHERE COALESCE(tenants.is_platform, FALSE) = FALSE
+  AND ts.key = 'tenant:' || tenants.key;
+
+-- 7. 回填 role.namespace_scope_id（角色默认落在所属 tenant 的 root scope）
+UPDATE roles r
+SET namespace_scope_id = t.root_scope_id
+FROM tenants t
+WHERE t.key = r.tenant_id
+  AND r.namespace_scope_id IS NULL;
+
+-- 8. 设置 NOT NULL 约束
+ALTER TABLE users  ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE groups ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE roles  ALTER COLUMN tenant_id SET NOT NULL;
+ALTER TABLE groups ALTER COLUMN parent_key SET NOT NULL;
+ALTER TABLE roles  ALTER COLUMN namespace_scope_id SET NOT NULL;
+
+-- 9. 删除旧的单列唯一索引（如存在），创建租户内复合唯一索引
+DROP INDEX IF EXISTS idx_users_username;
+DROP INDEX IF EXISTS idx_users_email;
+DROP INDEX IF EXISTS idx_groups_name;
+DROP INDEX IF EXISTS idx_roles_name;
+DROP INDEX IF EXISTS idx_group_name_parent_tenant;
+
+CREATE UNIQUE INDEX idx_user_username_tenant ON users  (tenant_id, username) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX idx_user_email_tenant    ON users  (tenant_id, email)    WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX idx_group_name_parent_tenant ON groups (tenant_id, name, parent_key) WHERE deleted_at IS NULL;
+CREATE UNIQUE INDEX idx_role_name_tenant     ON roles  (tenant_id, name)     WHERE deleted_at IS NULL;
+
+-- 10. 创建 tenant_id / scope 相关索引
+CREATE INDEX idx_users_tenant  ON users  (tenant_id);
+CREATE INDEX idx_groups_tenant ON groups (tenant_id);
+CREATE INDEX idx_roles_tenant  ON roles  (tenant_id);
+CREATE INDEX idx_groups_parent_key ON groups (parent_key);
+CREATE INDEX idx_roles_namespace_scope_id ON roles (namespace_scope_id);
+CREATE INDEX idx_tenants_root_scope_id    ON tenants (root_scope_id);
+
+-- 11. platform tenant 唯一哨兵（仅允许一个非 NULL platform_slot）
+CREATE UNIQUE INDEX uq_tenants_platform_slot ON tenants (platform_slot);
+```
+
+> **注意**：
+> - 若你在开发/测试环境依赖 AutoMigrate，请确保上层应用已把 `&iamentity.Scope{}` 纳入模型列表，而不只是 `User/Group/Role/MenuItem`。
+> - 上述 SQL 以 PostgreSQL 语法为例；MySQL/SQLite 需调整 `BOOLEAN`、`NOW()`、`SET NOT NULL` 和条件索引语法。
+> - `parent_key` 必须先完成 backfill，再切换唯一索引；否则根组织唯一性仍然会被 `NULL parent_id` 漏掉。
+> - 如果历史数据里存在重复的“同租户同父节点同名”组织，建唯一索引前必须先清洗冲突数据。
+> - 若准备切到“固定 tenant / 单租户模式”，建议把历史数据统一回填为 `IAM_FIXED_TENANT_ID` 对应的值。
+> - `platform_slot` 是“全库最多一个 platform tenant”的唯一哨兵。非 platform tenant 应保持 `NULL`；platform tenant 建议固定回填为 `1`。
+> - `namespace_scope_id` 目前默认回填为租户 root scope；后续若角色要下沉到更细粒度 scope，再单独演进。
+> - 更完整的授权域设计背景，可参考 `docs/domain-authorization-design.md`。
 
 ---
 

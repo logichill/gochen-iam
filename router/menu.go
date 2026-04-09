@@ -40,16 +40,21 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	// 2. 注册管理端菜单接口：先做管理员门禁，再按读/写/发布能力细分权限。
 	adminGroup := menuGroup.Group("")
 	adminGroup.Use(iammw.AdminOnlyMiddleware())
+	adminGroup.Use(iammw.PlatformScopeMiddleware())
 	// 说明：当前设计“仅允许 system_admin 管理菜单”。
 	// api:menu:read/api:menu:write/api:menu:publish 仍会通过 PermissionMiddleware 注册到 required permissions，用于权限治理与审计。
 	// 如需支持“非 system_admin 但具备 menu:* 权限的角色”管理菜单：移除 AdminOnlyMiddleware，仅保留 PermissionMiddleware。
 
 	adminReadGroup := adminGroup.Group("")
-	adminReadGroup.Use(iammw.PermissionMiddleware("api:menu:read"))
+	adminReadGroup.Use(iammw.PermissionMiddleware(
+		iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionRead).Desc("读取菜单").Scope(iammw.ScopePlatform),
+	))
 	adminReadGroup.GET("", mr.listMenuItems)
 
 	adminWriteGroup := adminGroup.Group("")
-	adminWriteGroup.Use(iammw.PermissionMiddleware("api:menu:write"))
+	adminWriteGroup.Use(iammw.PermissionMiddleware(
+		iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionWrite).Desc("维护菜单").Scope(iammw.ScopePlatform),
+	))
 	adminWriteGroup.POST("", mr.createMenuItem)
 	adminWriteGroup.POST("/sync", mr.syncMenuItems)
 	adminWriteGroup.PUT("/:id", mr.updateMenuItem)
@@ -58,7 +63,9 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	adminWriteGroup.DELETE("/:id/purge", mr.purgeMenuItem)
 
 	adminPublishGroup := adminGroup.Group("")
-	adminPublishGroup.Use(iammw.PermissionMiddleware("api:menu:publish"))
+	adminPublishGroup.Use(iammw.PermissionMiddleware(
+		iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionPublish).Desc("发布菜单").Scope(iammw.ScopePlatform),
+	))
 	adminPublishGroup.POST("/:id/publish", mr.publishMenuItem)
 	adminPublishGroup.POST("/:id/unpublish", mr.unpublishMenuItem)
 
@@ -76,7 +83,7 @@ func (mr *MenuRoutes) GetPriority() int {
 
 // listMenuItems 返回后台菜单列表。
 func (mr *MenuRoutes) listMenuItems(ctx httpx.IContext) error {
-	items, err := mr.menuService.ListMenuItems(ctx.GetRequest().Context())
+	items, err := mr.menuService.ListMenuItems(ctx.GetContext())
 	if err != nil {
 		return err
 	}
@@ -89,7 +96,7 @@ func (mr *MenuRoutes) createMenuItem(ctx httpx.IContext) error {
 	if err := ctx.BindJSON(req); err != nil {
 		return err
 	}
-	item, err := mr.menuService.CreateMenuItem(ctx.GetRequest().Context(), req)
+	item, err := mr.menuService.CreateMenuItem(ctx.GetContext(), req)
 	if err != nil {
 		return err
 	}
@@ -108,7 +115,7 @@ func (mr *MenuRoutes) updateMenuItem(ctx httpx.IContext) error {
 		return err
 	}
 	item, err := mr.menuService.UpdateMenuItem(
-		ctx.GetRequest().Context(),
+		ctx.GetContext(),
 		id,
 		req,
 		menuUpdatePatches(fields, req)...,
@@ -136,7 +143,7 @@ func (mr *MenuRoutes) syncMenuItems(ctx httpx.IContext) error {
 	if err := ctx.BindJSON(req); err != nil {
 		return err
 	}
-	result, err := mr.menuService.SyncMenuItems(ctx.GetRequest().Context(), req)
+	result, err := mr.menuService.SyncMenuItems(ctx.GetContext(), req)
 	if err != nil {
 		return err
 	}
@@ -149,7 +156,7 @@ func (mr *MenuRoutes) deleteMenuItem(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	if err := mr.menuService.DeleteMenuItem(ctx.GetRequest().Context(), id); err != nil {
+	if err := mr.menuService.DeleteMenuItem(ctx.GetContext(), id); err != nil {
 		return err
 	}
 	return httpx.WriteSuccess(ctx, map[string]any{"id": id})
@@ -161,7 +168,7 @@ func (mr *MenuRoutes) restoreMenuItem(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	item, err := mr.menuService.RestoreMenuItem(ctx.GetRequest().Context(), id)
+	item, err := mr.menuService.RestoreMenuItem(ctx.GetContext(), id)
 	if err != nil {
 		return err
 	}
@@ -174,7 +181,7 @@ func (mr *MenuRoutes) purgeMenuItem(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	if err := mr.menuService.PurgeMenuItem(ctx.GetRequest().Context(), id); err != nil {
+	if err := mr.menuService.PurgeMenuItem(ctx.GetContext(), id); err != nil {
 		return err
 	}
 	return httpx.WriteSuccess(ctx, map[string]any{"id": id})
@@ -196,7 +203,7 @@ func (mr *MenuRoutes) setMenuPublished(ctx httpx.IContext, published bool) error
 	if err != nil {
 		return err
 	}
-	item, err := mr.menuService.PublishMenuItem(ctx.GetRequest().Context(), id, published)
+	item, err := mr.menuService.PublishMenuItem(ctx.GetContext(), id, published)
 	if err != nil {
 		return err
 	}
@@ -205,7 +212,7 @@ func (mr *MenuRoutes) setMenuPublished(ctx httpx.IContext, published bool) error
 
 // getMyMenuTree 返回当前用户可见的菜单树。
 func (mr *MenuRoutes) getMyMenuTree(ctx httpx.IContext) error {
-	menus, err := mr.menuService.GetMyMenuTree(ctx.GetRequest().Context(), ctx.GetContext())
+	menus, err := mr.menuService.GetMyMenuTree(ctx.GetContext(), ctx.GetContext())
 	if err != nil {
 		return err
 	}

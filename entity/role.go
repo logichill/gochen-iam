@@ -45,16 +45,19 @@ type Role struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	Code        string          `json:"code" gorm:"size:50;index"` // 稳定标识，默认与 Name 相同
-	Name        string          `json:"name" gorm:"uniqueIndex;size:50;not null"`
-	Description string          `json:"description" gorm:"size:500"`
-	Permissions PermissionArray `json:"permissions" gorm:"type:text;serializer:json"`
-	IsSystem    bool            `json:"is_system" gorm:"default:false"`
-	Status      string          `json:"status" gorm:"size:20;default:active"`
+	TenantID         string          `json:"tenant_id" gorm:"size:64;not null;index;uniqueIndex:idx_role_name_tenant"`
+	NamespaceScopeID int64           `json:"namespace_scope_id" gorm:"not null;index"`
+	Code             string          `json:"code" gorm:"size:50;index"` // 稳定标识，默认与 Name 相同
+	Name             string          `json:"name" gorm:"size:50;not null;uniqueIndex:idx_role_name_tenant"`
+	Description      string          `json:"description" gorm:"size:500"`
+	Permissions      PermissionArray `json:"permissions" gorm:"type:text;serializer:json"`
+	IsSystem         bool            `json:"is_system" gorm:"default:false"`
+	Status           string          `json:"status" gorm:"size:20;default:active"`
 
 	// 关联关系
-	Users  []User  `json:"users,omitempty" gorm:"many2many:user_roles;"`
-	Groups []Group `json:"groups,omitempty" gorm:"many2many:group_roles;"`
+	NamespaceScope *Scope  `json:"namespace_scope,omitempty" gorm:"foreignKey:NamespaceScopeID"`
+	Users          []User  `json:"users,omitempty" gorm:"many2many:user_roles;"`
+	Groups         []Group `json:"groups,omitempty" gorm:"many2many:group_roles;"`
 }
 
 // TableName 指定表名
@@ -64,6 +67,12 @@ func (Role) TableName() string {
 
 // Validate 验证角色数据
 func (r *Role) Validate() error {
+	if r.TenantID == "" {
+		return errorx.New(errorx.Validation, "租户ID不能为空")
+	}
+	if r.NamespaceScopeID <= 0 {
+		return errorx.New(errorx.Validation, "namespace_scope_id 不能为空")
+	}
 	if err := validation.ValidateRequired(r.Name, "role name"); err != nil {
 		return errorx.New(errorx.Validation, "角色名称不能为空")
 	}
@@ -110,6 +119,12 @@ func (r *Role) Restore() { r.DeletedAt = nil; r.UpdatedAt = time.Now() }
 
 // GetDeletedAt 返回已删除At。
 func (r *Role) GetDeletedAt() *time.Time { return r.DeletedAt }
+
+// GetTenantID 返回租户ID。
+func (r *Role) GetTenantID() string { return r.TenantID }
+
+// SetTenantID 设置租户ID。
+func (r *Role) SetTenantID(tenantID string) { r.TenantID = tenantID }
 
 // IsActive 检查角色是否激活
 func (r *Role) IsActive() bool {
@@ -169,11 +184,13 @@ func (r *Role) GetPermissionCount() int {
 // Clone 克隆角色（不包含关联关系）
 func (r *Role) Clone(newName string) *Role {
 	clone := &Role{
-		Name:        newName,
-		Description: r.Description + " (克隆)",
-		Permissions: make(PermissionArray, len(r.Permissions)),
-		IsSystem:    false, // 克隆的角色不是系统角色
-		Status:      r.Status,
+		TenantID:         r.TenantID,
+		NamespaceScopeID: r.NamespaceScopeID,
+		Name:             newName,
+		Description:      r.Description + " (克隆)",
+		Permissions:      make(PermissionArray, len(r.Permissions)),
+		IsSystem:         false, // 克隆的角色不是系统角色
+		Status:           r.Status,
 	}
 	copy(clone.Permissions, r.Permissions)
 	return clone
@@ -231,6 +248,17 @@ var (
 		Description: "系统管理员，拥有所有权限",
 		Permissions: PermissionArray{
 			"*:*:*",
+		},
+		IsSystem: true,
+		Status:   "active",
+	}
+
+	TenantAdminRole = &Role{
+		Name:        "admin",
+		Description: "租户管理员，拥有租户内管理权限",
+		Permissions: PermissionArray{
+			"api:*:*",
+			"menu:*:view",
 		},
 		IsSystem: true,
 		Status:   "active",

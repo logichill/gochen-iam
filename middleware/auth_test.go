@@ -9,6 +9,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 
 	"gochen-iam/auth"
+	"gochen-iam/tenant"
 	"gochen/errorx"
 	hbasic "gochen/httpx/nethttp"
 )
@@ -16,12 +17,13 @@ import (
 func TestParseToken_ValidJWT(t *testing.T) {
 	secretKey := "test-secret-key"
 	userID := int64(123)
+	tenantID := "tenant-a"
 	username := "testuser"
 	roles := []string{"user", "admin"}
 	permissions := []string{"read", "write"}
 
 	// 生成有效 token
-	token, err := GenerateToken(userID, username, roles, permissions, secretKey)
+	token, err := GenerateToken(userID, tenantID, username, roles, permissions, secretKey)
 	if err != nil {
 		t.Fatalf("GenerateToken failed: %v", err)
 	}
@@ -34,6 +36,9 @@ func TestParseToken_ValidJWT(t *testing.T) {
 
 	if claims.UserID != userID {
 		t.Errorf("expected UserID %d, got %d", userID, claims.UserID)
+	}
+	if claims.TenantID != tenantID {
+		t.Errorf("expected TenantID %s, got %s", tenantID, claims.TenantID)
 	}
 	if claims.Username != username {
 		t.Errorf("expected Username %s, got %s", username, claims.Username)
@@ -60,7 +65,7 @@ func TestParseToken_WrongSecret(t *testing.T) {
 	secretKey := "test-secret-key"
 	wrongKey := "wrong-secret-key"
 
-	token, err := GenerateToken(1, "user", nil, nil, secretKey)
+	token, err := GenerateToken(1, "tenant-a", "user", nil, nil, secretKey)
 	if err != nil {
 		t.Fatalf("GenerateToken failed: %v", err)
 	}
@@ -189,9 +194,68 @@ func TestExtractToken_FromQuery_AllowedInDev(t *testing.T) {
 }
 
 func TestGenerateToken_EmptySecret(t *testing.T) {
-	_, err := GenerateToken(1, "user", nil, nil, "")
+	_, err := GenerateToken(1, "tenant-a", "user", nil, nil, "")
 	if err == nil {
 		t.Error("expected error for empty secret, got nil")
+	}
+}
+
+func TestRefreshToken_PreservesTenantClaim(t *testing.T) {
+	secretKey := "test-secret-key"
+
+	token, err := GenerateToken(1, "tenant-a", "user", []string{"user"}, []string{"read"}, secretKey)
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	refreshed, err := RefreshToken(token, secretKey)
+	if err != nil {
+		t.Fatalf("RefreshToken failed: %v", err)
+	}
+
+	claims, err := ParseToken(refreshed, secretKey)
+	if err != nil {
+		t.Fatalf("ParseToken failed: %v", err)
+	}
+	if claims.TenantID != "tenant-a" {
+		t.Fatalf("expected tenant-a, got %s", claims.TenantID)
+	}
+}
+
+func TestResolveRequestTenantID(t *testing.T) {
+	t.Setenv("IAM_TENANT_MODE", "required") // 测试 required 模式下的行为
+
+	tests := []struct {
+		name          string
+		requestTenant string
+		tokenTenant   string
+		requireTenant bool
+		wantTenant    string
+		wantCode      errorx.ErrorCode
+	}{
+		{name: "request wins when token empty", requestTenant: "tenant-a", wantTenant: "tenant-a"},
+		{name: "token fills missing request", tokenTenant: "tenant-a", wantTenant: "tenant-a"},
+		{name: "matching tenants", requestTenant: "tenant-a", tokenTenant: "tenant-a", wantTenant: "tenant-a"},
+		{name: "mismatch rejected", requestTenant: "tenant-a", tokenTenant: "tenant-b", wantCode: errorx.Forbidden},
+		{name: "required tenant missing", requireTenant: true, wantCode: errorx.Validation},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tenantID, err := tenant.ResolveRequestTenantID(tt.requestTenant, tt.tokenTenant, tt.requireTenant)
+			if tt.wantCode != "" {
+				if !errorx.Is(err, tt.wantCode) {
+					t.Fatalf("expected %s, got %v", tt.wantCode, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveTenantID failed: %v", err)
+			}
+			if tenantID != tt.wantTenant {
+				t.Fatalf("expected tenant %s, got %s", tt.wantTenant, tenantID)
+			}
+		})
 	}
 }
 
@@ -401,5 +465,39 @@ func TestValidateStrictPermissionRegistry_StrictNonEmpty(t *testing.T) {
 	_ = PermissionMiddleware("api:task:read")
 	if err := ValidateStrictPermissionRegistry(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateStrictPermissionRegistry_RejectsConflictingDefinitions(t *testing.T) {
+	resetRequiredPermissionsRegistryForTest()
+	defer resetRequiredPermissionsRegistryForTest()
+
+	RegisterRequiredPermissionDefinitions(
+		PermissionDefinition{
+			Code:        "api:task:read",
+			Description: "读取任务",
+			Scopes:      []string{"tenant"},
+		},
+		PermissionDefinition{
+			Code:        "api:task:read",
+			Description: "查看任务",
+			Scopes:      []string{"tenant"},
+		},
+	)
+
+	if err := ValidateStrictPermissionRegistry(); err == nil {
+		t.Fatalf("expected conflicting definitions to fail validation")
+	}
+}
+
+func TestValidateStrictPermissionRegistry_AllowsMetadataEnrichment(t *testing.T) {
+	resetRequiredPermissionsRegistryForTest()
+	defer resetRequiredPermissionsRegistryForTest()
+
+	RegisterRequiredPermissionDefinitions(PermissionDefinition{Code: "api:task:read"})
+	_ = PermissionMiddleware(PermissionCode("api:task:read").Desc("读取任务").Scope(ScopePlatform, ScopeTenant))
+
+	if err := ValidateStrictPermissionRegistry(); err != nil {
+		t.Fatalf("expected metadata enrichment to pass, got: %v", err)
 	}
 }

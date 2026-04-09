@@ -35,23 +35,31 @@ func NewBusinessValidator(
 // 用户相关业务规则验证
 
 // ValidateUserRegistration 验证用户注册业务规则
-func (v *BusinessValidator) ValidateUserRegistration(ctx context.Context, req *RegisterRequest) error {
+//
+// tenantID 从上下文中获取，而非从请求体中获取，以防止客户端伪造。
+func (v *BusinessValidator) ValidateUserRegistration(ctx context.Context, tenantID string, req *RegisterRequest) error {
 	// 1. 基础字段验证
 	if err := v.validateUserBasicFields(req.Username, req.Email, req.Password); err != nil {
 		return err
 	}
 
-	// 2. 用户名唯一性验证
-	if err := v.validateUsernameUniqueness(ctx, req.Username); err != nil {
+	// 2. 租户ID验证
+	tenantID, err := NormalizeTenantID(ctx, tenantID)
+	if err != nil {
 		return err
 	}
 
-	// 3. 邮箱唯一性验证
-	if err := v.validateEmailUniqueness(ctx, req.Email); err != nil {
+	// 3. 用户名唯一性验证
+	if err := v.validateUsernameUniqueness(ctx, tenantID, req.Username); err != nil {
 		return err
 	}
 
-	// 4. 密码强度验证
+	// 4. 邮箱唯一性验证
+	if err := v.validateEmailUniqueness(ctx, tenantID, req.Email); err != nil {
+		return err
+	}
+
+	// 5. 密码强度验证
 	if err := v.validatePasswordStrength(req.Password); err != nil {
 		return err
 	}
@@ -69,7 +77,7 @@ func (v *BusinessValidator) ValidateUserUpdate(ctx context.Context, userID int64
 
 	// 2. 邮箱唯一性验证（如果更改了邮箱）
 	if req.Email != "" && req.Email != user.Email {
-		if err := v.validateEmailUniqueness(ctx, req.Email); err != nil {
+		if err := v.validateEmailUniqueness(ctx, user.TenantID, req.Email); err != nil {
 			return err
 		}
 	}
@@ -91,16 +99,37 @@ func (v *BusinessValidator) ValidateUserDeletion(ctx context.Context, userID int
 	if err != nil {
 		return err
 	}
+	if _, err := PreflightTenant(ctx, nil, user.TenantID, ""); err != nil {
+		return err
+	}
 
 	// 2. 检查是否为系统管理员
-	if user.HasRole(SystemAdminRoleName) {
-		// 检查是否为最后一个系统管理员
-		adminUsers, err := v.userRepo.FindByRoleID(ctx, 1) // 假设系统管理员角色ID为1
+	roles, err := v.roleRepo.FindByUserID(ctx, user.TenantID, userID)
+	if err != nil {
+		return err
+	}
+	protectedRoleName := ""
+	for _, role := range roles {
+		if role == nil {
+			continue
+		}
+		if role.Name == SystemAdminRoleName || role.Name == AdminRoleName {
+			protectedRoleName = role.Name
+			break
+		}
+	}
+	if protectedRoleName != "" {
+		adminRole, err := v.roleRepo.FindByName(ctx, user.TenantID, protectedRoleName)
 		if err != nil {
 			return err
 		}
-		if len(adminUsers) <= 1 {
-			return errorx.New(errorx.Validation, "不能删除最后一个系统管理员")
+		// 检查是否为最后一个作用域管理员
+		adminUsers, err := v.userRepo.CountByRoleID(ctx, adminRole.GetID())
+		if err != nil {
+			return err
+		}
+		if adminUsers <= 1 {
+			return errorx.New(errorx.Validation, "不能删除最后一个管理员")
 		}
 	}
 
@@ -126,8 +155,12 @@ func (v *BusinessValidator) ValidateGroupCreation(ctx context.Context, req *Crea
 		}
 	}
 
-	// 3. 同级组织名称唯一性验证
-	if err := v.validateGroupNameUniqueness(ctx, req.Name, req.ParentID); err != nil {
+	// 3. 同级组织名称唯一性验证（租户内）
+	tenantID, err := NormalizeTenantID(ctx, req.TenantID)
+	if err != nil {
+		return err
+	}
+	if err := v.validateGroupNameUniqueness(ctx, tenantID, req.Name, req.ParentID); err != nil {
 		return err
 	}
 
@@ -162,9 +195,9 @@ func (v *BusinessValidator) ValidateGroupUpdate(
 		return err
 	}
 
-	// 2. 名称唯一性验证（如果更改了名称）
+	// 2. 名称唯一性验证（如果更改了名称，租户内）
 	if candidate.Name != group.Name {
-		if err := v.validateGroupNameUniqueness(ctx, candidate.Name, candidate.ParentID); err != nil {
+		if err := v.validateGroupNameUniqueness(ctx, group.TenantID, candidate.Name, candidate.ParentID); err != nil {
 			return err
 		}
 	}
@@ -180,15 +213,19 @@ func (v *BusinessValidator) ValidateGroupUpdate(
 }
 
 // ValidateGroupDeletion 验证组织删除业务规则
-func (v *BusinessValidator) ValidateGroupDeletion(ctx context.Context, groupID int64) error {
+func (v *BusinessValidator) ValidateGroupDeletion(ctx context.Context, tenantID string, groupID int64) error {
+	tenantID, err := NormalizeTenantID(ctx, tenantID)
+	if err != nil {
+		return err
+	}
 	// 1. 组织是否存在
-	_, err := v.groupRepo.Get(ctx, groupID)
+	_, err = v.groupRepo.Get(ctx, groupID)
 	if err != nil {
 		return err
 	}
 
 	// 2. 检查是否有子组织
-	children, err := v.groupRepo.FindChildren(ctx, groupID)
+	children, err := v.groupRepo.FindChildren(ctx, tenantID, groupID)
 	if err != nil {
 		return err
 	}
@@ -197,7 +234,7 @@ func (v *BusinessValidator) ValidateGroupDeletion(ctx context.Context, groupID i
 	}
 
 	// 3. 检查是否有用户
-	users, err := v.userRepo.FindByGroupID(ctx, groupID)
+	users, err := v.userRepo.FindByGroupID(ctx, tenantID, groupID)
 	if err != nil {
 		return err
 	}
@@ -218,7 +255,11 @@ func (v *BusinessValidator) ValidateRoleCreation(ctx context.Context, req *Creat
 	}
 
 	// 2. 角色名称唯一性验证
-	if err := v.validateRoleNameUniqueness(ctx, req.Name); err != nil {
+	tenantID, err := NormalizeTenantID(ctx, req.TenantID)
+	if err != nil {
+		return err
+	}
+	if err := v.validateRoleNameUniqueness(ctx, tenantID, req.Name); err != nil {
 		return err
 	}
 
@@ -245,7 +286,7 @@ func (v *BusinessValidator) ValidateRoleUpdate(ctx context.Context, roleID int64
 
 	// 3. 名称唯一性验证（如果更改了名称）
 	if req.Name != "" && req.Name != role.Name {
-		if err := v.validateRoleNameUniqueness(ctx, req.Name); err != nil {
+		if err := v.validateRoleNameUniqueness(ctx, role.TenantID, req.Name); err != nil {
 			return err
 		}
 	}
@@ -267,6 +308,9 @@ func (v *BusinessValidator) ValidateRoleDeletion(ctx context.Context, roleID int
 	if err != nil {
 		return err
 	}
+	if _, err := PreflightTenant(ctx, nil, role.TenantID, ""); err != nil {
+		return err
+	}
 
 	// 2. 系统角色不能删除
 	if role.IsSystem {
@@ -274,7 +318,18 @@ func (v *BusinessValidator) ValidateRoleDeletion(ctx context.Context, roleID int
 	}
 
 	// 3. 检查是否正在使用中
-	if role.IsInUse() {
+	userCount, err := v.userRepo.CountByRoleID(ctx, roleID)
+	if err != nil {
+		return err
+	}
+	if userCount > 0 {
+		return errorx.New(errorx.Validation, "角色正在被用户使用，不能删除")
+	}
+	groupCount, err := v.roleRepo.CountGroupsByRoleID(ctx, roleID)
+	if err != nil {
+		return err
+	}
+	if groupCount > 0 {
 		return errorx.New(errorx.Validation, "角色正在使用中，不能删除")
 	}
 
@@ -306,9 +361,9 @@ func (v *BusinessValidator) validateUserBasicFields(username, email, password st
 	return nil
 }
 
-// validateUsernameUniqueness 验证用户名唯一性
-func (v *BusinessValidator) validateUsernameUniqueness(ctx context.Context, username string) error {
-	existingUser, err := v.userRepo.FindByUsername(ctx, username)
+// validateUsernameUniqueness 验证用户名唯一性（租户内）
+func (v *BusinessValidator) validateUsernameUniqueness(ctx context.Context, tenantID, username string) error {
+	existingUser, err := v.userRepo.FindByUsername(ctx, tenantID, username)
 	if err != nil && !errorx.Is(err, errorx.NotFound) {
 		return errorx.Wrap(err, errorx.Database, "检查用户名失败")
 	}
@@ -318,9 +373,9 @@ func (v *BusinessValidator) validateUsernameUniqueness(ctx context.Context, user
 	return nil
 }
 
-// validateEmailUniqueness 验证邮箱唯一性
-func (v *BusinessValidator) validateEmailUniqueness(ctx context.Context, email string) error {
-	existingUser, err := v.userRepo.FindByEmail(ctx, email)
+// validateEmailUniqueness 验证邮箱唯一性（租户内）
+func (v *BusinessValidator) validateEmailUniqueness(ctx context.Context, tenantID, email string) error {
+	existingUser, err := v.userRepo.FindByEmail(ctx, tenantID, email)
 	if err != nil && !errorx.Is(err, errorx.NotFound) {
 		return errorx.Wrap(err, errorx.Database, "检查邮箱失败")
 	}
@@ -381,17 +436,17 @@ func (v *BusinessValidator) validateParentGroup(ctx context.Context, parentID in
 	return nil
 }
 
-// validateGroupNameUniqueness 验证组织名称唯一性（同级）
-func (v *BusinessValidator) validateGroupNameUniqueness(ctx context.Context, name string, parentID *int64) error {
+// validateGroupNameUniqueness 验证组织名称唯一性（同级，租户内）
+func (v *BusinessValidator) validateGroupNameUniqueness(ctx context.Context, tenantID string, name string, parentID *int64) error {
 	var (
 		groups []*iamentity.Group
 		err    error
 	)
 
 	if parentID == nil {
-		groups, err = v.groupRepo.FindRootGroups(ctx)
+		groups, err = v.groupRepo.FindRootGroups(ctx, tenantID)
 	} else {
-		groups, err = v.groupRepo.FindChildren(ctx, *parentID)
+		groups, err = v.groupRepo.FindChildren(ctx, tenantID, *parentID)
 	}
 	if err != nil {
 		return err
@@ -445,9 +500,9 @@ func (v *BusinessValidator) validateRoleBasicFields(name, description string) er
 	return nil
 }
 
-// validateRoleNameUniqueness 验证角色名称唯一性
-func (v *BusinessValidator) validateRoleNameUniqueness(ctx context.Context, name string) error {
-	existingRole, err := v.roleRepo.FindByName(ctx, name)
+// validateRoleNameUniqueness 验证角色名称唯一性（租户内）
+func (v *BusinessValidator) validateRoleNameUniqueness(ctx context.Context, tenantID, name string) error {
+	existingRole, err := v.roleRepo.FindByName(ctx, tenantID, name)
 	if err != nil && !errorx.Is(err, errorx.NotFound) {
 		return errorx.Wrap(err, errorx.Database, "检查角色名称失败")
 	}

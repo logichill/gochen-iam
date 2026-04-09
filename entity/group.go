@@ -18,11 +18,13 @@ type Group struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	Name string `json:"name" gorm:"size:100;not null"`
+	TenantID    string `json:"tenant_id" gorm:"size:64;not null;index;uniqueIndex:idx_group_name_parent_tenant"`
+	Name        string `json:"name" gorm:"size:100;not null;uniqueIndex:idx_group_name_parent_tenant"`
 	// Code 用于承接管理端当前仍会回传的组织编码字段；当前 groups 表未持久化该列。
 	Code        string `json:"code,omitempty" gorm:"-"`
 	Description string `json:"description" gorm:"size:500"`
 	ParentID    *int64 `json:"parent_id" gorm:"index"`
+	ParentKey   int64  `json:"-" gorm:"not null;default:0;index;uniqueIndex:idx_group_name_parent_tenant"`
 	Level       int    `json:"level" gorm:"default:1"`
 	Path        string `json:"path" gorm:"size:500"` // 层级路径，如: /1/2/3
 
@@ -40,6 +42,9 @@ func (Group) TableName() string {
 
 // Validate 验证组织数据
 func (g *Group) Validate() error {
+	if g.TenantID == "" {
+		return errorx.New(errorx.Validation, "租户ID不能为空")
+	}
 	if err := validation.ValidateRequired(g.Name, "group name"); err != nil {
 		return errorx.New(errorx.Validation, "组织名称不能为空")
 	}
@@ -84,6 +89,12 @@ func (g *Group) Restore() { g.DeletedAt = nil; g.UpdatedAt = time.Now() }
 // GetDeletedAt 返回已删除At。
 func (g *Group) GetDeletedAt() *time.Time { return g.DeletedAt }
 
+// GetTenantID 返回租户ID。
+func (g *Group) GetTenantID() string { return g.TenantID }
+
+// SetTenantID 设置租户ID。
+func (g *Group) SetTenantID(tenantID string) { g.TenantID = tenantID }
+
 // IsRootGroup 检查是否为根组织
 func (g *Group) IsRootGroup() bool {
 	return g.ParentID == nil
@@ -102,6 +113,7 @@ func (g *Group) SetParent(parent *Group) {
 	if parent == nil {
 		g.Parent = nil
 		g.ParentID = nil
+		g.ParentKey = 0
 		g.Level = 1
 		if g.GetID() > 0 {
 			g.Path = "/" + strconv.FormatInt(g.GetID(), 10)
@@ -111,6 +123,7 @@ func (g *Group) SetParent(parent *Group) {
 	} else {
 		g.Parent = parent
 		g.ParentID = &parent.ID
+		g.ParentKey = parent.ID
 		g.Level = parent.Level + 1
 		if g.GetID() > 0 {
 			g.Path = parent.Path + "/" + strconv.FormatInt(g.GetID(), 10)

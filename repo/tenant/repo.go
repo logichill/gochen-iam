@@ -34,6 +34,9 @@ func (r *TenantRepo) Create(ctx context.Context, t *iamentity.Tenant) error {
 	if err != nil {
 		return err
 	}
+	if t != nil {
+		t.SyncPlatformSlot()
+	}
 	return model.Create(ctx, t)
 }
 
@@ -42,6 +45,9 @@ func (r *TenantRepo) Update(ctx context.Context, t *iamentity.Tenant) error {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return err
+	}
+	if t != nil {
+		t.SyncPlatformSlot()
 	}
 	return model.Save(ctx, t, orm.WithWhere("id = ? AND deleted_at IS NULL", t.GetID()))
 }
@@ -81,5 +87,22 @@ func (r *TenantRepo) FindByKey(ctx context.Context, key string) (*iamentity.Tena
 		return nil, errorx.Wrap(err, errorx.Database, "查询租户失败")
 	}
 
+	return &tenant, nil
+}
+
+// FindPlatform 返回当前平台租户（若存在）。
+func (r *TenantRepo) FindPlatform(ctx context.Context) (*iamentity.Tenant, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var tenant iamentity.Tenant
+	err = model.First(ctx, &tenant, orm.WithWhere("is_platform = ? AND deleted_at IS NULL", true))
+	if err != nil {
+		if errorx.Is(err, errorx.NotFound) {
+			return nil, errorx.New(errorx.NotFound, "平台租户不存在")
+		}
+		return nil, errorx.Wrap(err, errorx.Database, "查询平台租户失败")
+	}
 	return &tenant, nil
 }

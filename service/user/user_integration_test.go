@@ -9,11 +9,15 @@ import (
 	iamentity "gochen-iam/entity"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
+	scoperepo "gochen-iam/repo/scope"
+	tenantrepo "gochen-iam/repo/tenant"
 	userrepo "gochen-iam/repo/user"
+	iamservice "gochen-iam/service"
 	svc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
 
+	ctxx "gochen/contextx"
 	"gochen/errorx"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -27,8 +31,12 @@ type userServiceTestEnv struct {
 	userRepo      *userrepo.UserRepo
 	groupRepo     *grouprepo.GroupRepo
 	roleRepo      *rolerepo.RoleRepo
+	tenantRepo    *tenantrepo.TenantRepo
+	scopeRepo     *scoperepo.ScopeRepo
+	rootScopeID   int64
 	backgroundCtx context.Context
 	cancelFunc    context.CancelFunc
+	tenantID      string
 }
 
 // setupUserServiceTest 设置测试环境
@@ -40,6 +48,7 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	// 配置环境变量
 	t.Setenv("DB_DRIVER", "sqlite")
 	t.Setenv("DB_DATABASE", dbPath)
+	t.Setenv("IAM_TENANT_MODE", "required") // 测试使用 required 模式
 
 	// 打开数据库
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
@@ -51,6 +60,8 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 
 	// 自动迁移表结构
 	if err := db.AutoMigrate(
+		&iamentity.Scope{},
+		&iamentity.Tenant{},
 		&iamentity.User{},
 		&iamentity.Group{},
 		&iamentity.Role{},
@@ -71,13 +82,39 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
-
-	// 创建服务
-	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo)
-	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo)
+	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter)
+	if err != nil {
+		t.Fatalf("NewTenantRepository: %v", err)
+	}
+	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter)
+	if err != nil {
+		t.Fatalf("NewScopeRepository: %v", err)
+	}
 
 	// 创建背景上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, err = ctxx.WithTenantID(ctx, "test-tenant")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+	scopeAuthorizer := iamservice.NewScopeAuthorizer(scopeRepo, tenantRepo)
+
+	tenant := &iamentity.Tenant{
+		Key:    "test-tenant",
+		Name:   "Test Tenant",
+		Status: svc.TenantStatusActive,
+	}
+	if err := tenantRepo.Create(ctx, tenant); err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	rootScope, err := scopeAuthorizer.EnsureTenantRootScope(ctx, tenant)
+	if err != nil {
+		t.Fatalf("ensure tenant root scope: %v", err)
+	}
+
+	// 创建服务
+	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, scopeAuthorizer)
+	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, scopeAuthorizer)
 
 	return &userServiceTestEnv{
 		db:            db,
@@ -86,8 +123,12 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 		userRepo:      userRepo,
 		groupRepo:     groupRepo,
 		roleRepo:      roleRepo,
+		tenantRepo:    tenantRepo,
+		scopeRepo:     scopeRepo,
+		rootScopeID:   rootScope.ID,
 		backgroundCtx: ctx,
 		cancelFunc:    cancel,
+		tenantID:      "test-tenant",
 	}
 }
 
@@ -104,10 +145,12 @@ func (env *userServiceTestEnv) teardown(t *testing.T) {
 // createTestRole 创建测试角色
 func (env *userServiceTestEnv) createTestRole(t *testing.T, name string, permissions []string) *iamentity.Role {
 	role := &iamentity.Role{
-		Name:        name,
-		Description: "测试角色",
-		Permissions: iamentity.PermissionArray(permissions),
-		Status:      svc.RoleStatusActive,
+		TenantID:         env.tenantID,
+		NamespaceScopeID: env.rootScopeID,
+		Name:             name,
+		Description:      "测试角色",
+		Permissions:      iamentity.PermissionArray(permissions),
+		Status:           svc.RoleStatusActive,
 	}
 	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
 		t.Fatalf("create test role: %v", err)
@@ -118,6 +161,7 @@ func (env *userServiceTestEnv) createTestRole(t *testing.T, name string, permiss
 // createTestGroup 创建测试组织
 func (env *userServiceTestEnv) createTestGroup(t *testing.T, name string, parentID *int64) *iamentity.Group {
 	req := &svc.CreateGroupRequest{
+		TenantID:    env.tenantID,
 		Name:        name,
 		Description: "测试组织",
 		ParentID:    parentID,
@@ -202,7 +246,7 @@ func TestUserServiceRegister(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			user, err := env.userService.Register(env.backgroundCtx, tt.req)
+			user, err := env.userService.Register(env.backgroundCtx, env.tenantID, tt.req)
 
 			if tt.expectError {
 				if err == nil {
@@ -237,6 +281,102 @@ func TestUserServiceRegister(t *testing.T) {
 	}
 }
 
+func TestUserServiceAuthenticate_UsesPlatformScopeForPlatformTenant(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+
+	platformCtx, err := ctxx.WithTenantID(context.Background(), "platform-admin")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+
+	platformTenant := &iamentity.Tenant{
+		Key:        "platform-admin",
+		Name:       "Platform Admin",
+		Status:     svc.TenantStatusActive,
+		IsPlatform: true,
+	}
+	if err := env.tenantRepo.Create(platformCtx, platformTenant); err != nil {
+		t.Fatalf("create platform tenant: %v", err)
+	}
+
+	platformScope, err := iamservice.NewScopeAuthorizer(env.scopeRepo, env.tenantRepo).EnsureTenantRootScope(platformCtx, platformTenant)
+	if err != nil {
+		t.Fatalf("ensure platform scope: %v", err)
+	}
+	if platformScope.Type != iamentity.ScopeTypePlatform {
+		t.Fatalf("expected platform scope, got %s", platformScope.Type)
+	}
+
+	user, err := env.userService.Register(platformCtx, "platform-admin", &svc.RegisterRequest{
+		Username: "platform_root",
+		Email:    "platform@example.com",
+		Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("register platform user: %v", err)
+	}
+
+	role := &iamentity.Role{
+		TenantID:         "platform-admin",
+		NamespaceScopeID: platformScope.ID,
+		Name:             svc.SystemAdminRoleName,
+		Description:      "平台管理员",
+		Permissions:      iamentity.PermissionArray{"*:*:*"},
+		IsSystem:         true,
+		Status:           svc.RoleStatusActive,
+	}
+	if err := env.roleRepo.Create(platformCtx, role); err != nil {
+		t.Fatalf("create platform admin role: %v", err)
+	}
+	if err := env.roleRepo.AssignToUser(platformCtx, role.ID, user.ID); err != nil {
+		t.Fatalf("assign platform admin role: %v", err)
+	}
+
+	authResult, err := env.userService.Authenticate(platformCtx, "platform-admin", &svc.AuthenticateRequest{
+		Username: "platform_root",
+		Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("authenticate platform user: %v", err)
+	}
+	if authResult.ActiveScopeID != platformScope.ID {
+		t.Fatalf("expected active scope id %d, got %d", platformScope.ID, authResult.ActiveScopeID)
+	}
+	if authResult.ActiveScopeType != iamentity.ScopeTypePlatform {
+		t.Fatalf("expected platform active scope, got %s", authResult.ActiveScopeType)
+	}
+	if authResult.ActiveScopeKey != platformScope.Key {
+		t.Fatalf("expected active scope key %s, got %s", platformScope.Key, authResult.ActiveScopeKey)
+	}
+}
+
+func TestTenantRepo_Create_RejectsSecondPlatformTenant(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+
+	first := &iamentity.Tenant{
+		Key:        "platform-a",
+		Name:       "Platform A",
+		Status:     svc.TenantStatusActive,
+		IsPlatform: true,
+	}
+	if err := env.tenantRepo.Create(context.Background(), first); err != nil {
+		t.Fatalf("create first platform tenant: %v", err)
+	}
+
+	second := &iamentity.Tenant{
+		Key:        "platform-b",
+		Name:       "Platform B",
+		Status:     svc.TenantStatusActive,
+		IsPlatform: true,
+	}
+	err := env.tenantRepo.Create(context.Background(), second)
+	if err == nil {
+		t.Fatalf("expected second platform tenant create to fail")
+	}
+}
+
 // TestUserServiceLogin 测试用户登录
 func TestUserServiceLogin(t *testing.T) {
 	env := setupUserServiceTest(t)
@@ -248,7 +388,7 @@ func TestUserServiceLogin(t *testing.T) {
 		Email:    "login@example.com",
 		Password: "password123",
 	}
-	_, err := env.userService.Register(env.backgroundCtx, registerReq)
+	_, err := env.userService.Register(env.backgroundCtx, env.tenantID, registerReq)
 	if err != nil {
 		t.Fatalf("register user: %v", err)
 	}
@@ -286,7 +426,7 @@ func TestUserServiceLogin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp, err := env.userService.Authenticate(env.backgroundCtx, tt.req)
+			resp, err := env.userService.Authenticate(env.backgroundCtx, env.tenantID, tt.req)
 
 			if tt.expectError {
 				if err == nil {
@@ -334,7 +474,7 @@ func TestUserServiceAuthPathsRejectDisabledUserAsForbidden(t *testing.T) {
 				Email:    "disabled_auth_" + tt.name + "@example.com",
 				Password: "password123",
 			}
-			user, err := env.userService.Register(env.backgroundCtx, registerReq)
+			user, err := env.userService.Register(env.backgroundCtx, env.tenantID, registerReq)
 			if err != nil {
 				t.Fatalf("register user: %v", err)
 			}
@@ -343,7 +483,7 @@ func TestUserServiceAuthPathsRejectDisabledUserAsForbidden(t *testing.T) {
 				t.Fatalf("disable user (%s): %v", tt.name, err)
 			}
 
-			_, err = env.userService.Authenticate(env.backgroundCtx, &svc.AuthenticateRequest{
+			_, err = env.userService.Authenticate(env.backgroundCtx, env.tenantID, &svc.AuthenticateRequest{
 				Username: registerReq.Username,
 				Password: registerReq.Password,
 			})
@@ -374,7 +514,7 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 		Email:    "snapshot@example.com",
 		Password: "password123",
 	}
-	user, err := env.userService.Register(env.backgroundCtx, registerReq)
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, registerReq)
 	if err != nil {
 		t.Fatalf("register user: %v", err)
 	}
@@ -402,7 +542,7 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 		t.Fatalf("soft delete role: %v", err)
 	}
 
-	authResp, err := env.userService.Authenticate(env.backgroundCtx, &svc.AuthenticateRequest{
+	authResp, err := env.userService.Authenticate(env.backgroundCtx, env.tenantID, &svc.AuthenticateRequest{
 		Username: registerReq.Username,
 		Password: registerReq.Password,
 	})
@@ -505,7 +645,7 @@ func TestUserServiceGetUserPermissionsRequiresActiveUser(t *testing.T) {
 				Email:    "permuser_" + tt.name + "@example.com",
 				Password: "password123",
 			}
-			user, err := env.userService.Register(env.backgroundCtx, registerReq)
+			user, err := env.userService.Register(env.backgroundCtx, env.tenantID, registerReq)
 			if err != nil {
 				t.Fatalf("register user: %v", err)
 			}
@@ -547,11 +687,12 @@ func TestUserServiceChangePassword(t *testing.T) {
 
 	// 注册用户
 	registerReq := &svc.RegisterRequest{
+
 		Username: "pwduser",
 		Email:    "pwd@example.com",
 		Password: "oldpassword",
 	}
-	user, err := env.userService.Register(env.backgroundCtx, registerReq)
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, registerReq)
 	if err != nil {
 		t.Fatalf("register user: %v", err)
 	}
@@ -571,14 +712,14 @@ func TestUserServiceChangePassword(t *testing.T) {
 		Username: "pwduser",
 		Password: "oldpassword",
 	}
-	_, err = env.userService.Authenticate(env.backgroundCtx, loginReq)
+	_, err = env.userService.Authenticate(env.backgroundCtx, env.tenantID, loginReq)
 	if err == nil {
 		t.Error("expected login to fail with old password")
 	}
 
 	// 验证新密码可以登录
 	loginReq.Password = "newpassword123"
-	resp, err := env.userService.Authenticate(env.backgroundCtx, loginReq)
+	resp, err := env.userService.Authenticate(env.backgroundCtx, env.tenantID, loginReq)
 	if err != nil {
 		t.Errorf("login with new password failed: %v", err)
 	}
@@ -594,11 +735,12 @@ func TestUserServiceUpdateProfile(t *testing.T) {
 
 	// 注册用户
 	registerReq := &svc.RegisterRequest{
+
 		Username: "profileuser",
 		Email:    "profile@example.com",
 		Password: "password123",
 	}
-	user, err := env.userService.Register(env.backgroundCtx, registerReq)
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, registerReq)
 	if err != nil {
 		t.Fatalf("register user: %v", err)
 	}
@@ -628,11 +770,12 @@ func TestUserServiceActivateDeactivate(t *testing.T) {
 
 	// 注册用户
 	registerReq := &svc.RegisterRequest{
+
 		Username: "statususer",
 		Email:    "status@example.com",
 		Password: "password123",
 	}
-	user, err := env.userService.Register(env.backgroundCtx, registerReq)
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, registerReq)
 	if err != nil {
 		t.Fatalf("register user: %v", err)
 	}
@@ -675,11 +818,12 @@ func TestUserServiceLockUnlock(t *testing.T) {
 
 	// 注册用户
 	registerReq := &svc.RegisterRequest{
+
 		Username: "lockuser",
 		Email:    "lock@example.com",
 		Password: "password123",
 	}
-	user, err := env.userService.Register(env.backgroundCtx, registerReq)
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, registerReq)
 	if err != nil {
 		t.Fatalf("register user: %v", err)
 	}
@@ -722,11 +866,12 @@ func TestUserServiceAssignRole(t *testing.T) {
 
 	// 注册用户
 	registerReq := &svc.RegisterRequest{
+
 		Username: "roleuser",
 		Email:    "role@example.com",
 		Password: "password123",
 	}
-	user, err := env.userService.Register(env.backgroundCtx, registerReq)
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, registerReq)
 	if err != nil {
 		t.Fatalf("register user: %v", err)
 	}
@@ -760,11 +905,12 @@ func TestUserServiceAssignToGroup(t *testing.T) {
 
 	// 注册用户
 	registerReq := &svc.RegisterRequest{
+
 		Username: "groupuser",
 		Email:    "group@example.com",
 		Password: "password123",
 	}
-	user, err := env.userService.Register(env.backgroundCtx, registerReq)
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, registerReq)
 	if err != nil {
 		t.Fatalf("register user: %v", err)
 	}
@@ -798,11 +944,12 @@ func TestUserServiceRemoveRole(t *testing.T) {
 
 	// 注册用户
 	registerReq := &svc.RegisterRequest{
+
 		Username: "removeroleuser",
 		Email:    "removerole@example.com",
 		Password: "password123",
 	}
-	user, err := env.userService.Register(env.backgroundCtx, registerReq)
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, registerReq)
 	if err != nil {
 		t.Fatalf("register user: %v", err)
 	}
@@ -837,11 +984,12 @@ func TestUserServiceRemoveFromGroup(t *testing.T) {
 
 	// 注册用户
 	registerReq := &svc.RegisterRequest{
+
 		Username: "removegroupuser",
 		Email:    "removegroup@example.com",
 		Password: "password123",
 	}
-	user, err := env.userService.Register(env.backgroundCtx, registerReq)
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, registerReq)
 	if err != nil {
 		t.Fatalf("register user: %v", err)
 	}
@@ -866,5 +1014,72 @@ func TestUserServiceRemoveFromGroup(t *testing.T) {
 	}
 	if len(groups) != 0 {
 		t.Errorf("expected 0 groups, got %d", len(groups))
+	}
+}
+
+func TestUserServiceAssignRoleRejectsCrossTenantRole(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, &svc.RegisterRequest{
+		Username: "crossroleuser",
+		Email:    "crossrole@example.com",
+		Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+
+	otherCtx, err := ctxx.WithTenantID(context.Background(), "other-tenant")
+	if err != nil {
+		t.Fatalf("WithTenantID(other): %v", err)
+	}
+	otherRole := &iamentity.Role{
+		TenantID:         "other-tenant",
+		NamespaceScopeID: 1,
+		Name:             "other-role",
+		Description:      "cross tenant role",
+		Permissions:      iamentity.PermissionArray([]string{"api:test:read"}),
+		Status:           svc.RoleStatusActive,
+	}
+	if err := env.roleRepo.Create(otherCtx, otherRole); err != nil {
+		t.Fatalf("create other tenant role: %v", err)
+	}
+
+	err = env.userService.AssignRole(env.backgroundCtx, user.GetID(), otherRole.GetID())
+	if !errorx.Is(err, errorx.Forbidden) {
+		t.Fatalf("expected Forbidden for cross-tenant role assignment, got %v", err)
+	}
+}
+
+func TestUserServiceAssignToGroupRejectsCrossTenantGroup(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, &svc.RegisterRequest{
+		Username: "crossgroupuser",
+		Email:    "crossgroup@example.com",
+		Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+
+	otherCtx, err := ctxx.WithTenantID(context.Background(), "other-tenant")
+	if err != nil {
+		t.Fatalf("WithTenantID(other): %v", err)
+	}
+	otherGroup, err := env.groupService.CreateGroup(otherCtx, &svc.CreateGroupRequest{
+		TenantID:    "other-tenant",
+		Name:        "other-group",
+		Description: "cross tenant group",
+	})
+	if err != nil {
+		t.Fatalf("create other tenant group: %v", err)
+	}
+
+	err = env.userService.AssignToGroup(env.backgroundCtx, user.GetID(), otherGroup.GetID())
+	if !errorx.Is(err, errorx.Forbidden) {
+		t.Fatalf("expected Forbidden for cross-tenant group assignment, got %v", err)
 	}
 }

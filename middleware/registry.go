@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -30,6 +31,9 @@ type PermissionDefinition struct {
 	Action      string         `json:"action,omitempty"`
 	Name        string         `json:"name,omitempty"`
 	Description string         `json:"description,omitempty"`
+	Scopes      []string       `json:"scopes,omitempty"`
+	BuiltinOnly bool           `json:"builtin_only,omitempty"`
+	RiskLevel   string         `json:"risk_level,omitempty"`
 }
 
 type registeredPermission struct {
@@ -40,6 +44,7 @@ type registeredPermission struct {
 var requiredPermissionsRegistry = struct {
 	mu    sync.RWMutex
 	perms map[string]registeredPermission
+	err   error
 }{
 	perms: map[string]registeredPermission{},
 }
@@ -62,7 +67,67 @@ func normalizePermissionDefinition(def PermissionDefinition) PermissionDefinitio
 	def.Type = PermissionType(segments[0])
 	def.Resource = segments[1]
 	def.Action = segments[2]
+	def.Name = strings.TrimSpace(def.Name)
+	def.Description = strings.TrimSpace(def.Description)
+	def.RiskLevel = strings.TrimSpace(def.RiskLevel)
+	if len(def.Scopes) > 0 {
+		scopes := make([]string, 0, len(def.Scopes))
+		seen := make(map[string]struct{}, len(def.Scopes))
+		for _, scope := range def.Scopes {
+			scope = strings.ToLower(strings.TrimSpace(scope))
+			if scope == "" {
+				continue
+			}
+			if _, ok := seen[scope]; ok {
+				continue
+			}
+			seen[scope] = struct{}{}
+			scopes = append(scopes, scope)
+		}
+		sort.Strings(scopes)
+		def.Scopes = scopes
+	}
 	return def
+}
+
+func sameStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func permissionDefinitionConflict(current PermissionDefinition, incoming PermissionDefinition) string {
+	if current.Code == "" || incoming.Code == "" || current.Code != incoming.Code {
+		return ""
+	}
+	if current.Type != "" && incoming.Type != "" && current.Type != incoming.Type {
+		return fmt.Sprintf("type mismatch: %s vs %s", current.Type, incoming.Type)
+	}
+	if current.Resource != "" && incoming.Resource != "" && current.Resource != incoming.Resource {
+		return fmt.Sprintf("resource mismatch: %s vs %s", current.Resource, incoming.Resource)
+	}
+	if current.Action != "" && incoming.Action != "" && current.Action != incoming.Action {
+		return fmt.Sprintf("action mismatch: %s vs %s", current.Action, incoming.Action)
+	}
+	if current.Name != "" && incoming.Name != "" && current.Name != incoming.Name {
+		return fmt.Sprintf("name mismatch: %q vs %q", current.Name, incoming.Name)
+	}
+	if current.Description != "" && incoming.Description != "" && current.Description != incoming.Description {
+		return fmt.Sprintf("description mismatch: %q vs %q", current.Description, incoming.Description)
+	}
+	if len(current.Scopes) > 0 && len(incoming.Scopes) > 0 && !sameStringSlice(current.Scopes, incoming.Scopes) {
+		return fmt.Sprintf("scopes mismatch: %v vs %v", current.Scopes, incoming.Scopes)
+	}
+	if current.RiskLevel != "" && incoming.RiskLevel != "" && current.RiskLevel != incoming.RiskLevel {
+		return fmt.Sprintf("risk_level mismatch: %s vs %s", current.RiskLevel, incoming.RiskLevel)
+	}
+	return ""
 }
 
 // mergePermissionDefinition 合并权限Definition。
@@ -85,6 +150,15 @@ func mergePermissionDefinition(current PermissionDefinition, incoming Permission
 	if incoming.Description != "" {
 		current.Description = incoming.Description
 	}
+	if len(incoming.Scopes) > 0 {
+		current.Scopes = append([]string(nil), incoming.Scopes...)
+	}
+	if incoming.BuiltinOnly {
+		current.BuiltinOnly = true
+	}
+	if incoming.RiskLevel != "" {
+		current.RiskLevel = incoming.RiskLevel
+	}
 	return current
 }
 
@@ -105,6 +179,15 @@ func registerRequiredPermission(def PermissionDefinition) {
 	requiredPermissionsRegistry.mu.Lock()
 	defer requiredPermissionsRegistry.mu.Unlock()
 	current := requiredPermissionsRegistry.perms[def.Code]
+	if conflict := permissionDefinitionConflict(current.definition, def); conflict != "" && requiredPermissionsRegistry.err == nil {
+		requiredPermissionsRegistry.err = fmt.Errorf(
+			"required permission definition conflict for %s: %s (existing: %s, incoming: %s)",
+			def.Code,
+			conflict,
+			strings.Join(redactMetas(current.metas), ", "),
+			redactCallsite(callsite),
+		)
+	}
 	current.definition = mergePermissionDefinition(current.definition, def)
 	current.metas = append(current.metas, requiredPermissionMeta{
 		Callsite: callsite,
@@ -228,6 +311,15 @@ func redactCallsite(callsite string) string {
 	return base + ":" + line
 }
 
+func redactMetas(metas []requiredPermissionMeta) []string {
+	out := make([]string, 0, len(metas))
+	for _, meta := range metas {
+		out = append(out, redactCallsite(meta.Callsite))
+	}
+	sort.Strings(out)
+	return out
+}
+
 // splitCallsite 处理splitCallsite。
 func splitCallsite(callsite string) (file string, line string) {
 	// callsite 形如 "/abs/path/file.go:123" 或 "file.go:123"。
@@ -244,4 +336,5 @@ func resetRequiredPermissionsRegistryForTest() {
 	requiredPermissionsRegistry.mu.Lock()
 	defer requiredPermissionsRegistry.mu.Unlock()
 	requiredPermissionsRegistry.perms = map[string]registeredPermission{}
+	requiredPermissionsRegistry.err = nil
 }

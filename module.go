@@ -5,6 +5,7 @@ import (
 	grouprepo "gochen-iam/repo/group"
 	menurepo "gochen-iam/repo/menu"
 	rolerepo "gochen-iam/repo/role"
+	scoperepo "gochen-iam/repo/scope"
 	tenantrepo "gochen-iam/repo/tenant"
 	userrepo "gochen-iam/repo/user"
 	iamrouter "gochen-iam/router"
@@ -14,6 +15,7 @@ import (
 	rolesvc "gochen-iam/service/role"
 	tenantsvc "gochen-iam/service/tenant"
 	usersvc "gochen-iam/service/user"
+	"gochen-iam/tenant"
 	"gochen/boot"
 	"gochen/errorx"
 	"gochen/httpx"
@@ -22,6 +24,7 @@ import (
 
 // NewModule 创建 IAM 领域模块
 func NewModule() (server.IModule, error) {
+	tenant.InstallTenantResolver()
 	return boot.BuildModule(boot.ModuleConfig{
 		ID:   "iam",
 		Name: "IAM",
@@ -31,8 +34,10 @@ func NewModule() (server.IModule, error) {
 			userrepo.NewUserRepository,
 			grouprepo.NewGroupRepository,
 			rolerepo.NewRoleRepository,
+			scoperepo.NewScopeRepository,
 			menurepo.NewMenuItemRepository,
 			// Services
+			iamservice.NewScopeAuthorizer,
 			tenantsvc.NewTenantService,
 			usersvc.NewUserService,
 			groupsvc.NewGroupService,

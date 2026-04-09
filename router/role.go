@@ -29,17 +29,23 @@ var roleQuerySchema = dataquery.MustInferQuerySchema[roleQueryFields](nil)
 
 // RoleRoutes 角色路由注册器
 type RoleRoutes struct {
-	roleService IRoleService
-	utils       *nethttp.Utils
-	roleRepo    domaincrud.IRepository[*iamentity.Role, int64]
+	roleService     IRoleService
+	utils           *nethttp.Utils
+	roleRepo        domaincrud.IRepository[*iamentity.Role, int64]
+	scopeAuthorizer *svc.ScopeAuthorizer
 }
 
 // NewRoleRoutes 创建角色路由注册器
-func NewRoleRoutes(roleService IRoleService, roleRepo domaincrud.IRepository[*iamentity.Role, int64]) *RoleRoutes {
+func NewRoleRoutes(
+	roleService IRoleService,
+	roleRepo domaincrud.IRepository[*iamentity.Role, int64],
+	scopeAuthorizer *svc.ScopeAuthorizer,
+) *RoleRoutes {
 	return &RoleRoutes{
-		roleService: roleService,
-		utils:       &nethttp.Utils{},
-		roleRepo:    roleRepo,
+		roleService:     roleService,
+		utils:           &nethttp.Utils{},
+		roleRepo:        domaincrud.NewTenantAwareWrapper[*iamentity.Role, int64](roleRepo),
+		scopeAuthorizer: scopeAuthorizer,
 	}
 }
 
@@ -53,7 +59,9 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	// 角色管理属于管理员权限
 	adminGroup := roleGroup.Group("")
-	adminGroup.Use(iammw.AdminOnlyMiddleware())
+	adminGroup.Use(iammw.PermissionMiddleware(
+		iammw.ApiPermission(iammw.ResourceRole, iammw.ActionManage).Scope(iammw.ScopePlatform, iammw.ScopeTenant),
+	))
 
 	appService, err := appcrud.NewApplication(rr.roleRepo, nil, nil)
 	if err != nil {
@@ -63,7 +71,13 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errorx.Wrap(err, errorx.Internal, "failed to create role crud application").WithContext("route", "iam.role")
 	}
 
-	builder, err := restapi.NewApiBuilder(appService, restapi.WithQuerySchema[*iamentity.Role, int64](roleQuerySchema))
+	builder, err := restapi.NewApiBuilder(
+		appService,
+		restapi.WithQuerySchema[*iamentity.Role, int64](roleQuerySchema),
+		restapi.WithHooks[*iamentity.Role, int64](func(h *appcrud.Hooks[*iamentity.Role, int64]) {
+			*h = *newScopeBackedRoleCRUDHooks(rr.roleRepo, rr.scopeAuthorizer)
+		}),
+	)
 	if err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("create role api builder").WithContext("route", "iam.role")
@@ -129,7 +143,7 @@ func (rr *RoleRoutes) setupRoleCustomRoutes(roleGroup httpx.IRouteGroup) {
 
 // 角色权限管理处理器
 func (rr *RoleRoutes) getRolePermissions(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -148,7 +162,7 @@ func (rr *RoleRoutes) getRolePermissions(ctx httpx.IContext) error {
 
 // addRolePermission 添加角色权限。
 func (rr *RoleRoutes) addRolePermission(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -177,7 +191,7 @@ func (rr *RoleRoutes) addRolePermission(ctx httpx.IContext) error {
 
 // removeRolePermission 移除角色权限。
 func (rr *RoleRoutes) removeRolePermission(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -201,7 +215,7 @@ func (rr *RoleRoutes) removeRolePermission(ctx httpx.IContext) error {
 
 // 角色用户管理处理器
 func (rr *RoleRoutes) getRoleUsers(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -220,7 +234,7 @@ func (rr *RoleRoutes) getRoleUsers(ctx httpx.IContext) error {
 
 // assignRoleToUsers 分配角色到Users。
 func (rr *RoleRoutes) assignRoleToUsers(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -258,7 +272,7 @@ func (rr *RoleRoutes) assignRoleToUsers(ctx httpx.IContext) error {
 
 // removeRoleFromUser 移除角色从用户。
 func (rr *RoleRoutes) removeRoleFromUser(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -281,7 +295,7 @@ func (rr *RoleRoutes) removeRoleFromUser(ctx httpx.IContext) error {
 
 // 角色操作处理器
 func (rr *RoleRoutes) activateRole(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -299,7 +313,7 @@ func (rr *RoleRoutes) activateRole(ctx httpx.IContext) error {
 
 // deactivateRole 处理deactivate角色。
 func (rr *RoleRoutes) deactivateRole(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -317,7 +331,7 @@ func (rr *RoleRoutes) deactivateRole(ctx httpx.IContext) error {
 
 // cloneRole 复制角色。
 func (rr *RoleRoutes) cloneRole(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	roleID, err := rr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -340,7 +354,7 @@ func (rr *RoleRoutes) cloneRole(ctx httpx.IContext) error {
 
 // 系统角色处理器
 func (rr *RoleRoutes) getSystemRoles(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	roles, err := rr.roleService.GetSystemRoles(reqCtx)
 	if err != nil {
 		return err
@@ -351,8 +365,12 @@ func (rr *RoleRoutes) getSystemRoles(ctx httpx.IContext) error {
 
 // initSystemRoles 处理初始化系统Roles。
 func (rr *RoleRoutes) initSystemRoles(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
-	if err := rr.roleService.InitializeSystemRoles(reqCtx); err != nil {
+	reqCtx := ctx.GetContext()
+	tenantID, err := svc.TenantIDFromContext(reqCtx)
+	if err != nil {
+		return err
+	}
+	if err := rr.roleService.InitializeSystemRoles(reqCtx, tenantID); err != nil {
 		return err
 	}
 
@@ -363,7 +381,7 @@ func (rr *RoleRoutes) initSystemRoles(ctx httpx.IContext) error {
 
 // 角色统计处理器
 func (rr *RoleRoutes) getRoleStatistics(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	stats, err := rr.roleService.GetRoleStatistics(reqCtx)
 	if err != nil {
 		return err

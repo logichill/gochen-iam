@@ -14,17 +14,23 @@ import (
 
 // TenantRoutes 租户路由注册器
 type TenantRoutes struct {
-	tenantService ITenantService
-	utils         *hbasic.Utils
-	tenantRepo    domaincrud.IRepository[*iamentity.Tenant, int64]
+	tenantService   ITenantService
+	utils           *hbasic.Utils
+	tenantRepo      domaincrud.IRepository[*iamentity.Tenant, int64]
+	scopeAuthorizer *svc.ScopeAuthorizer
 }
 
 // NewTenantRoutes 创建租户路由注册器
-func NewTenantRoutes(tenantService ITenantService, tenantRepo domaincrud.IRepository[*iamentity.Tenant, int64]) *TenantRoutes {
+func NewTenantRoutes(
+	tenantService ITenantService,
+	tenantRepo domaincrud.IRepository[*iamentity.Tenant, int64],
+	scopeAuthorizer *svc.ScopeAuthorizer,
+) *TenantRoutes {
 	return &TenantRoutes{
-		tenantService: tenantService,
-		utils:         &hbasic.Utils{},
-		tenantRepo:    tenantRepo,
+		tenantService:   tenantService,
+		utils:           &hbasic.Utils{},
+		tenantRepo:      tenantRepo,
+		scopeAuthorizer: scopeAuthorizer,
 	}
 }
 
@@ -37,7 +43,10 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	// 租户管理仅对管理员开放
 	adminGroup := tenantGroup.Group("")
-	adminGroup.Use(iammw.AdminOnlyMiddleware())
+	adminGroup.Use(iammw.PermissionMiddleware(
+		iammw.ApiPermission(iammw.ResourceTenant, iammw.ActionManage).Scope(iammw.ScopePlatform),
+	))
+	adminGroup.Use(iammw.PlatformScopeMiddleware())
 
 	appService, err := appcrud.NewApplication(tr.tenantRepo, nil, nil)
 	if err != nil {
@@ -51,7 +60,12 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	// - QuerySchema 为空；
 	// - Allowed* 也为空；
 	// - builder 会直接基于 Tenant struct 自动推导查询 schema。
-	builder, err := restapi.NewApiBuilder(appService)
+	builder, err := restapi.NewApiBuilder(
+		appService,
+		restapi.WithHooks[*iamentity.Tenant, int64](func(h *appcrud.Hooks[*iamentity.Tenant, int64]) {
+			*h = *newTenantCRUDHooks(tr.tenantRepo, tr.scopeAuthorizer)
+		}),
+	)
 	if err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("create tenant api builder").WithContext("route", "iam.tenant")
@@ -93,7 +107,7 @@ func (tr *TenantRoutes) setupTenantCustomRoutes(group httpx.IRouteGroup) {
 
 // activateTenant 启用租户
 func (tr *TenantRoutes) activateTenant(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	id, err := tr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -111,7 +125,7 @@ func (tr *TenantRoutes) activateTenant(ctx httpx.IContext) error {
 
 // deactivateTenant 禁用租户
 func (tr *TenantRoutes) deactivateTenant(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	id, err := tr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err

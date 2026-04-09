@@ -15,8 +15,9 @@ type User struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	Username    string     `json:"username" gorm:"uniqueIndex;size:50;not null"`
-	Email       string     `json:"email" gorm:"uniqueIndex;size:100;not null"`
+	TenantID    string     `json:"tenant_id" gorm:"size:64;not null;index;uniqueIndex:idx_user_username_tenant;uniqueIndex:idx_user_email_tenant"`
+	Username    string     `json:"username" gorm:"size:50;not null;uniqueIndex:idx_user_username_tenant"`
+	Email       string     `json:"email" gorm:"size:100;not null;uniqueIndex:idx_user_email_tenant"`
 	Password    string     `json:"password" gorm:"column:password_hash;size:255;not null"`
 	Status      string     `json:"status" gorm:"size:20;default:active"`
 	Avatar      string     `json:"avatar" gorm:"size:500"`
@@ -34,6 +35,9 @@ func (*User) TableName() string {
 
 // Validate 验证用户数据（指针接收者）
 func (u *User) Validate() error {
+	if err := validation.ValidateRequired(u.TenantID, "tenant_id"); err != nil {
+		return errorx.New(errorx.Validation, "租户ID不能为空")
+	}
 	if err := validation.ValidateRequired(u.Username, "username"); err != nil {
 		return errorx.New(errorx.Validation, "用户名不能为空")
 	}
@@ -93,6 +97,12 @@ func (u *User) Restore() { u.DeletedAt = nil; u.UpdatedAt = time.Now() }
 
 // GetDeletedAt 返回已删除At。
 func (u *User) GetDeletedAt() *time.Time { return u.DeletedAt }
+
+// GetTenantID 返回租户ID。
+func (u *User) GetTenantID() string { return u.TenantID }
+
+// SetTenantID 设置租户ID。
+func (u *User) SetTenantID(tenantID string) { u.TenantID = tenantID }
 
 // IsActive 检查用户是否激活
 func (u *User) IsActive() bool {

@@ -10,6 +10,12 @@ var strictRegistryValidated uint32
 
 // ValidateStrictPermissionRegistry 校验权限 registry 已完成加载（fail-close）。
 func ValidateStrictPermissionRegistry() error {
+	requiredPermissionsRegistry.mu.RLock()
+	registryErr := requiredPermissionsRegistry.err
+	requiredPermissionsRegistry.mu.RUnlock()
+	if registryErr != nil {
+		return registryErr
+	}
 	if requiredPermissionsCount() == 0 {
 		return errorx.New(errorx.Internal, "required permissions registry 为空（尚未完成权限字典注册）").
 			WithContext("hint", "请确保启动期已执行权限注册：要么在路由装配时使用 PermissionMiddleware(\"api:resource:action\")，要么在模块启动期调用 RegisterRequiredPermissionDefinitions(...) 或 RegisterRequiredPermissions(...)；随后在装配完成后调用 ValidateStrictPermissionRegistry() 进行 fail-close 校验。")

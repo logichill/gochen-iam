@@ -41,7 +41,7 @@ func NewGroupRoutes(groupService IGroupService, groupRepo domaincrud.IRepository
 	return &GroupRoutes{
 		groupService: groupService,
 		utils:        &hbasic.Utils{},
-		groupRepo:    groupRepo,
+		groupRepo:    domaincrud.NewTenantAwareWrapper[*iamentity.Group, int64](groupRepo),
 	}
 }
 
@@ -54,7 +54,9 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	groupGroup := group.Group("/groups")
 
 	adminGroup := groupGroup.Group("")
-	adminGroup.Use(iammw.AdminOnlyMiddleware())
+	adminGroup.Use(iammw.PermissionMiddleware(
+		iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionManage).Scope(iammw.ScopePlatform, iammw.ScopeTenant),
+	))
 
 	appService, err := appcrud.NewApplication(gr.groupRepo, nil, nil)
 	if err != nil {
@@ -133,7 +135,7 @@ func (gr *GroupRoutes) setupGroupCustomRoutes(groupGroup httpx.IRouteGroup) {
 
 // 组织树操作处理器
 func (gr *GroupRoutes) getGroupTree(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 
 	tree, err := gr.groupService.GetGroupTree(reqCtx)
 	if err != nil {
@@ -145,9 +147,13 @@ func (gr *GroupRoutes) getGroupTree(ctx httpx.IContext) error {
 
 // getRootGroups 返回RootGroups。
 func (gr *GroupRoutes) getRootGroups(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
+	tenantID, err := svc.TenantIDFromContext(reqCtx)
+	if err != nil {
+		return err
+	}
 
-	groups, err := gr.groupService.GetRootGroups(reqCtx)
+	groups, err := gr.groupService.GetRootGroups(reqCtx, tenantID)
 	if err != nil {
 		return err
 	}
@@ -169,7 +175,7 @@ func (gr *GroupRoutes) getGroupsByLevel(ctx httpx.IContext) error {
 		return err
 	}
 
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	groups, err := gr.groupService.GetGroupsByLevel(reqCtx, level)
 	if err != nil {
 		return err
@@ -183,7 +189,7 @@ func (gr *GroupRoutes) getGroupsByLevel(ctx httpx.IContext) error {
 
 // 组织成员管理处理器
 func (gr *GroupRoutes) getGroupUsers(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -202,7 +208,7 @@ func (gr *GroupRoutes) getGroupUsers(ctx httpx.IContext) error {
 
 // addUserToGroup 添加用户到分组。
 func (gr *GroupRoutes) addUserToGroup(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -231,7 +237,7 @@ func (gr *GroupRoutes) addUserToGroup(ctx httpx.IContext) error {
 
 // removeUserFromGroup 移除用户从分组。
 func (gr *GroupRoutes) removeUserFromGroup(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -254,7 +260,7 @@ func (gr *GroupRoutes) removeUserFromGroup(ctx httpx.IContext) error {
 
 // batchAddUsersToGroup 处理批量AddUsers到分组。
 func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -293,7 +299,7 @@ func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IContext) error {
 
 // 组织角色管理处理器
 func (gr *GroupRoutes) getGroupRoles(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -312,7 +318,7 @@ func (gr *GroupRoutes) getGroupRoles(ctx httpx.IContext) error {
 
 // addGroupRole 添加分组角色。
 func (gr *GroupRoutes) addGroupRole(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -341,7 +347,7 @@ func (gr *GroupRoutes) addGroupRole(ctx httpx.IContext) error {
 
 // removeGroupRole 移除分组角色。
 func (gr *GroupRoutes) removeGroupRole(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 	groupID, err := gr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -364,7 +370,7 @@ func (gr *GroupRoutes) removeGroupRole(ctx httpx.IContext) error {
 
 // 组织统计处理器
 func (gr *GroupRoutes) getGroupStatistics(ctx httpx.IContext) error {
-	reqCtx := ctx.GetRequest().Context()
+	reqCtx := ctx.GetContext()
 
 	stats, err := gr.groupService.GetGroupStatistics(reqCtx)
 	if err != nil {
@@ -377,6 +383,13 @@ func (gr *GroupRoutes) getGroupStatistics(ctx httpx.IContext) error {
 func newGroupCRUDHooks(repo domaincrud.IRepository[*iamentity.Group, int64]) *appcrud.Hooks[*iamentity.Group, int64] {
 	return &appcrud.Hooks[*iamentity.Group, int64]{
 		BeforeCreate: func(ctx context.Context, group *iamentity.Group) error {
+			// 1. 租户隔离：从上下文注入 tenant_id
+			tenantID, err := domaincrud.ResolveTenantID(ctx)
+			if err != nil {
+				return err
+			}
+			group.SetTenantID(tenantID)
+			// 2. 层级准备
 			return prepareGroupHierarchy(ctx, repo, nil, group)
 		},
 		BeforeUpdate: func(ctx context.Context, group *iamentity.Group) error {
@@ -387,7 +400,12 @@ func newGroupCRUDHooks(repo domaincrud.IRepository[*iamentity.Group, int64]) *ap
 			if err != nil {
 				return err
 			}
+			// 更新时始终沿用已存在实体的租户，避免请求体伪造/遗漏 tenant_id。
+			group.SetTenantID(current.GetTenantID())
 			return prepareGroupHierarchy(ctx, repo, current, group)
+		},
+		BeforeDelete: func(ctx context.Context, id int64) error {
+			return checkTenantOwnership(ctx, repo, id)
 		},
 	}
 }
