@@ -61,14 +61,14 @@ func permissionSegments(permission string) ([3]string, bool) {
 	return segments, true
 }
 
-// GetRoles 从请求上下文中获取当前请求的角色列表
-func GetRoles(ctx httpx.IRequestContext) []string {
-	return auth.GetRoles(ctx)
+// Roles 从请求上下文中获取当前请求的角色列表
+func Roles(ctx httpx.IRequestContext) []string {
+	return auth.Roles(ctx)
 }
 
-// GetPermissions 从请求上下文中获取当前请求的权限列表
-func GetPermissions(ctx httpx.IRequestContext) []string {
-	return auth.GetPermissions(ctx)
+// Permissions 从请求上下文中获取当前请求的权限列表
+func Permissions(ctx httpx.IRequestContext) []string {
+	return auth.Permissions(ctx)
 }
 
 // HasAnyRole 判断上下文中是否包含任一指定角色
@@ -76,7 +76,7 @@ func HasAnyRole(ctx httpx.IRequestContext, required ...string) bool {
 	if len(required) == 0 {
 		return true
 	}
-	roles := GetRoles(ctx)
+	roles := Roles(ctx)
 	if len(roles) == 0 {
 		return false
 	}
@@ -103,13 +103,13 @@ func HasPermission(ctx httpx.IRequestContext, permission string) bool {
 	if permission == "" {
 		return true
 	}
-	if set := auth.GetPermissionSet(ctx); set != nil {
+	if set := auth.PermissionSet(ctx); set != nil {
 		normalized := strings.ToLower(permission)
 		if _, ok := set[normalized]; ok {
 			return true
 		}
 	}
-	perms := GetPermissions(ctx)
+	perms := Permissions(ctx)
 	if len(perms) == 0 {
 		return false
 	}

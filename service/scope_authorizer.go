@@ -158,7 +158,7 @@ func (a *ScopeAuthorizer) ResolveActiveScope(ctx context.Context) (*iamentity.Sc
 	}
 
 	reqCtx, _ := ctx.(httpx.IRequestContext)
-	if scopeID := auth.GetActiveScopeID(reqCtx); scopeID > 0 {
+	if scopeID := auth.ActiveScopeID(reqCtx); scopeID > 0 {
 		return a.scopeRepo.Get(ctx, scopeID)
 	}
 
@@ -173,7 +173,7 @@ func (a *ScopeAuthorizer) ScopeCovers(ctx context.Context, ancestorScopeID, desc
 	return a.scopeRepo.ScopeCovers(ctx, ancestorScopeID, descendantScopeID)
 }
 
-func (a *ScopeAuthorizer) GetScope(ctx context.Context, scopeID int64) (*iamentity.Scope, error) {
+func (a *ScopeAuthorizer) Scope(ctx context.Context, scopeID int64) (*iamentity.Scope, error) {
 	return a.scopeRepo.Get(ctx, scopeID)
 }
 

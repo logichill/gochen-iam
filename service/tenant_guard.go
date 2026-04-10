@@ -21,7 +21,7 @@ func NormalizeTenantID(ctx context.Context, targetTenantID string) (string, erro
 
 func RequireTenantMatch(ctx context.Context, targetTenantID string) (string, error) {
 	targetTenantID = strings.TrimSpace(targetTenantID)
-	if reqCtx, ok := ctx.(httpx.IRequestContext); ok && auth.GetActiveScopeType(reqCtx) == string(iammw.ScopePlatform) {
+	if reqCtx, ok := ctx.(httpx.IRequestContext); ok && auth.ActiveScopeType(reqCtx) == string(iammw.ScopePlatform) {
 		if targetTenantID == "" {
 			return TenantIDFromContext(ctx)
 		}

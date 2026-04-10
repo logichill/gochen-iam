@@ -9,9 +9,9 @@ import (
 type contextKey string
 
 const (
-	contextKeyRoles       contextKey = "auth_roles"
-	contextKeyPermissions contextKey = "auth_permissions"
-	contextKeyPermSet     contextKey = "auth_permission_set"
+	contextKeyRoles           contextKey = "auth_roles"
+	contextKeyPermissions     contextKey = "auth_permissions"
+	contextKeyPermSet         contextKey = "auth_permission_set"
 	contextKeyActiveScopeID   contextKey = "auth_active_scope_id"
 	contextKeyActiveScopeKey  contextKey = "auth_active_scope_key"
 	contextKeyActiveScopeType contextKey = "auth_active_scope_type"
@@ -42,8 +42,8 @@ func WithPermissions(ctx httpx.IRequestContext, permissions []string) httpx.IReq
 	return ctx
 }
 
-// GetRoles 从请求上下文获取角色列表
-func GetRoles(ctx httpx.IRequestContext) []string {
+// Roles 从请求上下文获取角色列表
+func Roles(ctx httpx.IRequestContext) []string {
 	if ctx == nil {
 		return nil
 	}
@@ -55,8 +55,8 @@ func GetRoles(ctx httpx.IRequestContext) []string {
 	return nil
 }
 
-// GetPermissions 从请求上下文获取权限列表
-func GetPermissions(ctx httpx.IRequestContext) []string {
+// Permissions 从请求上下文获取权限列表
+func Permissions(ctx httpx.IRequestContext) []string {
 	if ctx == nil {
 		return nil
 	}
@@ -68,9 +68,9 @@ func GetPermissions(ctx httpx.IRequestContext) []string {
 	return nil
 }
 
-// GetPermissionSet 从请求上下文获取权限集合（用于 O(1) 判断）。
-// 若未注入集合，返回 nil（调用方可回退到 GetPermissions 做线性判断）。
-func GetPermissionSet(ctx httpx.IRequestContext) map[string]struct{} {
+// PermissionSet 从请求上下文获取权限集合（用于 O(1) 判断）。
+// 若未注入集合，返回 nil（调用方可回退到 Permissions 做线性判断）。
+func PermissionSet(ctx httpx.IRequestContext) map[string]struct{} {
 	if ctx == nil {
 		return nil
 	}
@@ -99,7 +99,7 @@ func WithActiveScope(ctx httpx.IRequestContext, scopeID int64, scopeKey, scopeTy
 	return ctx
 }
 
-func GetActiveScopeID(ctx httpx.IRequestContext) int64 {
+func ActiveScopeID(ctx httpx.IRequestContext) int64 {
 	if ctx == nil {
 		return 0
 	}
@@ -111,7 +111,7 @@ func GetActiveScopeID(ctx httpx.IRequestContext) int64 {
 	return 0
 }
 
-func GetActiveScopeKey(ctx httpx.IRequestContext) string {
+func ActiveScopeKey(ctx httpx.IRequestContext) string {
 	if ctx == nil {
 		return ""
 	}
@@ -123,7 +123,7 @@ func GetActiveScopeKey(ctx httpx.IRequestContext) string {
 	return ""
 }
 
-func GetActiveScopeType(ctx httpx.IRequestContext) string {
+func ActiveScopeType(ctx httpx.IRequestContext) string {
 	if ctx == nil {
 		return ""
 	}

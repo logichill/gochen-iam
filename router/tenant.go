@@ -89,13 +89,13 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	return nil
 }
 
-// GetName 获取注册器名称
-func (tr *TenantRoutes) GetName() string {
+// Name 获取注册器名称
+func (tr *TenantRoutes) Name() string {
 	return "tenant"
 }
 
-// GetPriority 获取注册优先级
-func (tr *TenantRoutes) GetPriority() int {
+// Priority 获取注册优先级
+func (tr *TenantRoutes) Priority() int {
 	return 50 // 租户路由优先级，在 auth/user 之后
 }
 

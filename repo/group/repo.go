@@ -422,8 +422,8 @@ func (r *GroupRepo) RemoveDefaultRole(ctx context.Context, groupID, roleID int64
 	return nil
 }
 
-// GetGroupTree 获取组织树结构（租户隔离）
-func (r *GroupRepo) GetGroupTree(ctx context.Context, tenantID string) ([]*iamentity.Group, error) {
+// GroupTree 获取组织树结构（租户隔离）
+func (r *GroupRepo) GroupTree(ctx context.Context, tenantID string) ([]*iamentity.Group, error) {
 	// 获取所有组织
 	model, err := r.ModelFor(ctx)
 	if err != nil {

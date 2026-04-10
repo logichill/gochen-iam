@@ -73,8 +73,8 @@ func (r *MenuItemRepo) GetWithDeleted(ctx context.Context, id int64) (*iamentity
 	return &item, nil
 }
 
-// GetByCode 按编码查询。
-func (r *MenuItemRepo) GetByCode(ctx context.Context, code string) (*iamentity.MenuItem, error) {
+// FindByCode 按编码查询。
+func (r *MenuItemRepo) FindByCode(ctx context.Context, code string) (*iamentity.MenuItem, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err
@@ -89,8 +89,8 @@ func (r *MenuItemRepo) GetByCode(ctx context.Context, code string) (*iamentity.M
 	return &item, nil
 }
 
-// GetByCodeWithDeleted 按 code 查询菜单（包含软删记录）。
-func (r *MenuItemRepo) GetByCodeWithDeleted(ctx context.Context, code string) (*iamentity.MenuItem, error) {
+// FindByCodeWithDeleted 按 code 查询菜单（包含软删记录）。
+func (r *MenuItemRepo) FindByCodeWithDeleted(ctx context.Context, code string) (*iamentity.MenuItem, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err

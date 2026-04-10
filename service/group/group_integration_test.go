@@ -562,7 +562,7 @@ func TestGroupServiceAddUserToGroup(t *testing.T) {
 	}
 
 	// 验证用户已加入
-	users, err := env.groupService.GetGroupUsers(env.backgroundCtx, group.GetID())
+	users, err := env.groupService.GroupUsers(env.backgroundCtx, group.GetID())
 	if err != nil {
 		t.Fatalf("get group users: %v", err)
 	}
@@ -605,7 +605,7 @@ func TestGroupServiceRemoveUserFromGroup(t *testing.T) {
 	}
 
 	// 验证用户已移除
-	users, err := env.groupService.GetGroupUsers(env.backgroundCtx, group.GetID())
+	users, err := env.groupService.GroupUsers(env.backgroundCtx, group.GetID())
 	if err != nil {
 		t.Fatalf("get group users: %v", err)
 	}
@@ -651,7 +651,7 @@ func TestGroupServiceBatchAddUsersToGroup(t *testing.T) {
 	}
 
 	// 验证所有用户已加入
-	users, err := env.groupService.GetGroupUsers(env.backgroundCtx, group.GetID())
+	users, err := env.groupService.GroupUsers(env.backgroundCtx, group.GetID())
 	if err != nil {
 		t.Fatalf("get group users: %v", err)
 	}
@@ -687,7 +687,7 @@ func TestGroupServiceAddGroupRole(t *testing.T) {
 	}
 
 	// 验证角色已添加
-	roles, err := env.groupService.GetGroupRoles(env.backgroundCtx, group.GetID())
+	roles, err := env.groupService.GroupRoles(env.backgroundCtx, group.GetID())
 	if err != nil {
 		t.Fatalf("get group roles: %v", err)
 	}
@@ -728,7 +728,7 @@ func TestGroupServiceGetRootGroups(t *testing.T) {
 	}
 
 	// 获取根组织
-	rootGroups, err := env.groupService.GetRootGroups(env.backgroundCtx, env.tenantID)
+	rootGroups, err := env.groupService.RootGroups(env.backgroundCtx, env.tenantID)
 	if err != nil {
 		t.Fatalf("get root groups: %v", err)
 	}
@@ -770,7 +770,7 @@ func TestGroupServiceGetGroupsByLevel(t *testing.T) {
 	}
 
 	// 获取二级组织
-	level2Groups, err := env.groupService.GetGroupsByLevel(env.backgroundCtx, 2)
+	level2Groups, err := env.groupService.GroupsByLevel(env.backgroundCtx, 2)
 	if err != nil {
 		t.Fatalf("get level 2 groups: %v", err)
 	}
@@ -803,9 +803,9 @@ func TestGroupServiceGetGroupTree_IsTenantScoped(t *testing.T) {
 		t.Fatalf("create tenant-b root: %v", err)
 	}
 
-	tree, err := env.groupService.GetGroupTree(env.backgroundCtx)
+	tree, err := env.groupService.GroupTree(env.backgroundCtx)
 	if err != nil {
-		t.Fatalf("GetGroupTree: %v", err)
+		t.Fatalf("GroupTree: %v", err)
 	}
 	if len(tree) != 1 {
 		t.Fatalf("expected 1 root node for tenant %s, got %d", env.tenantID, len(tree))

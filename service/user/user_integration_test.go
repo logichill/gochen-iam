@@ -494,7 +494,7 @@ func TestUserServiceAuthPathsRejectDisabledUserAsForbidden(t *testing.T) {
 				t.Fatalf("expected forbidden error for authenticate/%s, got %v", tt.name, err)
 			}
 
-			_, err = env.userService.GetAuthSnapshot(env.backgroundCtx, user.GetID())
+			_, err = env.userService.AuthSnapshot(env.backgroundCtx, user.GetID())
 			if err == nil {
 				t.Fatalf("expected snapshot error for %s user", tt.name)
 			}
@@ -550,7 +550,7 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 		t.Fatalf("authenticate: %v", err)
 	}
 
-	snapshotResp, err := env.userService.GetAuthSnapshot(env.backgroundCtx, user.GetID())
+	snapshotResp, err := env.userService.AuthSnapshot(env.backgroundCtx, user.GetID())
 	if err != nil {
 		t.Fatalf("get auth snapshot: %v", err)
 	}
@@ -587,7 +587,7 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 	assertNotContains(snapshotResp.Permissions, "api:perm:inactive", "snapshot permissions")
 	assertNotContains(snapshotResp.Permissions, "api:perm:deleted", "snapshot permissions")
 
-	perms, err := env.userService.GetUserPermissions(env.backgroundCtx, user.GetID())
+	perms, err := env.userService.UserPermissions(env.backgroundCtx, user.GetID())
 	if err != nil {
 		t.Fatalf("get user permissions: %v", err)
 	}
@@ -658,7 +658,7 @@ func TestUserServiceGetUserPermissionsRequiresActiveUser(t *testing.T) {
 				t.Fatalf("disable user (%s): %v", tt.name, err)
 			}
 
-			perms, err := env.userService.GetUserPermissions(env.backgroundCtx, user.GetID())
+			perms, err := env.userService.UserPermissions(env.backgroundCtx, user.GetID())
 			if err == nil {
 				t.Fatalf("expected error for %s user, got perms %v", tt.name, perms)
 			}
@@ -886,7 +886,7 @@ func TestUserServiceAssignRole(t *testing.T) {
 	}
 
 	// 验证角色
-	roles, err := env.userService.GetUserRoles(env.backgroundCtx, user.GetID())
+	roles, err := env.userService.UserRoles(env.backgroundCtx, user.GetID())
 	if err != nil {
 		t.Fatalf("get user roles: %v", err)
 	}
@@ -925,7 +925,7 @@ func TestUserServiceAssignToGroup(t *testing.T) {
 	}
 
 	// 验证组织
-	groups, err := env.userService.GetUserGroups(env.backgroundCtx, user.GetID())
+	groups, err := env.userService.UserGroups(env.backgroundCtx, user.GetID())
 	if err != nil {
 		t.Fatalf("get user groups: %v", err)
 	}
@@ -968,7 +968,7 @@ func TestUserServiceRemoveRole(t *testing.T) {
 	}
 
 	// 验证角色已移除
-	roles, err := env.userService.GetUserRoles(env.backgroundCtx, user.GetID())
+	roles, err := env.userService.UserRoles(env.backgroundCtx, user.GetID())
 	if err != nil {
 		t.Fatalf("get user roles: %v", err)
 	}
@@ -1008,7 +1008,7 @@ func TestUserServiceRemoveFromGroup(t *testing.T) {
 	}
 
 	// 验证已离开
-	groups, err := env.userService.GetUserGroups(env.backgroundCtx, user.GetID())
+	groups, err := env.userService.UserGroups(env.backgroundCtx, user.GetID())
 	if err != nil {
 		t.Fatalf("get user groups: %v", err)
 	}

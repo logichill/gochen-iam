@@ -102,13 +102,13 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	return nil
 }
 
-// GetName 获取注册器名称
-func (rr *RoleRoutes) GetName() string {
+// Name 获取注册器名称
+func (rr *RoleRoutes) Name() string {
 	return "role"
 }
 
-// GetPriority 获取注册优先级
-func (rr *RoleRoutes) GetPriority() int {
+// Priority 获取注册优先级
+func (rr *RoleRoutes) Priority() int {
 	return 200 // 角色路由优先级为200
 }
 
@@ -221,7 +221,7 @@ func (rr *RoleRoutes) getRoleUsers(ctx httpx.IContext) error {
 		return err
 	}
 
-	users, err := rr.roleService.GetRoleUsers(reqCtx, roleID)
+	users, err := rr.roleService.RoleUsers(reqCtx, roleID)
 	if err != nil {
 		return err
 	}
@@ -355,7 +355,7 @@ func (rr *RoleRoutes) cloneRole(ctx httpx.IContext) error {
 // 系统角色处理器
 func (rr *RoleRoutes) getSystemRoles(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	roles, err := rr.roleService.GetSystemRoles(reqCtx)
+	roles, err := rr.roleService.SystemRoles(reqCtx)
 	if err != nil {
 		return err
 	}
@@ -382,7 +382,7 @@ func (rr *RoleRoutes) initSystemRoles(ctx httpx.IContext) error {
 // 角色统计处理器
 func (rr *RoleRoutes) getRoleStatistics(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	stats, err := rr.roleService.GetRoleStatistics(reqCtx)
+	stats, err := rr.roleService.RoleStatistics(reqCtx)
 	if err != nil {
 		return err
 	}

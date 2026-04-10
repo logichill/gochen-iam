@@ -72,11 +72,11 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	return nil
 }
 
-// GetName 返回路由注册器名称。
-func (mr *MenuRoutes) GetName() string { return "menu" }
+// Name 返回路由注册器名称。
+func (mr *MenuRoutes) Name() string { return "menu" }
 
-// GetPriority 返回菜单路由的注册优先级。
-func (mr *MenuRoutes) GetPriority() int {
+// Priority 返回菜单路由的注册优先级。
+func (mr *MenuRoutes) Priority() int {
 	// 低于 auth/user 等基础路由即可
 	return 210
 }
@@ -212,7 +212,7 @@ func (mr *MenuRoutes) setMenuPublished(ctx httpx.IContext, published bool) error
 
 // getMyMenuTree 返回当前用户可见的菜单树。
 func (mr *MenuRoutes) getMyMenuTree(ctx httpx.IContext) error {
-	menus, err := mr.menuService.GetMyMenuTree(ctx.RequestContext(), ctx.RequestContext())
+	menus, err := mr.menuService.MyMenuTree(ctx.RequestContext(), ctx.RequestContext())
 	if err != nil {
 		return err
 	}

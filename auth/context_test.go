@@ -14,7 +14,7 @@ func TestWithPermissions_InjectsPermissionSet(t *testing.T) {
 	}
 	ctx = WithPermissions(ctx, []string{"api:a:read", "api:c:write"})
 
-	set := GetPermissionSet(ctx)
+	set := PermissionSet(ctx)
 	if set == nil {
 		t.Fatalf("expected permission set to be injected")
 	}

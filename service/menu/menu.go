@@ -149,7 +149,7 @@ func (s *MenuService) CreateMenuItem(ctx context.Context, req *CreateMenuItemReq
 
 	// menu_items.code 是唯一索引，且 Delete 为软删：
 	// 这里显式检查并返回更友好的错误信息（当前策略：code 不可复用）。
-	if existing, err := s.menuRepo.GetByCodeWithDeleted(ctx, item.Code); err == nil && existing != nil {
+	if existing, err := s.menuRepo.FindByCodeWithDeleted(ctx, item.Code); err == nil && existing != nil {
 		if existing.DeletedAt != nil {
 			return nil, errorx.New(errorx.Validation, "菜单 code 已被占用（已删除），当前策略不允许复用；请更换 code 或进行物理删除后重建")
 		}
@@ -282,7 +282,7 @@ func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsReque
 	stagedItems := make(map[string]*iamentity.MenuItem, len(req.Items))
 	for _, raw := range req.Items {
 
-		existing, err := s.menuRepo.GetByCodeWithDeleted(ctx, raw.Code)
+		existing, err := s.menuRepo.FindByCodeWithDeleted(ctx, raw.Code)
 		if err != nil && !errorx.Is(err, errorx.NotFound) {
 			return nil, err
 		}
@@ -476,8 +476,8 @@ type MenuNode struct {
 	Children []*MenuNode `json:"children,omitempty"`
 }
 
-// GetMyMenuTree 返回当前用户可见的菜单树（按权限过滤）。
-func (s *MenuService) GetMyMenuTree(ctx context.Context, reqCtx httpx.IRequestContext) ([]*MenuNode, error) {
+// MyMenuTree 返回当前用户可见的菜单树（按权限过滤）。
+func (s *MenuService) MyMenuTree(ctx context.Context, reqCtx httpx.IRequestContext) ([]*MenuNode, error) {
 	items, err := s.menuRepo.ListPublished(ctx)
 	if err != nil {
 		return nil, err
@@ -558,7 +558,7 @@ func (s *MenuService) validateSyncMenuParentCodes(ctx context.Context, itemsByCo
 		if _, ok := itemsByCode[item.ParentCode]; ok {
 			continue
 		}
-		if _, err := s.menuRepo.GetByCode(ctx, item.ParentCode); err != nil {
+		if _, err := s.menuRepo.FindByCode(ctx, item.ParentCode); err != nil {
 			if errorx.Is(err, errorx.NotFound) {
 				return errorx.New(errorx.Validation, "menu parent_code 不存在: "+item.ParentCode)
 			}
@@ -617,7 +617,7 @@ func (s *MenuService) resolveSyncMenuParentID(
 		return &parentID, nil
 	}
 
-	parent, err := s.menuRepo.GetByCode(ctx, parentCode)
+	parent, err := s.menuRepo.FindByCode(ctx, parentCode)
 	if err != nil {
 		if errorx.Is(err, errorx.NotFound) {
 			return nil, errorx.New(errorx.Validation, "menu parent_code 不存在: "+parentCode)

@@ -97,13 +97,13 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	return nil
 }
 
-// GetName 获取注册器名称
-func (gr *GroupRoutes) GetName() string {
+// Name 获取注册器名称
+func (gr *GroupRoutes) Name() string {
 	return "group"
 }
 
-// GetPriority 获取注册优先级
-func (gr *GroupRoutes) GetPriority() int {
+// Priority 获取注册优先级
+func (gr *GroupRoutes) Priority() int {
 	return 300 // 组织路由优先级为300
 }
 
@@ -137,7 +137,7 @@ func (gr *GroupRoutes) setupGroupCustomRoutes(groupGroup httpx.IRouteGroup) {
 func (gr *GroupRoutes) getGroupTree(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
 
-	tree, err := gr.groupService.GetGroupTree(reqCtx)
+	tree, err := gr.groupService.GroupTree(reqCtx)
 	if err != nil {
 		return err
 	}
@@ -153,7 +153,7 @@ func (gr *GroupRoutes) getRootGroups(ctx httpx.IContext) error {
 		return err
 	}
 
-	groups, err := gr.groupService.GetRootGroups(reqCtx, tenantID)
+	groups, err := gr.groupService.RootGroups(reqCtx, tenantID)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func (gr *GroupRoutes) getGroupsByLevel(ctx httpx.IContext) error {
 	}
 
 	reqCtx := ctx.RequestContext()
-	groups, err := gr.groupService.GetGroupsByLevel(reqCtx, level)
+	groups, err := gr.groupService.GroupsByLevel(reqCtx, level)
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func (gr *GroupRoutes) getGroupUsers(ctx httpx.IContext) error {
 		return err
 	}
 
-	users, err := gr.groupService.GetGroupUsers(reqCtx, groupID)
+	users, err := gr.groupService.GroupUsers(reqCtx, groupID)
 	if err != nil {
 		return err
 	}
@@ -305,7 +305,7 @@ func (gr *GroupRoutes) getGroupRoles(ctx httpx.IContext) error {
 		return err
 	}
 
-	roles, err := gr.groupService.GetGroupRoles(reqCtx, groupID)
+	roles, err := gr.groupService.GroupRoles(reqCtx, groupID)
 	if err != nil {
 		return err
 	}
@@ -372,7 +372,7 @@ func (gr *GroupRoutes) removeGroupRole(ctx httpx.IContext) error {
 func (gr *GroupRoutes) getGroupStatistics(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
 
-	stats, err := gr.groupService.GetGroupStatistics(reqCtx)
+	stats, err := gr.groupService.GroupStatistics(reqCtx)
 	if err != nil {
 		return err
 	}

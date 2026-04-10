@@ -138,8 +138,8 @@ func (s *TenantService) DeactivateTenant(ctx context.Context, tenantID int64) er
 	return nil
 }
 
-// GetTenant 获取单个租户
-func (s *TenantService) GetTenant(ctx context.Context, tenantID int64) (*iamentity.Tenant, error) {
+// Tenant 获取单个租户
+func (s *TenantService) Tenant(ctx context.Context, tenantID int64) (*iamentity.Tenant, error) {
 	if err := s.requirePlatformPermission(ctx, "api:tenant:read"); err != nil {
 		return nil, err
 	}

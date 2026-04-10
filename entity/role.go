@@ -176,8 +176,8 @@ func (r *Role) SetPermissions(permissions []string) {
 	r.SetUpdatedAt(time.Now())
 }
 
-// GetPermissionCount 获取权限数量
-func (r *Role) GetPermissionCount() int {
+// PermissionCount 获取权限数量
+func (r *Role) PermissionCount() int {
 	return len(r.Permissions)
 }
 
@@ -210,13 +210,13 @@ func (r *Role) Deactivate() {
 	}
 }
 
-// GetUserCount 获取拥有此角色的用户数量
-func (r *Role) GetUserCount() int {
+// UserCount 获取拥有此角色的用户数量
+func (r *Role) UserCount() int {
 	return len(r.Users)
 }
 
-// GetGroupCount 获取使用此角色作为默认角色的组织数量
-func (r *Role) GetGroupCount() int {
+// GroupCount 获取使用此角色作为默认角色的组织数量
+func (r *Role) GroupCount() int {
 	return len(r.Groups)
 }
 

@@ -65,7 +65,7 @@ func ResolveTenantID(ctx context.Context) (string, error) {
 	if policy.IsFixed() {
 		return policy.FixedTenantID, nil
 	}
-	tenantID := strings.TrimSpace(ctxx.GetTenantID(ctx))
+	tenantID := strings.TrimSpace(ctxx.TenantID(ctx))
 	if tenantID == "" {
 		return "", errorx.New(errorx.Validation, "tenant_id is required")
 	}
@@ -77,7 +77,7 @@ func ResolveTenantIDForFramework(ctx context.Context) (string, error) {
 	if policy.IsFixed() {
 		return policy.FixedTenantID, nil
 	}
-	tenantID := strings.TrimSpace(ctxx.GetTenantID(ctx))
+	tenantID := strings.TrimSpace(ctxx.TenantID(ctx))
 	if tenantID == "" {
 		return "", errorx.New(errorx.InvalidInput, "tenant ID is required in context")
 	}

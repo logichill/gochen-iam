@@ -43,13 +43,13 @@ func (ar *AuthRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	return nil
 }
 
-// GetName 获取注册器名称
-func (ar *AuthRoutes) GetName() string {
+// Name 获取注册器名称
+func (ar *AuthRoutes) Name() string {
 	return "auth"
 }
 
-// GetPriority 获取注册优先级
-func (ar *AuthRoutes) GetPriority() int {
+// Priority 获取注册优先级
+func (ar *AuthRoutes) Priority() int {
 	return 10 // 认证路由优先级最高
 }
 
@@ -70,7 +70,7 @@ func (ar *AuthRoutes) readRequestTenantID(ctx httpx.IContext) string {
 
 func (ar *AuthRoutes) ensureTenantContext(ctx httpx.IContext) (httpx.IRequestContext, string, error) {
 	reqCtx := ctx.RequestContext()
-	currentTenantID := ctxx.GetTenantID(reqCtx)
+	currentTenantID := ctxx.TenantID(reqCtx)
 	cfg := ar.authConfig
 	if cfg == nil {
 		cfg = iammw.DefaultAuthConfig()
@@ -196,13 +196,13 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
 	requestTenantID := ar.readRequestTenantID(ctx)
 	if requestTenantID == "" {
-		requestTenantID = ctxx.GetTenantID(reqCtx)
+		requestTenantID = ctxx.TenantID(reqCtx)
 	}
 	tenantID, err := tenant.ResolveRequestTenantIDWithScope(requestTenantID, strings.TrimSpace(claims.TenantID), claims.ActiveScopeType, true)
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(ctxx.GetTenantID(reqCtx)) != tenantID {
+	if strings.TrimSpace(ctxx.TenantID(reqCtx)) != tenantID {
 		derived, err := ctxx.WithTenantID(reqCtx, tenantID)
 		if err != nil {
 			return err
@@ -216,7 +216,7 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 	ctx.SetContext(reqCtx)
 
 	// 2) 重新从数据源获取最新有效 RBAC（过滤软删/非激活角色，避免沿用旧 token 快照）
-	authSnapshot, err := ar.userService.GetAuthSnapshot(reqCtx, claims.UserID)
+	authSnapshot, err := ar.userService.AuthSnapshot(reqCtx, claims.UserID)
 	if err != nil {
 		return err
 	}

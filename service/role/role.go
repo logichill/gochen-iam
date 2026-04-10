@@ -402,8 +402,8 @@ func (s *RoleService) CloneRole(ctx context.Context, roleID int64, newName strin
 	return clonedRole, nil
 }
 
-// GetRoleUsers 获取拥有指定角色的用户
-func (s *RoleService) GetRoleUsers(ctx context.Context, roleID int64) ([]*iamentity.User, error) {
+// RoleUsers 获取拥有指定角色的用户
+func (s *RoleService) RoleUsers(ctx context.Context, roleID int64) ([]*iamentity.User, error) {
 	role, err := s.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return nil, err
@@ -414,8 +414,8 @@ func (s *RoleService) GetRoleUsers(ctx context.Context, roleID int64) ([]*iament
 	return s.userRepo.FindByRoleID(ctx, role.TenantID, roleID)
 }
 
-// GetRoleGroups 获取使用指定角色作为默认角色的组织
-func (s *RoleService) GetRoleGroups(ctx context.Context, roleID int64) ([]*iamentity.Group, error) {
+// RoleGroups 获取使用指定角色作为默认角色的组织
+func (s *RoleService) RoleGroups(ctx context.Context, roleID int64) ([]*iamentity.Group, error) {
 	role, err := s.roleRepo.Get(ctx, roleID)
 	if err != nil {
 		return nil, err
@@ -465,8 +465,8 @@ func (s *RoleService) SearchRoles(ctx context.Context, keyword string, limit int
 	return s.roleRepo.SearchRoles(ctx, tenantID, keyword, limit)
 }
 
-// GetActiveRoles 获取激活状态的角色
-func (s *RoleService) GetActiveRoles(ctx context.Context) ([]*iamentity.Role, error) {
+// ActiveRoles 获取激活状态的角色
+func (s *RoleService) ActiveRoles(ctx context.Context) ([]*iamentity.Role, error) {
 	tenantID, err := svc.TenantIDFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -477,8 +477,8 @@ func (s *RoleService) GetActiveRoles(ctx context.Context) ([]*iamentity.Role, er
 	return s.roleRepo.FindByStatus(ctx, tenantID, svc.RoleStatusActive)
 }
 
-// GetSystemRoles 获取系统角色
-func (s *RoleService) GetSystemRoles(ctx context.Context) ([]*iamentity.Role, error) {
+// SystemRoles 获取系统角色
+func (s *RoleService) SystemRoles(ctx context.Context) ([]*iamentity.Role, error) {
 	tenantID, err := svc.TenantIDFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -505,8 +505,8 @@ func (s *RoleService) InitializeSystemRoles(ctx context.Context, tenantID string
 	return s.initializeBuiltinRoles(ctx, tenantID, namespaceScope)
 }
 
-// GetRoleStatistics 返回角色统计信息。
-func (s *RoleService) GetRoleStatistics(ctx context.Context) (map[string]interface{}, error) {
+// RoleStatistics 返回角色统计信息。
+func (s *RoleService) RoleStatistics(ctx context.Context) (map[string]interface{}, error) {
 	tenantID, err := svc.TenantIDFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -679,7 +679,7 @@ func (s *RoleService) resolveRoleNamespaceScope(ctx context.Context, role *iamen
 		return nil, nil
 	}
 	if role.NamespaceScopeID > 0 {
-		scope, err := s.scopeAuthorizer.GetScope(ctx, role.NamespaceScopeID)
+		scope, err := s.scopeAuthorizer.Scope(ctx, role.NamespaceScopeID)
 		if err == nil {
 			return scope, nil
 		}

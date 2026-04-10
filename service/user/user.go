@@ -182,12 +182,12 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 	}, nil
 }
 
-// GetAuthSnapshot 返回用于签发/刷新 token 的最新身份快照（角色 + 权限）。
+// AuthSnapshot 返回用于签发/刷新 token 的最新身份快照（角色 + 权限）。
 //
 // 说明：
 // - 仅返回“有效角色”：已软删除角色与非 active 角色会被过滤；
 // - 若用户不存在或已禁用，返回错误，由调用方决定如何映射为 HTTP 错误码。
-func (s *UserService) GetAuthSnapshot(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
+func (s *UserService) AuthSnapshot(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
 	user, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -497,12 +497,12 @@ func (s *UserService) RemoveFromGroup(ctx context.Context, userID, groupID int64
 	return s.userRepo.RemoveFromGroup(ctx, userID, groupID)
 }
 
-// GetUserPermissions 获取用户权限。
+// UserPermissions 获取用户权限。
 //
 // 语义：
 // - 用户不存在：返回 NotFound；
 // - 用户非 active：返回错误（fail-close，避免禁用账号仍可参与鉴权/授权决策）。
-func (s *UserService) GetUserPermissions(ctx context.Context, userID int64) ([]string, error) {
+func (s *UserService) UserPermissions(ctx context.Context, userID int64) ([]string, error) {
 	user, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -523,7 +523,7 @@ func (s *UserService) GetUserPermissions(ctx context.Context, userID int64) ([]s
 
 // CheckPermission 检查用户权限
 func (s *UserService) CheckPermission(ctx context.Context, userID int64, permission string) (bool, error) {
-	permissions, err := s.GetUserPermissions(ctx, userID)
+	permissions, err := s.UserPermissions(ctx, userID)
 	if err != nil {
 		return false, err
 	}
@@ -549,8 +549,8 @@ func (s *UserService) SearchUsers(ctx context.Context, keyword string, limit int
 	return s.userRepo.SearchUsers(ctx, tenantID, keyword, limit)
 }
 
-// GetUsersByStatus 根据状态获取用户
-func (s *UserService) GetUsersByStatus(ctx context.Context, status string) ([]*iamentity.User, error) {
+// UsersByStatus 根据状态获取用户
+func (s *UserService) UsersByStatus(ctx context.Context, status string) ([]*iamentity.User, error) {
 	tenantID, err := svc.TenantIDFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -561,8 +561,8 @@ func (s *UserService) GetUsersByStatus(ctx context.Context, status string) ([]*i
 	return s.userRepo.FindByStatus(ctx, tenantID, status)
 }
 
-// GetUserRoles 获取用户角色
-func (s *UserService) GetUserRoles(ctx context.Context, userID int64) ([]*iamentity.Role, error) {
+// UserRoles 获取用户角色
+func (s *UserService) UserRoles(ctx context.Context, userID int64) ([]*iamentity.Role, error) {
 	user, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -573,8 +573,8 @@ func (s *UserService) GetUserRoles(ctx context.Context, userID int64) ([]*iament
 	return s.roleRepo.FindByUserID(ctx, user.TenantID, userID)
 }
 
-// GetUserGroups 获取用户所属组织
-func (s *UserService) GetUserGroups(ctx context.Context, userID int64) ([]*iamentity.Group, error) {
+// UserGroups 获取用户所属组织
+func (s *UserService) UserGroups(ctx context.Context, userID int64) ([]*iamentity.Group, error) {
 	user, err := s.userRepo.Get(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -585,9 +585,9 @@ func (s *UserService) GetUserGroups(ctx context.Context, userID int64) ([]*iamen
 	return s.groupRepo.FindByUserID(ctx, user.TenantID, userID)
 }
 
-// GetUserProfile 获取包含关联数据的用户信息
-func (s *UserService) GetUserProfile(ctx context.Context, userID int64) (*iamentity.User, error) {
-	user, err := s.userRepo.GetWithRelations(ctx, userID)
+// UserProfile 获取包含关联数据的用户信息
+func (s *UserService) UserProfile(ctx context.Context, userID int64) (*iamentity.User, error) {
+	user, err := s.userRepo.FindWithRelations(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

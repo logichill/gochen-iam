@@ -96,7 +96,7 @@ func TestOptionalAuthMiddleware_FixedModeInjectsTenantWithoutHeaderOrToken(t *te
 	called := false
 	err := mw(ctx, func() error {
 		called = true
-		if got := ctxx.GetTenantID(ctx.RequestContext()); got != "fixed-tenant" {
+		if got := ctxx.TenantID(ctx.RequestContext()); got != "fixed-tenant" {
 			t.Fatalf("expected fixed-tenant, got %s", got)
 		}
 		return nil
@@ -134,7 +134,7 @@ func TestOptionalAuthMiddleware_UsesTenantFromTokenWhenHeaderMissing(t *testing.
 	called := false
 	err = mw(ctx, func() error {
 		called = true
-		if got := ctxx.GetTenantID(ctx.RequestContext()); got != "tenant-a" {
+		if got := ctxx.TenantID(ctx.RequestContext()); got != "tenant-a" {
 			t.Fatalf("expected tenant-a in context, got %s", got)
 		}
 		return nil
@@ -215,10 +215,10 @@ func TestOptionalAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.
 	called := false
 	err = mw(ctx, func() error {
 		called = true
-		if got := ctxx.GetTenantID(ctx.RequestContext()); got != "tenant-b" {
+		if got := ctxx.TenantID(ctx.RequestContext()); got != "tenant-b" {
 			t.Fatalf("expected tenant-b in context, got %s", got)
 		}
-		if got := auth.GetActiveScopeType(ctx.RequestContext()); got != "platform" {
+		if got := auth.ActiveScopeType(ctx.RequestContext()); got != "platform" {
 			t.Fatalf("expected platform active scope, got %s", got)
 		}
 		return nil
@@ -269,7 +269,7 @@ func TestAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
 	called := false
 	err = mw(ctx, func() error {
 		called = true
-		if got := ctxx.GetTenantID(ctx.RequestContext()); got != "tenant-b" {
+		if got := ctxx.TenantID(ctx.RequestContext()); got != "tenant-b" {
 			t.Fatalf("expected tenant-b in context, got %s", got)
 		}
 		return nil
@@ -297,7 +297,7 @@ func TestNewTestHTTPContextCarriesBaseContext(t *testing.T) {
 		t.Fatalf("WithTenantID: %v", err)
 	}
 	ctx.SetContext(ctx.RequestContext().WithContext(derived))
-	if got := ctxx.GetTenantID(ctx.RequestContext()); got != "tenant-a" {
+	if got := ctxx.TenantID(ctx.RequestContext()); got != "tenant-a" {
 		t.Fatalf("expected tenant-a, got %s", got)
 	}
 }

@@ -136,8 +136,8 @@ func TestRoleRepo_GetRoleUsageStats_UsesTxSessionEngineModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTxSession: %v", err)
 	}
-	if _, err := r.GetRoleUsageStats(txCtx); err != nil {
-		t.Fatalf("GetRoleUsageStats: %v", err)
+	if _, err := r.RoleUsageStats(txCtx); err != nil {
+		t.Fatalf("RoleUsageStats: %v", err)
 	}
 
 	if o.baseRoleModel.findCalls != 0 {

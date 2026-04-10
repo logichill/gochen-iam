@@ -99,13 +99,13 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	return nil
 }
 
-// GetName 获取注册器名称
-func (ur *UserRoutes) GetName() string {
+// Name 获取注册器名称
+func (ur *UserRoutes) Name() string {
 	return "user"
 }
 
-// GetPriority 获取注册优先级
-func (ur *UserRoutes) GetPriority() int {
+// Priority 获取注册优先级
+func (ur *UserRoutes) Priority() int {
 	return 100 // 用户路由优先级为100
 }
 
@@ -226,7 +226,7 @@ func (ur *UserRoutes) getUserRoles(ctx httpx.IContext) error {
 		return err
 	}
 
-	roles, err := ur.userService.GetUserRoles(reqCtx, userID)
+	roles, err := ur.userService.UserRoles(reqCtx, userID)
 	if err != nil {
 		return err
 	}
@@ -296,7 +296,7 @@ func (ur *UserRoutes) getUserGroups(ctx httpx.IContext) error {
 		return err
 	}
 
-	groups, err := ur.userService.GetUserGroups(reqCtx, userID)
+	groups, err := ur.userService.UserGroups(reqCtx, userID)
 	if err != nil {
 		return err
 	}
@@ -366,7 +366,7 @@ func (ur *UserRoutes) getUserPermissions(ctx httpx.IContext) error {
 		return err
 	}
 
-	permissions, err := ur.userService.GetUserPermissions(reqCtx, userID)
+	permissions, err := ur.userService.UserPermissions(reqCtx, userID)
 	if err != nil {
 		return err
 	}
@@ -417,7 +417,7 @@ func (ur *UserRoutes) getCurrentUser(ctx httpx.IContext) error {
 		return err
 	}
 
-	user, err := ur.userService.GetUserProfile(reqCtx, userID)
+	user, err := ur.userService.UserProfile(reqCtx, userID)
 	if err != nil {
 		return err
 	}

@@ -158,7 +158,7 @@ func PlatformScopeMiddleware() httpx.Middleware {
 		if reqCtx == nil || GetUserID(reqCtx) == 0 {
 			return errorx.New(errorx.Unauthorized, "用户未认证")
 		}
-		if auth.GetActiveScopeType(reqCtx) != string(ScopePlatform) {
+		if auth.ActiveScopeType(reqCtx) != string(ScopePlatform) {
 			return errorx.New(errorx.Forbidden, "当前授权域不是 platform")
 		}
 		return next()

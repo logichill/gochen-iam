@@ -38,7 +38,7 @@ func (s *authRoutesUserServiceStub) Authenticate(ctx context.Context, tenantID s
 	return nil, nil
 }
 
-func (s *authRoutesUserServiceStub) GetAuthSnapshot(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
+func (s *authRoutesUserServiceStub) AuthSnapshot(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
 	return s.snapshotFn(ctx, userID)
 }
 
@@ -66,7 +66,7 @@ func (s *authRoutesUserServiceStub) AssignToGroup(context.Context, int64, int64)
 
 func (s *authRoutesUserServiceStub) RemoveFromGroup(context.Context, int64, int64) error { return nil }
 
-func (s *authRoutesUserServiceStub) GetUserPermissions(context.Context, int64) ([]string, error) {
+func (s *authRoutesUserServiceStub) UserPermissions(context.Context, int64) ([]string, error) {
 	return nil, nil
 }
 
@@ -78,19 +78,19 @@ func (s *authRoutesUserServiceStub) SearchUsers(context.Context, string, int) ([
 	return nil, nil
 }
 
-func (s *authRoutesUserServiceStub) GetUsersByStatus(context.Context, string) ([]*iamentity.User, error) {
+func (s *authRoutesUserServiceStub) UsersByStatus(context.Context, string) ([]*iamentity.User, error) {
 	return nil, nil
 }
 
-func (s *authRoutesUserServiceStub) GetUserRoles(context.Context, int64) ([]*iamentity.Role, error) {
+func (s *authRoutesUserServiceStub) UserRoles(context.Context, int64) ([]*iamentity.Role, error) {
 	return nil, nil
 }
 
-func (s *authRoutesUserServiceStub) GetUserGroups(context.Context, int64) ([]*iamentity.Group, error) {
+func (s *authRoutesUserServiceStub) UserGroups(context.Context, int64) ([]*iamentity.Group, error) {
 	return nil, nil
 }
 
-func (s *authRoutesUserServiceStub) GetUserProfile(context.Context, int64) (*iamentity.User, error) {
+func (s *authRoutesUserServiceStub) UserProfile(context.Context, int64) (*iamentity.User, error) {
 	return nil, nil
 }
 
@@ -110,7 +110,7 @@ func TestAuthRoutesRefreshTokenUsesTenantFromToken(t *testing.T) {
 	var gotTenant string
 	service := &authRoutesUserServiceStub{
 		snapshotFn: func(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
-			gotTenant = ctxx.GetTenantID(ctx)
+			gotTenant = ctxx.TenantID(ctx)
 			return &svc.AuthenticateResult{
 				UserID:   userID,
 				TenantID: gotTenant,
@@ -174,7 +174,7 @@ func TestAuthRoutesRefreshTokenUsesTenantFromHeaderWhenMatched(t *testing.T) {
 	var gotTenant string
 	service := &authRoutesUserServiceStub{
 		snapshotFn: func(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
-			gotTenant = ctxx.GetTenantID(ctx)
+			gotTenant = ctxx.TenantID(ctx)
 			return &svc.AuthenticateResult{
 				UserID:   userID,
 				TenantID: gotTenant,
@@ -210,9 +210,9 @@ func TestAuthRoutesRefreshTokenAllowsPlatformScopeCrossTenantHeader(t *testing.T
 	var gotScopeType string
 	service := &authRoutesUserServiceStub{
 		snapshotFn: func(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
-			gotTenant = ctxx.GetTenantID(ctx)
+			gotTenant = ctxx.TenantID(ctx)
 			if reqCtx, ok := ctx.(httpx.IRequestContext); ok {
-				gotScopeType = iamauth.GetActiveScopeType(reqCtx)
+				gotScopeType = iamauth.ActiveScopeType(reqCtx)
 			}
 			if _, err := svc.RequireTenantMatch(ctx, "platform-tenant"); err != nil {
 				return nil, err
@@ -271,8 +271,8 @@ func TestAuthRoutesRegister_UsesTenantFromHeaderWhenRequired(t *testing.T) {
 	service := &authRoutesUserServiceStub{
 		registerFn: func(ctx context.Context, tenantID string, req *svc.RegisterRequest) (*iamentity.User, error) {
 			gotTenant = tenantID
-			if ctxx.GetTenantID(ctx) != "tenant-a" {
-				t.Fatalf("expected tenant-a in context, got %s", ctxx.GetTenantID(ctx))
+			if ctxx.TenantID(ctx) != "tenant-a" {
+				t.Fatalf("expected tenant-a in context, got %s", ctxx.TenantID(ctx))
 			}
 			return &iamentity.User{TenantID: tenantID, Username: req.Username}, nil
 		},
@@ -301,8 +301,8 @@ func TestAuthRoutesLogin_UsesTenantFromHeaderWhenRequired(t *testing.T) {
 	service := &authRoutesUserServiceStub{
 		authenticateFn: func(ctx context.Context, tenantID string, req *svc.AuthenticateRequest) (*svc.AuthenticateResult, error) {
 			gotTenant = tenantID
-			if ctxx.GetTenantID(ctx) != "tenant-a" {
-				t.Fatalf("expected tenant-a in context, got %s", ctxx.GetTenantID(ctx))
+			if ctxx.TenantID(ctx) != "tenant-a" {
+				t.Fatalf("expected tenant-a in context, got %s", ctxx.TenantID(ctx))
 			}
 			return &svc.AuthenticateResult{
 				UserID:      1,

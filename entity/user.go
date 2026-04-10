@@ -165,8 +165,8 @@ func (u *User) HasPermission(permission string) bool {
 	return false
 }
 
-// GetAllPermissions 获取用户所有权限
-func (u *User) GetAllPermissions() []string {
+// AllPermissions 获取用户所有权限
+func (u *User) AllPermissions() []string {
 	permissionSet := make(map[string]bool)
 	var permissions []string
 

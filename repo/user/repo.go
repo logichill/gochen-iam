@@ -72,8 +72,8 @@ func (r *UserRepo) Get(ctx context.Context, id int64) (*iamentity.User, error) {
 	return &user, nil
 }
 
-// GetWithRelations 根据ID获取用户及关联数据
-func (r *UserRepo) GetWithRelations(ctx context.Context, id int64) (*iamentity.User, error) {
+// FindWithRelations 根据ID获取用户及关联数据
+func (r *UserRepo) FindWithRelations(ctx context.Context, id int64) (*iamentity.User, error) {
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return nil, err
@@ -395,7 +395,7 @@ func (r *UserRepo) hydrateUsersRelations(ctx context.Context, users []*iamentity
 			continue
 		}
 
-		hydrated, err := r.GetWithRelations(ctx, user.GetID())
+		hydrated, err := r.FindWithRelations(ctx, user.GetID())
 		if err != nil {
 			return nil, err
 		}

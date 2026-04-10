@@ -221,8 +221,8 @@ func (s *GroupService) DeleteGroup(ctx context.Context, tenantID string, groupID
 	return s.groupRepo.Delete(ctx, groupID)
 }
 
-// GetGroupTree 获取组织树
-func (s *GroupService) GetGroupTree(ctx context.Context) ([]*svc.GroupTreeNode, error) {
+// GroupTree 获取组织树
+func (s *GroupService) GroupTree(ctx context.Context) ([]*svc.GroupTreeNode, error) {
 	tenantID, err := svc.TenantIDFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -230,7 +230,7 @@ func (s *GroupService) GetGroupTree(ctx context.Context) ([]*svc.GroupTreeNode, 
 	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:group:read", tenantID); err != nil {
 		return nil, err
 	}
-	groups, err := s.groupRepo.GetGroupTree(ctx, tenantID)
+	groups, err := s.groupRepo.GroupTree(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -242,8 +242,8 @@ func (s *GroupService) GetGroupTree(ctx context.Context) ([]*svc.GroupTreeNode, 
 	return nodes, nil
 }
 
-// GetRootGroups 获取根组织
-func (s *GroupService) GetRootGroups(ctx context.Context, tenantID string) ([]*iamentity.Group, error) {
+// RootGroups 获取根组织
+func (s *GroupService) RootGroups(ctx context.Context, tenantID string) ([]*iamentity.Group, error) {
 	tenantID, err := svc.NormalizeTenantID(ctx, tenantID)
 	if err != nil {
 		return nil, err
@@ -254,8 +254,8 @@ func (s *GroupService) GetRootGroups(ctx context.Context, tenantID string) ([]*i
 	return s.groupRepo.FindRootGroups(ctx, tenantID)
 }
 
-// GetGroupsByLevel 根据层级获取组织
-func (s *GroupService) GetGroupsByLevel(ctx context.Context, level int) ([]*iamentity.Group, error) {
+// GroupsByLevel 根据层级获取组织
+func (s *GroupService) GroupsByLevel(ctx context.Context, level int) ([]*iamentity.Group, error) {
 	tenantID, err := svc.TenantIDFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -266,8 +266,8 @@ func (s *GroupService) GetGroupsByLevel(ctx context.Context, level int) ([]*iame
 	return s.groupRepo.FindByLevel(ctx, tenantID, level)
 }
 
-// GetGroupUsers 获取组织用户列表
-func (s *GroupService) GetGroupUsers(ctx context.Context, groupID int64) ([]*iamentity.User, error) {
+// GroupUsers 获取组织用户列表
+func (s *GroupService) GroupUsers(ctx context.Context, groupID int64) ([]*iamentity.User, error) {
 	group, err := s.groupRepo.Get(ctx, groupID)
 	if err != nil {
 		return nil, err
@@ -347,8 +347,8 @@ func (s *GroupService) BatchAddUsersToGroup(ctx context.Context, groupID int64, 
 	return response, nil
 }
 
-// GetGroupRoles 获取组织默认角色
-func (s *GroupService) GetGroupRoles(ctx context.Context, groupID int64) ([]*iamentity.Role, error) {
+// GroupRoles 获取组织默认角色
+func (s *GroupService) GroupRoles(ctx context.Context, groupID int64) ([]*iamentity.Role, error) {
 	group, err := s.groupRepo.Get(ctx, groupID)
 	if err != nil {
 		return nil, err
@@ -391,8 +391,8 @@ func (s *GroupService) RemoveGroupRole(ctx context.Context, groupID, roleID int6
 	return s.groupRepo.RemoveDefaultRole(ctx, groupID, roleID)
 }
 
-// GetGroupStatistics 获取组织统计信息
-func (s *GroupService) GetGroupStatistics(ctx context.Context) (*svc.StatisticsResponse, error) {
+// GroupStatistics 获取组织统计信息
+func (s *GroupService) GroupStatistics(ctx context.Context) (*svc.StatisticsResponse, error) {
 	tenantID, err := svc.TenantIDFromContext(ctx)
 	if err != nil {
 		return nil, err

@@ -364,8 +364,8 @@ func (r *RoleRepo) CountByStatus(ctx context.Context, tenantID string) (map[stri
 	return statusMap, nil
 }
 
-// GetRoleUsageStats 获取角色使用统计
-func (r *RoleRepo) GetRoleUsageStats(ctx context.Context) ([]map[string]interface{}, error) {
+// RoleUsageStats 获取角色使用统计
+func (r *RoleRepo) RoleUsageStats(ctx context.Context) ([]map[string]interface{}, error) {
 	type roleBase struct {
 		ID       int64  `json:"id"`
 		Name     string `json:"name"`
