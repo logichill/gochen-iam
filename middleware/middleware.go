@@ -14,7 +14,7 @@ func (permissionChecker) HasPermission(ctx httpx.IContext, permission string) bo
 	if ctx == nil {
 		return false
 	}
-	return HasPermission(ctx.GetContext(), permission)
+	return HasPermission(ctx.RequestContext(), permission)
 }
 
 // HasAnyPermission 判断Any权限。
@@ -25,7 +25,7 @@ func (permissionChecker) HasAnyPermission(ctx httpx.IContext, permissions []stri
 	if ctx == nil {
 		return false
 	}
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	if reqCtx == nil {
 		return false
 	}
@@ -42,7 +42,7 @@ func (permissionChecker) HasRole(ctx httpx.IContext, role string) bool {
 	if ctx == nil {
 		return false
 	}
-	return HasAnyRole(ctx.GetContext(), role)
+	return HasAnyRole(ctx.RequestContext(), role)
 }
 
 // HasAnyRole 判断Any角色。
@@ -53,14 +53,14 @@ func (permissionChecker) HasAnyRole(ctx httpx.IContext, roles []string) bool {
 	if ctx == nil {
 		return false
 	}
-	return HasAnyRole(ctx.GetContext(), roles...)
+	return HasAnyRole(ctx.RequestContext(), roles...)
 }
 
 // RoleMiddleware 角色验证中间件
 func RoleMiddleware(requiredRole string) httpx.Middleware {
 	base := httpx.RoleMiddleware(permissionChecker{}, requiredRole)
 	return func(ctx httpx.IContext, next func() error) error {
-		reqCtx := ctx.GetContext()
+		reqCtx := ctx.RequestContext()
 		if reqCtx == nil || GetUserID(reqCtx) == 0 {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision: "deny",
@@ -117,7 +117,7 @@ func PermissionMiddleware(required any) httpx.Middleware {
 
 	base := httpx.PermissionMiddleware(permissionChecker{}, requiredPermission.Code)
 	return func(ctx httpx.IContext, next func() error) error {
-		reqCtx := ctx.GetContext()
+		reqCtx := ctx.RequestContext()
 		if reqCtx == nil || GetUserID(reqCtx) == 0 {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision:   "deny",
@@ -154,7 +154,7 @@ func AdminOnlyMiddleware() httpx.Middleware {
 // PlatformScopeMiddleware 要求当前 token 的 active scope 是 platform。
 func PlatformScopeMiddleware() httpx.Middleware {
 	return func(ctx httpx.IContext, next func() error) error {
-		reqCtx := ctx.GetContext()
+		reqCtx := ctx.RequestContext()
 		if reqCtx == nil || GetUserID(reqCtx) == 0 {
 			return errorx.New(errorx.Unauthorized, "用户未认证")
 		}
@@ -168,7 +168,7 @@ func PlatformScopeMiddleware() httpx.Middleware {
 // UserOnlyMiddleware 仅用户中间件（已认证用户）
 func UserOnlyMiddleware() httpx.Middleware {
 	return func(ctx httpx.IContext, next func() error) error {
-		userID := GetUserID(ctx.GetContext())
+		userID := GetUserID(ctx.RequestContext())
 		if userID == 0 {
 			return errorx.New(errorx.Unauthorized, "用户未认证")
 		}

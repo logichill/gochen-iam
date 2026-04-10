@@ -59,7 +59,7 @@ func TestOptionalAuthMiddleware_InvalidToken_Returns401(t *testing.T) {
 	})
 
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
-	ctx.GetRequest().Header.Set("Authorization", "Bearer invalid-token")
+	ctx.Request().Header.Set("Authorization", "Bearer invalid-token")
 
 	called := false
 	err := mw(ctx, func() error {
@@ -96,7 +96,7 @@ func TestOptionalAuthMiddleware_FixedModeInjectsTenantWithoutHeaderOrToken(t *te
 	called := false
 	err := mw(ctx, func() error {
 		called = true
-		if got := ctxx.GetTenantID(ctx.GetContext()); got != "fixed-tenant" {
+		if got := ctxx.GetTenantID(ctx.RequestContext()); got != "fixed-tenant" {
 			t.Fatalf("expected fixed-tenant, got %s", got)
 		}
 		return nil
@@ -129,12 +129,12 @@ func TestOptionalAuthMiddleware_UsesTenantFromTokenWhenHeaderMissing(t *testing.
 	})
 
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
-	ctx.GetRequest().Header.Set("Authorization", "Bearer "+token)
+	ctx.Request().Header.Set("Authorization", "Bearer "+token)
 
 	called := false
 	err = mw(ctx, func() error {
 		called = true
-		if got := ctxx.GetTenantID(ctx.GetContext()); got != "tenant-a" {
+		if got := ctxx.GetTenantID(ctx.RequestContext()); got != "tenant-a" {
 			t.Fatalf("expected tenant-a in context, got %s", got)
 		}
 		return nil
@@ -168,8 +168,8 @@ func TestOptionalAuthMiddleware_RejectsTenantMismatchBetweenHeaderAndToken(t *te
 	})
 
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
-	ctx.GetRequest().Header.Set("Authorization", "Bearer "+token)
-	ctx.GetRequest().Header.Set("X-Tenant-ID", "tenant-b")
+	ctx.Request().Header.Set("Authorization", "Bearer "+token)
+	ctx.Request().Header.Set("X-Tenant-ID", "tenant-b")
 
 	err = mw(ctx, func() error { return nil })
 	if !errorx.Is(err, errorx.Forbidden) {
@@ -209,16 +209,16 @@ func TestOptionalAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.
 	})
 
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
-	ctx.GetRequest().Header.Set("Authorization", "Bearer "+token)
-	ctx.GetRequest().Header.Set("X-Tenant-ID", "tenant-b")
+	ctx.Request().Header.Set("Authorization", "Bearer "+token)
+	ctx.Request().Header.Set("X-Tenant-ID", "tenant-b")
 
 	called := false
 	err = mw(ctx, func() error {
 		called = true
-		if got := ctxx.GetTenantID(ctx.GetContext()); got != "tenant-b" {
+		if got := ctxx.GetTenantID(ctx.RequestContext()); got != "tenant-b" {
 			t.Fatalf("expected tenant-b in context, got %s", got)
 		}
-		if got := auth.GetActiveScopeType(ctx.GetContext()); got != "platform" {
+		if got := auth.GetActiveScopeType(ctx.RequestContext()); got != "platform" {
 			t.Fatalf("expected platform active scope, got %s", got)
 		}
 		return nil
@@ -263,13 +263,13 @@ func TestAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
 	})
 
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
-	ctx.GetRequest().Header.Set("Authorization", "Bearer "+token)
-	ctx.GetRequest().Header.Set("X-Tenant-ID", "tenant-b")
+	ctx.Request().Header.Set("Authorization", "Bearer "+token)
+	ctx.Request().Header.Set("X-Tenant-ID", "tenant-b")
 
 	called := false
 	err = mw(ctx, func() error {
 		called = true
-		if got := ctxx.GetTenantID(ctx.GetContext()); got != "tenant-b" {
+		if got := ctxx.GetTenantID(ctx.RequestContext()); got != "tenant-b" {
 			t.Fatalf("expected tenant-b in context, got %s", got)
 		}
 		return nil
@@ -296,8 +296,8 @@ func TestNewTestHTTPContextCarriesBaseContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	ctx.SetContext(ctx.GetContext().WithContext(derived))
-	if got := ctxx.GetTenantID(ctx.GetContext()); got != "tenant-a" {
+	ctx.SetContext(ctx.RequestContext().WithContext(derived))
+	if got := ctxx.GetTenantID(ctx.RequestContext()); got != "tenant-a" {
 		t.Fatalf("expected tenant-a, got %s", got)
 	}
 }

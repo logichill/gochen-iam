@@ -158,7 +158,7 @@ func TestAuthRoutesRefreshTokenRejectsTenantMismatch(t *testing.T) {
 	}
 
 	ctx := newAuthJSONContext(t, "/api/v1/auth/refresh", `{"token":"`+token+`"}`)
-	ctx.GetRequest().Header.Set("X-Tenant-ID", "tenant-b")
+	ctx.Request().Header.Set("X-Tenant-ID", "tenant-b")
 	routes.authConfig.TenantHeader = "X-Tenant-ID"
 
 	err = routes.refreshToken(ctx)
@@ -195,7 +195,7 @@ func TestAuthRoutesRefreshTokenUsesTenantFromHeaderWhenMatched(t *testing.T) {
 	}
 
 	ctx := newAuthJSONContext(t, "/api/v1/auth/refresh", `{"token":"`+token+`"}`)
-	ctx.GetRequest().Header.Set("X-Tenant-ID", "tenant-a")
+	ctx.Request().Header.Set("X-Tenant-ID", "tenant-a")
 
 	if err := routes.refreshToken(ctx); err != nil {
 		t.Fatalf("refreshToken: %v", err)
@@ -251,7 +251,7 @@ func TestAuthRoutesRefreshTokenAllowsPlatformScopeCrossTenantHeader(t *testing.T
 	}
 
 	ctx := newAuthJSONContext(t, "/api/v1/auth/refresh", `{"token":"`+token+`"}`)
-	ctx.GetRequest().Header.Set("X-Tenant-ID", "tenant-b")
+	ctx.Request().Header.Set("X-Tenant-ID", "tenant-b")
 
 	if err := routes.refreshToken(ctx); err != nil {
 		t.Fatalf("refreshToken: %v", err)
@@ -284,7 +284,7 @@ func TestAuthRoutesRegister_UsesTenantFromHeaderWhenRequired(t *testing.T) {
 	}
 
 	ctx := newAuthJSONContext(t, "/api/v1/auth/register", `{"username":"tester","email":"tester@example.com","password":"secret123"}`)
-	ctx.GetRequest().Header.Set("X-Tenant-ID", "tenant-a")
+	ctx.Request().Header.Set("X-Tenant-ID", "tenant-a")
 
 	if err := routes.register(ctx); err != nil {
 		t.Fatalf("register: %v", err)
@@ -321,7 +321,7 @@ func TestAuthRoutesLogin_UsesTenantFromHeaderWhenRequired(t *testing.T) {
 	}
 
 	ctx := newAuthJSONContext(t, "/api/v1/auth/login", `{"username":"tester","password":"secret123"}`)
-	ctx.GetRequest().Header.Set("X-Tenant-ID", "tenant-a")
+	ctx.Request().Header.Set("X-Tenant-ID", "tenant-a")
 
 	if err := routes.login(ctx); err != nil {
 		t.Fatalf("login: %v", err)

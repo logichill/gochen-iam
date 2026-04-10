@@ -126,7 +126,7 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 
 	return func(ctx httpx.IContext, next func() error) error {
 		// 检查是否需要跳过认证
-		path := ctx.GetPath()
+		path := ctx.Path()
 		for _, skipPath := range config.SkipPaths {
 			if matchSkipPath(path, skipPath) {
 				return next()
@@ -168,7 +168,7 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 		}
 
 		// 设置用户ID到上下文
-		reqCtx := ctx.GetContext()
+		reqCtx := ctx.RequestContext()
 		derived, derr := ctxx.WithUserID(reqCtx, claims.UserID)
 		if derr != nil {
 			return derr
@@ -217,7 +217,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 
 	return func(ctx httpx.IContext, next func() error) error {
 		// 检查是否需要跳过认证
-		path := ctx.GetPath()
+		path := ctx.Path()
 		for _, skipPath := range config.SkipPaths {
 			if matchSkipPath(path, skipPath) {
 				return next()
@@ -229,7 +229,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return err
 		}
 
-		reqCtx := ctx.GetContext()
+		reqCtx := ctx.RequestContext()
 		requestTenantID := readRequestTenantID(ctx, config)
 		tenantID := requestTenantID
 		if tenant.Current().IsFixed() {
@@ -348,16 +348,16 @@ func extractTokenFromHeadersAndQuery(getHeader func(string) string, getQuery fun
 
 // extractToken 提取 token
 func extractToken(ctx httpx.IContext, config *AuthConfig) string {
-	return extractTokenFromHeadersAndQuery(ctx.GetHeader, ctx.GetQuery, config)
+	return extractTokenFromHeadersAndQuery(ctx.Header, ctx.Query, config)
 }
 
 func readRequestTenantID(ctx httpx.IContext, config *AuthConfig) string {
 	if ctx == nil {
 		return ""
 	}
-	tenantID := strings.TrimSpace(ctx.GetHeader(config.TenantHeader))
+	tenantID := strings.TrimSpace(ctx.Header(config.TenantHeader))
 	if tenantID == "" && config.AllowTenantQuery {
-		tenantID = strings.TrimSpace(ctx.GetQuery("tenant_id"))
+		tenantID = strings.TrimSpace(ctx.Query("tenant_id"))
 	}
 	return tenantID
 }

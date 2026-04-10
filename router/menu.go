@@ -83,7 +83,7 @@ func (mr *MenuRoutes) GetPriority() int {
 
 // listMenuItems 返回后台菜单列表。
 func (mr *MenuRoutes) listMenuItems(ctx httpx.IContext) error {
-	items, err := mr.menuService.ListMenuItems(ctx.GetContext())
+	items, err := mr.menuService.ListMenuItems(ctx.RequestContext())
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (mr *MenuRoutes) createMenuItem(ctx httpx.IContext) error {
 	if err := ctx.BindJSON(req); err != nil {
 		return err
 	}
-	item, err := mr.menuService.CreateMenuItem(ctx.GetContext(), req)
+	item, err := mr.menuService.CreateMenuItem(ctx.RequestContext(), req)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func (mr *MenuRoutes) updateMenuItem(ctx httpx.IContext) error {
 		return err
 	}
 	item, err := mr.menuService.UpdateMenuItem(
-		ctx.GetContext(),
+		ctx.RequestContext(),
 		id,
 		req,
 		menuUpdatePatches(fields, req)...,
@@ -143,7 +143,7 @@ func (mr *MenuRoutes) syncMenuItems(ctx httpx.IContext) error {
 	if err := ctx.BindJSON(req); err != nil {
 		return err
 	}
-	result, err := mr.menuService.SyncMenuItems(ctx.GetContext(), req)
+	result, err := mr.menuService.SyncMenuItems(ctx.RequestContext(), req)
 	if err != nil {
 		return err
 	}
@@ -156,7 +156,7 @@ func (mr *MenuRoutes) deleteMenuItem(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	if err := mr.menuService.DeleteMenuItem(ctx.GetContext(), id); err != nil {
+	if err := mr.menuService.DeleteMenuItem(ctx.RequestContext(), id); err != nil {
 		return err
 	}
 	return httpx.WriteSuccess(ctx, map[string]any{"id": id})
@@ -168,7 +168,7 @@ func (mr *MenuRoutes) restoreMenuItem(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	item, err := mr.menuService.RestoreMenuItem(ctx.GetContext(), id)
+	item, err := mr.menuService.RestoreMenuItem(ctx.RequestContext(), id)
 	if err != nil {
 		return err
 	}
@@ -181,7 +181,7 @@ func (mr *MenuRoutes) purgeMenuItem(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	if err := mr.menuService.PurgeMenuItem(ctx.GetContext(), id); err != nil {
+	if err := mr.menuService.PurgeMenuItem(ctx.RequestContext(), id); err != nil {
 		return err
 	}
 	return httpx.WriteSuccess(ctx, map[string]any{"id": id})
@@ -203,7 +203,7 @@ func (mr *MenuRoutes) setMenuPublished(ctx httpx.IContext, published bool) error
 	if err != nil {
 		return err
 	}
-	item, err := mr.menuService.PublishMenuItem(ctx.GetContext(), id, published)
+	item, err := mr.menuService.PublishMenuItem(ctx.RequestContext(), id, published)
 	if err != nil {
 		return err
 	}
@@ -212,7 +212,7 @@ func (mr *MenuRoutes) setMenuPublished(ctx httpx.IContext, published bool) error
 
 // getMyMenuTree 返回当前用户可见的菜单树。
 func (mr *MenuRoutes) getMyMenuTree(ctx httpx.IContext) error {
-	menus, err := mr.menuService.GetMyMenuTree(ctx.GetContext(), ctx.GetContext())
+	menus, err := mr.menuService.GetMyMenuTree(ctx.RequestContext(), ctx.RequestContext())
 	if err != nil {
 		return err
 	}

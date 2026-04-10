@@ -55,15 +55,15 @@ func recordAuthzDenied(ctx httpx.IContext, rec AuditRecord) {
 	if ctx == nil {
 		return
 	}
-	req := ctx.GetRequest()
+	req := ctx.Request()
 	stdCtx := ctxx.Background()
 	if req != nil {
 		rec.Method = req.Method
 		stdCtx = req.Context()
 	}
-	rec.Path = ctx.GetPath()
+	rec.Path = ctx.Path()
 
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	if reqCtx != nil {
 		rec.UserID = GetUserID(reqCtx)
 		rec.TenantID = GetTenantID(reqCtx)

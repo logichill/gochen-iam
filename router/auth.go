@@ -61,15 +61,15 @@ func (ar *AuthRoutes) readRequestTenantID(ctx httpx.IContext) string {
 	if cfg == nil {
 		cfg = iammw.DefaultAuthConfig()
 	}
-	tenantID := strings.TrimSpace(ctx.GetHeader(cfg.TenantHeader))
+	tenantID := strings.TrimSpace(ctx.Header(cfg.TenantHeader))
 	if tenantID == "" && cfg.AllowTenantQuery {
-		tenantID = strings.TrimSpace(ctx.GetQuery("tenant_id"))
+		tenantID = strings.TrimSpace(ctx.Query("tenant_id"))
 	}
 	return tenantID
 }
 
 func (ar *AuthRoutes) ensureTenantContext(ctx httpx.IContext) (httpx.IRequestContext, string, error) {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	currentTenantID := ctxx.GetTenantID(reqCtx)
 	cfg := ar.authConfig
 	if cfg == nil {
@@ -193,7 +193,7 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 		return err
 	}
 
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	requestTenantID := ar.readRequestTenantID(ctx)
 	if requestTenantID == "" {
 		requestTenantID = ctxx.GetTenantID(reqCtx)

@@ -148,7 +148,7 @@ func (ur *UserRoutes) setupSelfUserRoutes(userGroup httpx.IRouteGroup) {
 
 // 用户状态管理处理器
 func (ur *UserRoutes) activateUser(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -166,7 +166,7 @@ func (ur *UserRoutes) activateUser(ctx httpx.IContext) error {
 
 // deactivateUser 处理deactivate用户。
 func (ur *UserRoutes) deactivateUser(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -184,7 +184,7 @@ func (ur *UserRoutes) deactivateUser(ctx httpx.IContext) error {
 
 // lockUser 处理lock用户。
 func (ur *UserRoutes) lockUser(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -202,7 +202,7 @@ func (ur *UserRoutes) lockUser(ctx httpx.IContext) error {
 
 // unlockUser 处理unlock用户。
 func (ur *UserRoutes) unlockUser(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -220,7 +220,7 @@ func (ur *UserRoutes) unlockUser(ctx httpx.IContext) error {
 
 // 用户角色管理处理器
 func (ur *UserRoutes) getUserRoles(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -238,7 +238,7 @@ func (ur *UserRoutes) getUserRoles(ctx httpx.IContext) error {
 
 // assignUserRole 分配用户角色。
 func (ur *UserRoutes) assignUserRole(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -267,7 +267,7 @@ func (ur *UserRoutes) assignUserRole(ctx httpx.IContext) error {
 
 // removeUserRole 移除用户角色。
 func (ur *UserRoutes) removeUserRole(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -290,7 +290,7 @@ func (ur *UserRoutes) removeUserRole(ctx httpx.IContext) error {
 
 // 用户组织管理处理器
 func (ur *UserRoutes) getUserGroups(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -308,7 +308,7 @@ func (ur *UserRoutes) getUserGroups(ctx httpx.IContext) error {
 
 // assignUserToGroup 分配用户到分组。
 func (ur *UserRoutes) assignUserToGroup(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -337,7 +337,7 @@ func (ur *UserRoutes) assignUserToGroup(ctx httpx.IContext) error {
 
 // removeUserFromGroupByUser 移除用户从分组按用户。
 func (ur *UserRoutes) removeUserFromGroupByUser(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -360,7 +360,7 @@ func (ur *UserRoutes) removeUserFromGroupByUser(ctx httpx.IContext) error {
 
 // 用户权限处理器
 func (ur *UserRoutes) getUserPermissions(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -379,7 +379,7 @@ func (ur *UserRoutes) getUserPermissions(ctx httpx.IContext) error {
 
 // checkUserPermission 处理check用户权限。
 func (ur *UserRoutes) checkUserPermission(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	userID, err := ur.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -410,8 +410,8 @@ func (ur *UserRoutes) checkUserPermission(ctx httpx.IContext) error {
 
 // 当前用户处理器
 func (ur *UserRoutes) getCurrentUser(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
-	userID := iammw.GetUserID(ctx.GetContext())
+	reqCtx := ctx.RequestContext()
+	userID := iammw.GetUserID(ctx.RequestContext())
 	if userID == 0 {
 		err := errorx.New(errorx.Unauthorized, "用户未认证")
 		return err
@@ -430,8 +430,8 @@ func (ur *UserRoutes) getCurrentUser(ctx httpx.IContext) error {
 
 // updateCurrentUser 更新当前用户。
 func (ur *UserRoutes) updateCurrentUser(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
-	userID := iammw.GetUserID(ctx.GetContext())
+	reqCtx := ctx.RequestContext()
+	userID := iammw.GetUserID(ctx.RequestContext())
 	if userID == 0 {
 		err := errorx.New(errorx.Unauthorized, "用户未认证")
 		return err
@@ -455,8 +455,8 @@ func (ur *UserRoutes) updateCurrentUser(ctx httpx.IContext) error {
 
 // changePassword 处理change密码。
 func (ur *UserRoutes) changePassword(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
-	userID := iammw.GetUserID(ctx.GetContext())
+	reqCtx := ctx.RequestContext()
+	userID := iammw.GetUserID(ctx.RequestContext())
 	if userID == 0 {
 		err := errorx.New(errorx.Unauthorized, "用户未认证")
 		return err

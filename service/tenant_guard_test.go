@@ -25,7 +25,7 @@ func newTenantGuardRequestContext(t *testing.T, tenantID string) httpx.IRequestC
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	return ctx.GetContext().WithContext(baseCtx)
+	return ctx.RequestContext().WithContext(baseCtx)
 }
 
 func TestRequireTenantMatch_AllowsPlatformScopeCrossTenant(t *testing.T) {

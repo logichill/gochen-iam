@@ -107,7 +107,7 @@ func (tr *TenantRoutes) setupTenantCustomRoutes(group httpx.IRouteGroup) {
 
 // activateTenant 启用租户
 func (tr *TenantRoutes) activateTenant(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	id, err := tr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
@@ -125,7 +125,7 @@ func (tr *TenantRoutes) activateTenant(ctx httpx.IContext) error {
 
 // deactivateTenant 禁用租户
 func (tr *TenantRoutes) deactivateTenant(ctx httpx.IContext) error {
-	reqCtx := ctx.GetContext()
+	reqCtx := ctx.RequestContext()
 	id, err := tr.utils.ParseID(ctx, "id")
 	if err != nil {
 		return err
