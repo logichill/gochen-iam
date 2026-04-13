@@ -8,6 +8,7 @@ import (
 	svc "gochen-iam/service"
 	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
+	"gochen/authz"
 	dataquery "gochen/db/query"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
@@ -31,21 +32,24 @@ var roleQuerySchema = dataquery.MustInferQuerySchema[roleQueryFields](nil)
 type RoleRoutes struct {
 	roleService     IRoleService
 	utils           *nethttp.Utils
-	roleRepo        domaincrud.IRepository[*iamentity.Role, int64]
+	roleRepo        domaincrud.IResourceBoundaryRepository[*iamentity.Role, int64]
 	scopeAuthorizer *svc.ScopeAuthorizer
+	authorizer      authz.IAuthorizer
 }
 
 // NewRoleRoutes 创建角色路由注册器
 func NewRoleRoutes(
 	roleService IRoleService,
-	roleRepo domaincrud.IRepository[*iamentity.Role, int64],
+	roleRepo domaincrud.IResourceBoundaryRepository[*iamentity.Role, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
+	authorizer *authz.Authorizer,
 ) *RoleRoutes {
 	return &RoleRoutes{
 		roleService:     roleService,
 		utils:           &nethttp.Utils{},
-		roleRepo:        domaincrud.NewTenantAwareWrapper[*iamentity.Role, int64](roleRepo),
+		roleRepo:        roleRepo,
 		scopeAuthorizer: scopeAuthorizer,
+		authorizer:      authorizer,
 	}
 }
 
@@ -74,6 +78,13 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	builder, err := restapi.NewApiBuilder(
 		appService,
 		restapi.WithQuerySchema[*iamentity.Role, int64](roleQuerySchema),
+		restapi.WithAuthorization[*iamentity.Role, int64](rr.authorizer, restapi.CRUDPermissions{
+			List:   "api:role:read",
+			Get:    "api:role:read",
+			Create: "api:role:write",
+			Update: "api:role:write",
+			Delete: "api:role:delete",
+		}),
 		restapi.WithHooks[*iamentity.Role, int64](func(h *appcrud.Hooks[*iamentity.Role, int64]) {
 			*h = *newScopeBackedRoleCRUDHooks(rr.roleRepo, rr.scopeAuthorizer)
 		}),
@@ -86,11 +97,16 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 	if err := builder.
 		Route(func(cfg *restapi.RouteConfig[int64]) {
+			cfg.EnableBatch = false
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000
+			if cfg.Authorization != nil {
+				cfg.Authorization.Consistency = authz.ConsistencyModeStrong
+				cfg.Authorization.HighRisk = true
+			}
 		}).
-		Build(adminGroup); err != nil {
+		Build(roleGroup); err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("build role crud routes").WithContext("route", "iam.role")
 		}
@@ -149,7 +165,7 @@ func (rr *RoleRoutes) getRolePermissions(ctx httpx.IContext) error {
 		return err
 	}
 
-	role, err := rr.roleRepo.Get(reqCtx, roleID)
+	role, _, err := loadTenantBoundEntity(reqCtx, rr.roleRepo, roleID)
 	if err != nil {
 		return err
 	}

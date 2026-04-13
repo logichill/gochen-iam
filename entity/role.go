@@ -45,7 +45,9 @@ type Role struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	TenantID         string          `json:"tenant_id" gorm:"size:64;not null;index;uniqueIndex:idx_role_name_tenant"`
+	TenantID         string          `json:"tenant_id" gorm:"size:64;not null;index;index:idx_role_scope,priority:1;uniqueIndex:idx_role_name_tenant"`
+	ScopeType        string          `json:"scope_type,omitempty" gorm:"size:32;not null;default:'';index:idx_role_scope,priority:2"`
+	ScopeCode        string          `json:"scope_code,omitempty" gorm:"size:128;not null;default:'';index:idx_role_scope,priority:3"`
 	NamespaceScopeID int64           `json:"namespace_scope_id" gorm:"not null;index"`
 	Code             string          `json:"code" gorm:"size:50;index"` // 稳定标识，默认与 Name 相同
 	Name             string          `json:"name" gorm:"size:50;not null;uniqueIndex:idx_role_name_tenant"`
@@ -126,6 +128,18 @@ func (r *Role) GetTenantID() string { return r.TenantID }
 // SetTenantID 设置租户ID。
 func (r *Role) SetTenantID(tenantID string) { r.TenantID = tenantID }
 
+// GetScopeType 返回授权域类型。
+func (r *Role) GetScopeType() string { return r.ScopeType }
+
+// SetScopeType 设置授权域类型。
+func (r *Role) SetScopeType(scopeType string) { r.ScopeType = scopeType }
+
+// GetScopeCode 返回授权域编码。
+func (r *Role) GetScopeCode() string { return r.ScopeCode }
+
+// SetScopeCode 设置授权域编码。
+func (r *Role) SetScopeCode(scopeCode string) { r.ScopeCode = scopeCode }
+
 // IsActive 检查角色是否激活
 func (r *Role) IsActive() bool {
 	return r.Status == "active"
@@ -185,6 +199,8 @@ func (r *Role) PermissionCount() int {
 func (r *Role) Clone(newName string) *Role {
 	clone := &Role{
 		TenantID:         r.TenantID,
+		ScopeType:        r.ScopeType,
+		ScopeCode:        r.ScopeCode,
 		NamespaceScopeID: r.NamespaceScopeID,
 		Name:             newName,
 		Description:      r.Description + " (克隆)",

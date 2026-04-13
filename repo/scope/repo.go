@@ -20,6 +20,8 @@ func NewScopeRepository(o orm.IOrm) (*ScopeRepo, error) {
 		o,
 		"scopes",
 		db.WithIDGenerator[*iamentity.Scope, int64](ident.DefaultInt64Generator()),
+		db.WithResourceKind[*iamentity.Scope, int64]("iam.scope"),
+		db.WithSoftDeleteColumns[*iamentity.Scope, int64]("deleted_at", ""),
 	)
 	if err != nil {
 		return nil, err

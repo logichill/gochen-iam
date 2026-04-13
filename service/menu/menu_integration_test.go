@@ -10,6 +10,8 @@ import (
 	iammw "gochen-iam/middleware"
 	menurepo "gochen-iam/repo/menu"
 	svc "gochen-iam/service"
+	"gochen/authz"
+	"gochen/errorx"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -40,12 +42,25 @@ func setupMenuServiceTest(t *testing.T) *menuServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewMenuItemRepository: %v", err)
 	}
+	authorizer, err := svc.NewIAMAuthorizer(nil)
+	if err != nil {
+		t.Fatalf("NewIAMAuthorizer: %v", err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
+		SubjectID:       1,
+		Permissions:     []string{"*:*:*"},
+		IsSystem:        true,
+		ActiveScopeType: string(iammw.ScopePlatform),
+	})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
 	return &menuServiceTestEnv{
 		db:            db,
 		menuRepo:      menuRepo,
-		menuService:   NewMenuService(menuRepo),
+		menuService:   NewMenuService(menuRepo, authorizer),
 		backgroundCtx: ctx,
 		cancelFunc:    cancel,
 	}
@@ -66,6 +81,22 @@ func (env *menuServiceTestEnv) createMenuItem(t *testing.T, req *CreateMenuItemR
 		t.Fatalf("create menu item: %v", err)
 	}
 	return item
+}
+
+func TestMenuServiceCreateMenuItem_FailsClosedWithoutAuthorizer(t *testing.T) {
+	env := setupMenuServiceTest(t)
+	defer env.teardown(t)
+
+	menuService := NewMenuService(env.menuRepo, nil)
+	_, err := menuService.CreateMenuItem(context.Background(), &CreateMenuItemRequest{
+		Code:      "root",
+		Title:     "Root",
+		Type:      iamentity.MenuTypeGroup,
+		Published: true,
+	})
+	if !errorx.Is(err, errorx.InvalidInput) {
+		t.Fatalf("expected invalid input error, got %v", err)
+	}
 }
 
 func TestMenuServiceUpdateMenuItem_KeepParentWhenParentIDOmitted(t *testing.T) {

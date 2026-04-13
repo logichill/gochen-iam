@@ -13,6 +13,7 @@ import (
 	tenantrepo "gochen-iam/repo/tenant"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
+	"gochen/authz"
 	ctxx "gochen/contextx"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -23,7 +24,7 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "role_scope_test.db")
-	t.Setenv("IAM_TENANT_MODE", "required")
+	t.Setenv("IAM_TENANT_MODE", "tenant")
 
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
@@ -66,6 +67,19 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
+	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
+		SubjectID:   1,
+		TenantID:    "tenant-a",
+		Permissions: []string{"*:*:*"},
+		IsSystem:    true,
+	})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+	ctx, err = authz.WithDataScope(ctx, authz.DataScope{TenantID: "tenant-a"})
+	if err != nil {
+		t.Fatalf("WithDataScope: %v", err)
+	}
 
 	tenantScope := &iamentity.Scope{
 		Key:    "tenant:tenant-a",
@@ -98,12 +112,18 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 	if err := roleRepo.Create(ctx, role); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
+	scopeAuthorizer := svc.NewScopeAuthorizer(scopeRepo, tenantRepo)
+	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer)
+	if err != nil {
+		t.Fatalf("NewIAMAuthorizer: %v", err)
+	}
 
 	roleService := NewRoleService(
 		roleRepo,
 		userRepo,
 		groupRepo,
-		svc.NewScopeAuthorizer(scopeRepo, tenantRepo),
+		scopeAuthorizer,
+		authorizer,
 		nil,
 	)
 

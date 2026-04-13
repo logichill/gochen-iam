@@ -7,28 +7,38 @@ import (
 	iamentity "gochen-iam/entity"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
+	"gochen/authz"
 	"gochen/db/orm"
 	"gochen/errorx"
-	"gochen/httpx"
 )
 
 // TenantService 租户服务（普通 CRUD / 可审计模型）
 type TenantService struct {
 	tenantRepo      *tenantrepo.TenantRepo
 	scopeAuthorizer *svc.ScopeAuthorizer
+	authorizer      authz.IAuthorizer
 }
 
 // NewTenantService 创建租户服务实例
-func NewTenantService(tenantRepo *tenantrepo.TenantRepo, scopeAuthorizer *svc.ScopeAuthorizer) *TenantService {
+func NewTenantService(
+	tenantRepo *tenantrepo.TenantRepo,
+	scopeAuthorizer *svc.ScopeAuthorizer,
+	authorizer *authz.Authorizer,
+) *TenantService {
+	var authzEngine authz.IAuthorizer
+	if authorizer != nil {
+		authzEngine = authorizer
+	}
 	return &TenantService{
 		tenantRepo:      tenantRepo,
 		scopeAuthorizer: scopeAuthorizer,
+		authorizer:      authzEngine,
 	}
 }
 
 // CreateTenant 创建租户（默认状态为 inactive，由上层应用显式启用）
 func (s *TenantService) CreateTenant(ctx context.Context, req *svc.CreateTenantRequest) (*iamentity.Tenant, error) {
-	if err := s.requirePlatformPermission(ctx, "api:tenant:write"); err != nil {
+	if err := s.authorizePlatform(ctx, "api:tenant:write", &iamentity.Tenant{}); err != nil {
 		return nil, err
 	}
 	if err := s.validateCreateTenantRequest(req); err != nil {
@@ -63,7 +73,11 @@ func (s *TenantService) CreateTenant(ctx context.Context, req *svc.CreateTenantR
 		return nil, err
 	}
 
-	if err := s.tenantRepo.Create(ctx, tenant); err != nil {
+	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, "api:tenant:write", tenant)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.tenantRepo.CreateWithWriteGuard(ctx, tenant, guard); err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "保存租户失败")
 	}
 	if s.scopeAuthorizer != nil {
@@ -77,11 +91,11 @@ func (s *TenantService) CreateTenant(ctx context.Context, req *svc.CreateTenantR
 
 // UpdateTenant 更新租户信息
 func (s *TenantService) UpdateTenant(ctx context.Context, tenantID int64, req *svc.UpdateTenantRequest) (*iamentity.Tenant, error) {
-	if err := s.requirePlatformPermission(ctx, "api:tenant:write"); err != nil {
-		return nil, err
-	}
 	tenant, err := s.tenantRepo.Get(ctx, tenantID)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.authorizePlatform(ctx, "api:tenant:write", tenant); err != nil {
 		return nil, err
 	}
 
@@ -97,7 +111,11 @@ func (s *TenantService) UpdateTenant(ctx context.Context, tenantID int64, req *s
 		return nil, err
 	}
 
-	if err := s.tenantRepo.Update(ctx, tenant); err != nil {
+	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, "api:tenant:write", tenant)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.tenantRepo.UpdateWithWriteGuard(ctx, tenant, guard); err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "更新租户失败")
 	}
 
@@ -106,16 +124,20 @@ func (s *TenantService) UpdateTenant(ctx context.Context, tenantID int64, req *s
 
 // ActivateTenant 启用租户
 func (s *TenantService) ActivateTenant(ctx context.Context, tenantID int64) error {
-	if err := s.requirePlatformPermission(ctx, "api:tenant:activate"); err != nil {
-		return err
-	}
 	tenant, err := s.tenantRepo.Get(ctx, tenantID)
 	if err != nil {
 		return err
 	}
+	if err := s.authorizePlatform(ctx, "api:tenant:activate", tenant); err != nil {
+		return err
+	}
 
 	tenant.Activate()
-	if err := s.tenantRepo.Update(ctx, tenant); err != nil {
+	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, "api:tenant:activate", tenant)
+	if err != nil {
+		return err
+	}
+	if err := s.tenantRepo.UpdateWithWriteGuard(ctx, tenant, guard); err != nil {
 		return errorx.Wrap(err, errorx.Database, "启用租户失败")
 	}
 	return nil
@@ -123,16 +145,20 @@ func (s *TenantService) ActivateTenant(ctx context.Context, tenantID int64) erro
 
 // DeactivateTenant 禁用租户
 func (s *TenantService) DeactivateTenant(ctx context.Context, tenantID int64) error {
-	if err := s.requirePlatformPermission(ctx, "api:tenant:activate"); err != nil {
-		return err
-	}
 	tenant, err := s.tenantRepo.Get(ctx, tenantID)
 	if err != nil {
 		return err
 	}
+	if err := s.authorizePlatform(ctx, "api:tenant:activate", tenant); err != nil {
+		return err
+	}
 
 	tenant.Deactivate()
-	if err := s.tenantRepo.Update(ctx, tenant); err != nil {
+	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, "api:tenant:activate", tenant)
+	if err != nil {
+		return err
+	}
+	if err := s.tenantRepo.UpdateWithWriteGuard(ctx, tenant, guard); err != nil {
 		return errorx.Wrap(err, errorx.Database, "禁用租户失败")
 	}
 	return nil
@@ -140,15 +166,19 @@ func (s *TenantService) DeactivateTenant(ctx context.Context, tenantID int64) er
 
 // Tenant 获取单个租户
 func (s *TenantService) Tenant(ctx context.Context, tenantID int64) (*iamentity.Tenant, error) {
-	if err := s.requirePlatformPermission(ctx, "api:tenant:read"); err != nil {
+	tenant, err := s.tenantRepo.Get(ctx, tenantID)
+	if err != nil {
 		return nil, err
 	}
-	return s.tenantRepo.Get(ctx, tenantID)
+	if err := s.authorizePlatform(ctx, "api:tenant:read", tenant); err != nil {
+		return nil, err
+	}
+	return tenant, nil
 }
 
 // ListTenants 获取租户列表
 func (s *TenantService) ListTenants(ctx context.Context) ([]*iamentity.Tenant, error) {
-	if err := s.requirePlatformPermission(ctx, "api:tenant:read"); err != nil {
+	if err := s.authorizePlatform(ctx, "api:tenant:read", &iamentity.Tenant{}); err != nil {
 		return nil, err
 	}
 	model, err := s.tenantRepo.ModelFor(ctx)
@@ -179,12 +209,9 @@ func (s *TenantService) validateCreateTenantRequest(req *svc.CreateTenantRequest
 	return nil
 }
 
-func (s *TenantService) requirePlatformPermission(ctx context.Context, permission string) error {
-	if s.scopeAuthorizer == nil {
-		return nil
+func (s *TenantService) authorizePlatform(ctx context.Context, permission string, targets ...any) error {
+	if s.authorizer == nil {
+		return errorx.New(errorx.InvalidInput, "authorizer is required")
 	}
-	if _, ok := ctx.(httpx.IRequestContext); !ok {
-		return nil
-	}
-	return s.scopeAuthorizer.RequirePlatformPermission(ctx, permission)
+	return s.authorizer.Require(ctx, permission, targets...)
 }

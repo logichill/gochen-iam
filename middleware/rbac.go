@@ -1,64 +1,17 @@
 package middleware
 
 import (
-	"regexp"
 	"strings"
 
 	"gochen-iam/auth"
+	"gochen/authz"
 	"gochen/errorx"
 	"gochen/httpx"
 )
 
-var permissionCodePattern = regexp.MustCompile(`^(\*|[A-Za-z0-9_]+):(\*|[A-Za-z0-9_.]+):(\*|[A-Za-z0-9_]+)$`)
-
 // IsValidPermissionCode 用于校验权限码格式（命名治理的最小护栏）。
 func IsValidPermissionCode(permission string) bool {
-	if len(permission) == 0 || len(permission) > 128 {
-		return false
-	}
-	return permissionCodePattern.MatchString(permission)
-}
-
-// PermissionPatternMatches 判断 pattern 是否命中 permission。
-//
-// 约定：
-// - 仅支持“整段通配” `*`，不支持正则或半段模糊；
-// - `pattern` 可为 `api:task:*`、`api:*:*`、`*:*:*` 等；
-// - `permission` 通常应是具体权限，但也允许传入合法的三段式通配符。
-func PermissionPatternMatches(pattern string, permission string) bool {
-	patternSegments, ok := permissionSegments(pattern)
-	if !ok {
-		return false
-	}
-	permissionSegments, ok := permissionSegments(permission)
-	if !ok {
-		return false
-	}
-
-	for i := range patternSegments {
-		if patternSegments[i] == "*" {
-			continue
-		}
-		if patternSegments[i] != permissionSegments[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// permissionSegments 处理权限Segments。
-func permissionSegments(permission string) ([3]string, bool) {
-	var segments [3]string
-	normalized := strings.ToLower(strings.TrimSpace(permission))
-	if !IsValidPermissionCode(normalized) {
-		return segments, false
-	}
-	parts := strings.Split(normalized, ":")
-	if len(parts) != len(segments) {
-		return segments, false
-	}
-	copy(segments[:], parts)
-	return segments, true
+	return authz.IsValidPermissionCode(permission)
 }
 
 // Roles 从请求上下文中获取当前请求的角色列表
@@ -103,6 +56,9 @@ func HasPermission(ctx httpx.IRequestContext, permission string) bool {
 	if permission == "" {
 		return true
 	}
+	if principal, ok := authz.PrincipalFromContext(ctx); ok && principal.AllowsPermission(permission) {
+		return true
+	}
 	if set := auth.PermissionSet(ctx); set != nil {
 		normalized := strings.ToLower(permission)
 		if _, ok := set[normalized]; ok {
@@ -114,7 +70,7 @@ func HasPermission(ctx httpx.IRequestContext, permission string) bool {
 		return false
 	}
 	for _, p := range perms {
-		if PermissionPatternMatches(p, permission) {
+		if authz.PermissionPatternMatches(p, permission) {
 			return true
 		}
 	}

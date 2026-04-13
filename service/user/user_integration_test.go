@@ -17,6 +17,7 @@ import (
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
 
+	"gochen/authz"
 	ctxx "gochen/contextx"
 	"gochen/errorx"
 	"gorm.io/driver/sqlite"
@@ -48,7 +49,7 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	// 配置环境变量
 	t.Setenv("DB_DRIVER", "sqlite")
 	t.Setenv("DB_DATABASE", dbPath)
-	t.Setenv("IAM_TENANT_MODE", "required") // 测试使用 required 模式
+	t.Setenv("IAM_TENANT_MODE", "tenant") // 测试使用 tenant 模式
 
 	// 打开数据库
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
@@ -97,6 +98,20 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
+	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
+		SubjectID:     1,
+		TenantID:      "test-tenant",
+		Permissions:   []string{"*:*:*"},
+		IsSystem:      true,
+		ActiveScopeID: 0,
+	})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+	ctx, err = authz.WithDataScope(ctx, authz.DataScope{TenantID: "test-tenant"})
+	if err != nil {
+		t.Fatalf("WithDataScope: %v", err)
+	}
 	scopeAuthorizer := iamservice.NewScopeAuthorizer(scopeRepo, tenantRepo)
 
 	tenant := &iamentity.Tenant{
@@ -111,10 +126,14 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	if err != nil {
 		t.Fatalf("ensure tenant root scope: %v", err)
 	}
+	authorizer, err := iamservice.NewIAMAuthorizer(scopeAuthorizer)
+	if err != nil {
+		t.Fatalf("NewIAMAuthorizer: %v", err)
+	}
 
 	// 创建服务
-	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, scopeAuthorizer)
-	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, scopeAuthorizer)
+	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, scopeAuthorizer, authorizer)
+	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, scopeAuthorizer, authorizer)
 
 	return &userServiceTestEnv{
 		db:            db,
@@ -146,6 +165,8 @@ func (env *userServiceTestEnv) teardown(t *testing.T) {
 func (env *userServiceTestEnv) createTestRole(t *testing.T, name string, permissions []string) *iamentity.Role {
 	role := &iamentity.Role{
 		TenantID:         env.tenantID,
+		ScopeType:        string(iamentity.ScopeTypeTenant),
+		ScopeCode:        "tenant:" + env.tenantID,
 		NamespaceScopeID: env.rootScopeID,
 		Name:             name,
 		Description:      "测试角色",
@@ -319,6 +340,8 @@ func TestUserServiceAuthenticate_UsesPlatformScopeForPlatformTenant(t *testing.T
 
 	role := &iamentity.Role{
 		TenantID:         "platform-admin",
+		ScopeType:        platformScope.Type,
+		ScopeCode:        platformScope.Key,
 		NamespaceScopeID: platformScope.ID,
 		Name:             svc.SystemAdminRoleName,
 		Description:      "平台管理员",
@@ -346,8 +369,8 @@ func TestUserServiceAuthenticate_UsesPlatformScopeForPlatformTenant(t *testing.T
 	if authResult.ActiveScopeType != iamentity.ScopeTypePlatform {
 		t.Fatalf("expected platform active scope, got %s", authResult.ActiveScopeType)
 	}
-	if authResult.ActiveScopeKey != platformScope.Key {
-		t.Fatalf("expected active scope key %s, got %s", platformScope.Key, authResult.ActiveScopeKey)
+	if authResult.ActiveScopeCode != platformScope.Key {
+		t.Fatalf("expected active scope code %s, got %s", platformScope.Key, authResult.ActiveScopeCode)
 	}
 }
 
@@ -1017,7 +1040,7 @@ func TestUserServiceRemoveFromGroup(t *testing.T) {
 	}
 }
 
-func TestUserServiceAssignRoleRejectsCrossTenantRole(t *testing.T) {
+func TestUserServiceAssignRoleMasksCrossTenantRoleAsNotFound(t *testing.T) {
 	env := setupUserServiceTest(t)
 	defer env.teardown(t)
 
@@ -1030,12 +1053,14 @@ func TestUserServiceAssignRoleRejectsCrossTenantRole(t *testing.T) {
 		t.Fatalf("register user: %v", err)
 	}
 
-	otherCtx, err := ctxx.WithTenantID(context.Background(), "other-tenant")
+	otherCtx, err := svc.BindTenantContext(env.backgroundCtx, "other-tenant")
 	if err != nil {
-		t.Fatalf("WithTenantID(other): %v", err)
+		t.Fatalf("BindTenantContext(other): %v", err)
 	}
 	otherRole := &iamentity.Role{
 		TenantID:         "other-tenant",
+		ScopeType:        string(iamentity.ScopeTypeTenant),
+		ScopeCode:        "tenant:other-tenant",
 		NamespaceScopeID: 1,
 		Name:             "other-role",
 		Description:      "cross tenant role",
@@ -1047,12 +1072,12 @@ func TestUserServiceAssignRoleRejectsCrossTenantRole(t *testing.T) {
 	}
 
 	err = env.userService.AssignRole(env.backgroundCtx, user.GetID(), otherRole.GetID())
-	if !errorx.Is(err, errorx.Forbidden) {
-		t.Fatalf("expected Forbidden for cross-tenant role assignment, got %v", err)
+	if !errorx.Is(err, errorx.NotFound) {
+		t.Fatalf("expected NotFound for cross-tenant role assignment, got %v", err)
 	}
 }
 
-func TestUserServiceAssignToGroupRejectsCrossTenantGroup(t *testing.T) {
+func TestUserServiceAssignToGroupMasksCrossTenantGroupAsNotFound(t *testing.T) {
 	env := setupUserServiceTest(t)
 	defer env.teardown(t)
 
@@ -1065,9 +1090,17 @@ func TestUserServiceAssignToGroupRejectsCrossTenantGroup(t *testing.T) {
 		t.Fatalf("register user: %v", err)
 	}
 
-	otherCtx, err := ctxx.WithTenantID(context.Background(), "other-tenant")
+	otherCtx, err := svc.BindTenantContext(env.backgroundCtx, "other-tenant")
 	if err != nil {
-		t.Fatalf("WithTenantID(other): %v", err)
+		t.Fatalf("BindTenantContext(other): %v", err)
+	}
+	otherTenant := &iamentity.Tenant{
+		Key:    "other-tenant",
+		Name:   "Other Tenant",
+		Status: svc.TenantStatusActive,
+	}
+	if err := env.tenantRepo.Create(env.backgroundCtx, otherTenant); err != nil {
+		t.Fatalf("create other tenant: %v", err)
 	}
 	otherGroup, err := env.groupService.CreateGroup(otherCtx, &svc.CreateGroupRequest{
 		TenantID:    "other-tenant",
@@ -1079,7 +1112,7 @@ func TestUserServiceAssignToGroupRejectsCrossTenantGroup(t *testing.T) {
 	}
 
 	err = env.userService.AssignToGroup(env.backgroundCtx, user.GetID(), otherGroup.GetID())
-	if !errorx.Is(err, errorx.Forbidden) {
-		t.Fatalf("expected Forbidden for cross-tenant group assignment, got %v", err)
+	if !errorx.Is(err, errorx.NotFound) {
+		t.Fatalf("expected NotFound for cross-tenant group assignment, got %v", err)
 	}
 }

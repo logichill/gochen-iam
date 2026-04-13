@@ -8,6 +8,7 @@ import (
 	iamsvc "gochen-iam/service"
 	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
+	"gochen/authz"
 	dataquery "gochen/db/query"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
@@ -31,15 +32,21 @@ var userQuerySchema = dataquery.MustInferQuerySchema[userQueryFields](nil)
 type UserRoutes struct {
 	userService IUserService
 	utils       *hbasic.Utils
-	userRepo    domaincrud.IRepository[*iamentity.User, int64]
+	userRepo    domaincrud.IResourceBoundaryRepository[*iamentity.User, int64]
+	authorizer  authz.IAuthorizer
 }
 
 // NewUserRoutes 创建用户路由注册器
-func NewUserRoutes(userService IUserService, userRepo domaincrud.IRepository[*iamentity.User, int64]) *UserRoutes {
+func NewUserRoutes(
+	userService IUserService,
+	userRepo domaincrud.IResourceBoundaryRepository[*iamentity.User, int64],
+	authorizer *authz.Authorizer,
+) *UserRoutes {
 	return &UserRoutes{
 		userService: userService,
 		utils:       &hbasic.Utils{},
-		userRepo:    domaincrud.NewTenantAwareWrapper[*iamentity.User, int64](userRepo),
+		userRepo:    userRepo,
+		authorizer:  authorizer,
 	}
 }
 
@@ -69,6 +76,13 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	builder, err := restapi.NewApiBuilder(
 		appService,
 		restapi.WithQuerySchema[*iamentity.User, int64](userQuerySchema),
+		restapi.WithAuthorization[*iamentity.User, int64](ur.authorizer, restapi.CRUDPermissions{
+			List:   "api:user:read",
+			Get:    "api:user:read",
+			Create: "api:user:write",
+			Update: "api:user:write",
+			Delete: "api:user:delete",
+		}),
 		restapi.WithHooks[*iamentity.User, int64](func(h *appcrud.Hooks[*iamentity.User, int64]) {
 			*h = *TenantHooksForUser(ur.userRepo)
 		}),
@@ -82,11 +96,16 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	if err := builder.
 		Route(func(cfg *restapi.RouteConfig[int64]) {
+			cfg.EnableBatch = false
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000
+			if cfg.Authorization != nil {
+				cfg.Authorization.Consistency = authz.ConsistencyModeStrong
+				cfg.Authorization.HighRisk = true
+			}
 		}).
-		Build(adminGroup); err != nil {
+		Build(userGroup); err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("build user crud routes").WithContext("route", "iam.user")
 		}

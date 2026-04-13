@@ -29,7 +29,7 @@ type AuthenticateResult struct {
 	Roles           []string `json:"roles"`
 	Permissions     []string `json:"permissions"`
 	ActiveScopeID   int64    `json:"active_scope_id"`
-	ActiveScopeKey  string   `json:"active_scope_key"`
+	ActiveScopeCode string   `json:"active_scope_code"`
 	ActiveScopeType string   `json:"active_scope_type"`
 }
 

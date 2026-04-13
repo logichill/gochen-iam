@@ -12,6 +12,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
+	"gochen/authz"
 	ctxx "gochen/contextx"
 	"gochen/errorx"
 	"gochen/httpx"
@@ -111,6 +112,16 @@ func TestAuthRoutesRefreshTokenUsesTenantFromToken(t *testing.T) {
 	service := &authRoutesUserServiceStub{
 		snapshotFn: func(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
 			gotTenant = ctxx.TenantID(ctx)
+			principal, ok := authz.PrincipalFromContext(ctx)
+			if !ok {
+				t.Fatalf("expected principal in refresh context")
+			}
+			if principal.SubjectID != userID || principal.TenantID != "tenant-a" {
+				t.Fatalf("unexpected principal: %+v", principal)
+			}
+			if !principal.HasPermission("read") {
+				t.Fatalf("expected read permission in principal")
+			}
 			return &svc.AuthenticateResult{
 				UserID:   userID,
 				TenantID: gotTenant,
@@ -211,6 +222,13 @@ func TestAuthRoutesRefreshTokenAllowsPlatformScopeCrossTenantHeader(t *testing.T
 	service := &authRoutesUserServiceStub{
 		snapshotFn: func(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
 			gotTenant = ctxx.TenantID(ctx)
+			principal, ok := authz.PrincipalFromContext(ctx)
+			if !ok {
+				t.Fatalf("expected principal in refresh context")
+			}
+			if principal.TenantID != "tenant-b" || principal.ActiveScopeType != "platform" {
+				t.Fatalf("unexpected principal: %+v", principal)
+			}
 			if reqCtx, ok := ctx.(httpx.IRequestContext); ok {
 				gotScopeType = iamauth.ActiveScopeType(reqCtx)
 			}
@@ -222,7 +240,7 @@ func TestAuthRoutesRefreshTokenAllowsPlatformScopeCrossTenantHeader(t *testing.T
 				TenantID:        "platform-tenant",
 				Username:        "tester",
 				ActiveScopeID:   101,
-				ActiveScopeKey:  "/platform/",
+				ActiveScopeCode: "/platform/",
 				ActiveScopeType: "platform",
 			}, nil
 		},
@@ -265,7 +283,7 @@ func TestAuthRoutesRefreshTokenAllowsPlatformScopeCrossTenantHeader(t *testing.T
 }
 
 func TestAuthRoutesRegister_UsesTenantFromHeaderWhenRequired(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "required")
+	t.Setenv("IAM_TENANT_MODE", "tenant")
 
 	var gotTenant string
 	service := &authRoutesUserServiceStub{
@@ -295,7 +313,7 @@ func TestAuthRoutesRegister_UsesTenantFromHeaderWhenRequired(t *testing.T) {
 }
 
 func TestAuthRoutesLogin_UsesTenantFromHeaderWhenRequired(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "required")
+	t.Setenv("IAM_TENANT_MODE", "tenant")
 
 	var gotTenant string
 	service := &authRoutesUserServiceStub{

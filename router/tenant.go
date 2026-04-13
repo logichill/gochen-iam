@@ -6,6 +6,7 @@ import (
 	svc "gochen-iam/service"
 	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
+	"gochen/authz"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
@@ -16,21 +17,24 @@ import (
 type TenantRoutes struct {
 	tenantService   ITenantService
 	utils           *hbasic.Utils
-	tenantRepo      domaincrud.IRepository[*iamentity.Tenant, int64]
+	tenantRepo      domaincrud.IResourceBoundaryRepository[*iamentity.Tenant, int64]
 	scopeAuthorizer *svc.ScopeAuthorizer
+	authorizer      authz.IAuthorizer
 }
 
 // NewTenantRoutes 创建租户路由注册器
 func NewTenantRoutes(
 	tenantService ITenantService,
-	tenantRepo domaincrud.IRepository[*iamentity.Tenant, int64],
+	tenantRepo domaincrud.IResourceBoundaryRepository[*iamentity.Tenant, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
+	authorizer *authz.Authorizer,
 ) *TenantRoutes {
 	return &TenantRoutes{
 		tenantService:   tenantService,
 		utils:           &hbasic.Utils{},
 		tenantRepo:      tenantRepo,
 		scopeAuthorizer: scopeAuthorizer,
+		authorizer:      authorizer,
 	}
 }
 
@@ -41,11 +45,9 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 	tenantGroup := group.Group("/tenants")
 
-	// 租户管理仅对管理员开放
+	// tenant 资源是 platform-scoped：HTTP 入口先收口 active scope，
+	// permission + write guard 再由 builder / service 统一处理。
 	adminGroup := tenantGroup.Group("")
-	adminGroup.Use(iammw.PermissionMiddleware(
-		iammw.ApiPermission(iammw.ResourceTenant, iammw.ActionManage).Scope(iammw.ScopePlatform),
-	))
 	adminGroup.Use(iammw.PlatformScopeMiddleware())
 
 	appService, err := appcrud.NewApplication(tr.tenantRepo, nil, nil)
@@ -62,6 +64,13 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	// - builder 会直接基于 Tenant struct 自动推导查询 schema。
 	builder, err := restapi.NewApiBuilder(
 		appService,
+		restapi.WithAuthorization[*iamentity.Tenant, int64](tr.authorizer, restapi.CRUDPermissions{
+			List:   "api:tenant:read",
+			Get:    "api:tenant:read",
+			Create: "api:tenant:write",
+			Update: "api:tenant:write",
+			Delete: "api:tenant:delete",
+		}),
 		restapi.WithHooks[*iamentity.Tenant, int64](func(h *appcrud.Hooks[*iamentity.Tenant, int64]) {
 			*h = *newTenantCRUDHooks(tr.tenantRepo, tr.scopeAuthorizer)
 		}),
@@ -74,9 +83,14 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 	if err := builder.
 		Route(func(cfg *restapi.RouteConfig[int64]) {
+			cfg.EnableBatch = false
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 100
+			if cfg.Authorization != nil {
+				cfg.Authorization.Consistency = authz.ConsistencyModeStrong
+				cfg.Authorization.HighRisk = true
+			}
 		}).
 		Build(adminGroup); err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {

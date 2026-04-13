@@ -10,7 +10,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	iamentity "gochen-iam/entity"
-	iammw "gochen-iam/middleware"
 
 	grouprepo "gochen-iam/repo/group"
 
@@ -19,6 +18,7 @@ import (
 	userrepo "gochen-iam/repo/user"
 
 	svc "gochen-iam/service"
+	"gochen/authz"
 	"gochen/errorx"
 	"gochen/logging"
 )
@@ -29,6 +29,7 @@ type UserService struct {
 	groupRepo       *grouprepo.GroupRepo
 	roleRepo        *rolerepo.RoleRepo
 	scopeAuthorizer *svc.ScopeAuthorizer
+	authorizer      authz.IAuthorizer
 	logger          logging.ILogger
 }
 
@@ -38,12 +39,14 @@ func NewUserService(
 	groupRepo *grouprepo.GroupRepo,
 	roleRepo *rolerepo.RoleRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
+	authorizer *authz.Authorizer,
 ) *UserService {
 	return &UserService{
 		userRepo:        userRepo,
 		groupRepo:       groupRepo,
 		roleRepo:        roleRepo,
 		scopeAuthorizer: scopeAuthorizer,
+		authorizer:      authorizer,
 		logger:          logging.ComponentLogger("iam.service.user"),
 	}
 }
@@ -63,9 +66,13 @@ func (s *UserService) Register(ctx context.Context, tenantID string, req *svc.Re
 	if err != nil {
 		return nil, err
 	}
+	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
 
 	// 3. 检查用户名是否已存在
-	existingUser, err := s.userRepo.FindByUsername(ctx, tenantID, req.Username)
+	existingUser, err := s.userRepo.FindByUsername(tenantCtx, req.Username)
 	if err != nil && !errorx.Is(err, errorx.NotFound) {
 		return nil, errorx.Wrap(err, errorx.Database, "检查用户名失败")
 	}
@@ -74,7 +81,7 @@ func (s *UserService) Register(ctx context.Context, tenantID string, req *svc.Re
 	}
 
 	// 3. 检查邮箱是否已存在
-	existingUser, err = s.userRepo.FindByEmail(ctx, tenantID, req.Email)
+	existingUser, err = s.userRepo.FindByEmail(tenantCtx, req.Email)
 	if err != nil && !errorx.Is(err, errorx.NotFound) {
 		return nil, errorx.Wrap(err, errorx.Database, "检查邮箱失败")
 	}
@@ -95,15 +102,27 @@ func (s *UserService) Register(ctx context.Context, tenantID string, req *svc.Re
 		Password: hashedPassword,
 		Status:   svc.UserStatusActive,
 	}
+	if s.scopeAuthorizer != nil {
+		scope, scopeErr := s.scopeAuthorizer.ResolveTenantScope(tenantCtx, tenantID)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		user.ScopeType = scope.Type
+		user.ScopeCode = scope.Key
+	}
 	user.SetUpdatedAt(time.Now())
 
 	// 5. 保存用户
-	if err := s.userRepo.Create(ctx, user); err != nil {
+	guard, err := svc.NewCreateWriteGuard(tenantCtx, svc.UserResourceKind, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.userRepo.CreateWithWriteGuard(tenantCtx, user, guard); err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "保存用户失败")
 	}
 
 	// 6. 分配默认角色
-	if err := s.assignDefaultRole(ctx, user.TenantID, user.GetID()); err != nil {
+	if err := s.assignDefaultRole(tenantCtx, user.TenantID, user.GetID()); err != nil {
 		// 记录错误但不影响注册流程
 		s.logger.Warn(ctx, "[UserService] 分配默认角色失败",
 			logging.Error(err),
@@ -128,9 +147,13 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 	if err != nil {
 		return nil, err
 	}
+	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
 
 	// 2. 查找用户
-	user, err := s.userRepo.FindByUsername(ctx, tenantID, req.Username)
+	user, err := s.userRepo.FindByUsername(tenantCtx, req.Username)
 	if err != nil {
 		if errorx.Is(err, errorx.NotFound) {
 			return nil, errorx.New(errorx.NotFound, "用户名或密码错误")
@@ -150,7 +173,7 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 
 	// 5. 更新最后登录时间
 	user.UpdateLastLogin()
-	if err := s.userRepo.Update(ctx, user); err != nil {
+	if err := s.updateUserWithGuard(tenantCtx, user); err != nil {
 		// 记录错误但不影响登录流程
 		s.logger.Warn(ctx, "[UserService] 更新最后登录时间失败",
 			logging.Error(err),
@@ -160,11 +183,11 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 	}
 
 	// 6. 返回认证结果（不包含 token）
-	roles, permissions, err := s.resolveEffectiveRolesAndPermissions(ctx, user.TenantID, user.GetID())
+	roles, permissions, err := s.resolveEffectiveRolesAndPermissions(tenantCtx, user.GetID())
 	if err != nil {
 		return nil, err
 	}
-	activeScopeID, activeScopeKey, activeScopeType, err := s.resolveActiveScopeMeta(ctx, user.TenantID)
+	activeScopeID, activeScopeCode, activeScopeType, err := s.resolveActiveScopeMeta(tenantCtx, user.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +200,7 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 		Roles:           roles,
 		Permissions:     permissions,
 		ActiveScopeID:   activeScopeID,
-		ActiveScopeKey:  activeScopeKey,
+		ActiveScopeCode: activeScopeCode,
 		ActiveScopeType: activeScopeType,
 	}, nil
 }
@@ -188,7 +211,7 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 // - 仅返回“有效角色”：已软删除角色与非 active 角色会被过滤；
 // - 若用户不存在或已禁用，返回错误，由调用方决定如何映射为 HTTP 错误码。
 func (s *UserService) AuthSnapshot(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -199,11 +222,11 @@ func (s *UserService) AuthSnapshot(ctx context.Context, userID int64) (*svc.Auth
 		return nil, errorx.New(errorx.Forbidden, "用户账户已被禁用")
 	}
 
-	roles, permissions, err := s.resolveEffectiveRolesAndPermissions(ctx, user.TenantID, userID)
+	roles, permissions, err := s.resolveEffectiveRolesAndPermissions(tenantCtx, userID)
 	if err != nil {
 		return nil, err
 	}
-	activeScopeID, activeScopeKey, activeScopeType, err := s.resolveActiveScopeMeta(ctx, user.TenantID)
+	activeScopeID, activeScopeCode, activeScopeType, err := s.resolveActiveScopeMeta(tenantCtx, user.TenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +239,7 @@ func (s *UserService) AuthSnapshot(ctx context.Context, userID int64) (*svc.Auth
 		Roles:           roles,
 		Permissions:     permissions,
 		ActiveScopeID:   activeScopeID,
-		ActiveScopeKey:  activeScopeKey,
+		ActiveScopeCode: activeScopeCode,
 		ActiveScopeType: activeScopeType,
 	}, nil
 }
@@ -226,15 +249,15 @@ func (s *UserService) AuthSnapshot(ctx context.Context, userID int64) (*svc.Auth
 // 合并来源：
 // 1. 用户直接分配的角色（user_roles）
 // 2. 用户所属 Group 的默认角色（group_roles）
-func (s *UserService) resolveEffectiveRolesAndPermissions(ctx context.Context, tenantID string, userID int64) ([]string, []string, error) {
+func (s *UserService) resolveEffectiveRolesAndPermissions(ctx context.Context, userID int64) ([]string, []string, error) {
 	// 1. 用户直接分配的角色
-	directRoles, err := s.roleRepo.FindByUserID(ctx, tenantID, userID)
+	directRoles, err := s.roleRepo.FindByUserID(ctx, userID)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// 2. 用户所属 Group 的默认角色
-	groups, err := s.groupRepo.FindByUserID(ctx, tenantID, userID)
+	groups, err := s.groupRepo.FindByUserID(ctx, userID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -243,7 +266,7 @@ func (s *UserService) resolveEffectiveRolesAndPermissions(ctx context.Context, t
 		if group == nil {
 			continue
 		}
-		roles, err := s.roleRepo.FindByGroupID(ctx, tenantID, group.GetID())
+		roles, err := s.roleRepo.FindByGroupID(ctx, group.GetID())
 		if err != nil {
 			return nil, nil, err
 		}
@@ -308,7 +331,7 @@ func (s *UserService) resolveActiveScopeMeta(ctx context.Context, tenantID strin
 // ChangePassword 修改密码
 func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *svc.ChangePasswordRequest) error {
 	// 1. 获取用户
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return err
 	}
@@ -334,13 +357,13 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *svc
 	user.Password = hashedPassword
 	user.SetUpdatedAt(time.Now())
 
-	return s.userRepo.Update(ctx, user)
+	return s.updateUserWithGuard(tenantCtx, user)
 }
 
 // UpdateProfile 更新用户资料
 func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *svc.UpdateUserRequest) (*iamentity.User, error) {
 	// 1. 获取用户
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -351,7 +374,7 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *svc.
 	// 2. 更新字段
 	if req.Email != "" && req.Email != user.Email {
 		// 检查邮箱是否已被使用
-		existingUser, err := s.userRepo.FindByEmail(ctx, user.TenantID, req.Email)
+		existingUser, err := s.userRepo.FindByEmail(tenantCtx, req.Email)
 		if err != nil && !errorx.Is(err, errorx.NotFound) {
 			return nil, errorx.Wrap(err, errorx.Database, "检查邮箱失败")
 		}
@@ -368,7 +391,7 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *svc.
 	user.SetUpdatedAt(time.Now())
 
 	// 3. 保存更新
-	if err := s.userRepo.Update(ctx, user); err != nil {
+	if err := s.updateUserWithGuard(tenantCtx, user); err != nil {
 		return nil, err
 	}
 
@@ -377,124 +400,118 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *svc.
 
 // ActivateUser 激活用户
 func (s *UserService) ActivateUser(ctx context.Context, userID int64) error {
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:user:write", user.TenantID); err != nil {
+	if err := s.updateUserWithAuthorization(tenantCtx, "api:user:write", user, user.Activate); err != nil {
 		return err
 	}
-
-	user.Activate()
-	return s.userRepo.Update(ctx, user)
+	return nil
 }
 
 // DeactivateUser 停用用户
 func (s *UserService) DeactivateUser(ctx context.Context, userID int64) error {
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:user:write", user.TenantID); err != nil {
+	if err := s.updateUserWithAuthorization(tenantCtx, "api:user:write", user, user.Deactivate); err != nil {
 		return err
 	}
-
-	user.Deactivate()
-	return s.userRepo.Update(ctx, user)
+	return nil
 }
 
 // LockUser 锁定用户
 func (s *UserService) LockUser(ctx context.Context, userID int64) error {
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:user:write", user.TenantID); err != nil {
+	if err := s.updateUserWithAuthorization(tenantCtx, "api:user:write", user, user.Lock); err != nil {
 		return err
 	}
-
-	user.Lock()
-	return s.userRepo.Update(ctx, user)
+	return nil
 }
 
 // UnlockUser 解锁用户
 func (s *UserService) UnlockUser(ctx context.Context, userID int64) error {
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:user:write", user.TenantID); err != nil {
+	if err := s.updateUserWithAuthorization(tenantCtx, "api:user:write", user, user.Unlock); err != nil {
 		return err
 	}
-
-	user.Unlock()
-	return s.userRepo.Update(ctx, user)
+	return nil
 }
 
 // AssignRole 为用户分配角色
 func (s *UserService) AssignRole(ctx context.Context, userID, roleID int64) error {
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return err
 	}
-	role, err := s.roleRepo.Get(ctx, roleID)
+	role, err := s.roleRepo.Get(tenantCtx, roleID)
 	if err != nil {
 		return err
 	}
-	if _, err := svc.RequireSameTenantPermission(ctx, s.scopeAuthorizer, "api:user:write", user.TenantID, role.TenantID); err != nil {
+	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:user:write", user, role)
+	if err != nil {
 		return err
 	}
-
-	return s.userRepo.AssignRole(ctx, userID, roleID)
+	return s.userRepo.AssignRoleWithWriteGuard(tenantCtx, userID, roleID, guard)
 }
 
 // RemoveRole 移除用户角色
 func (s *UserService) RemoveRole(ctx context.Context, userID, roleID int64) error {
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return err
 	}
-	role, err := s.roleRepo.Get(ctx, roleID)
+	role, err := s.roleRepo.Get(tenantCtx, roleID)
 	if err != nil {
 		return err
 	}
-	if _, err := svc.RequireSameTenantPermission(ctx, s.scopeAuthorizer, "api:user:write", user.TenantID, role.TenantID); err != nil {
+	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:user:write", user, role)
+	if err != nil {
 		return err
 	}
-	return s.userRepo.RemoveRole(ctx, userID, roleID)
+	return s.userRepo.RemoveRoleWithWriteGuard(tenantCtx, userID, roleID, guard)
 }
 
 // AssignToGroup 将用户分配到组织
 func (s *UserService) AssignToGroup(ctx context.Context, userID, groupID int64) error {
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return err
 	}
-	group, err := s.groupRepo.Get(ctx, groupID)
+	group, err := s.groupRepo.Get(tenantCtx, groupID)
 	if err != nil {
 		return err
 	}
-	if _, err := svc.RequireSameTenantPermission(ctx, s.scopeAuthorizer, "api:user:write", user.TenantID, group.TenantID); err != nil {
+	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:user:write", user, group)
+	if err != nil {
 		return err
 	}
-
-	return s.userRepo.AssignToGroup(ctx, userID, groupID)
+	return s.userRepo.AssignToGroupWithWriteGuard(tenantCtx, userID, groupID, guard)
 }
 
 // RemoveFromGroup 从组织中移除用户
 func (s *UserService) RemoveFromGroup(ctx context.Context, userID, groupID int64) error {
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return err
 	}
-	group, err := s.groupRepo.Get(ctx, groupID)
+	group, err := s.groupRepo.Get(tenantCtx, groupID)
 	if err != nil {
 		return err
 	}
-	if _, err := svc.RequireSameTenantPermission(ctx, s.scopeAuthorizer, "api:user:write", user.TenantID, group.TenantID); err != nil {
+	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:user:write", user, group)
+	if err != nil {
 		return err
 	}
-	return s.userRepo.RemoveFromGroup(ctx, userID, groupID)
+	return s.userRepo.RemoveFromGroupWithWriteGuard(tenantCtx, userID, groupID, guard)
 }
 
 // UserPermissions 获取用户权限。
@@ -503,7 +520,7 @@ func (s *UserService) RemoveFromGroup(ctx context.Context, userID, groupID int64
 // - 用户不存在：返回 NotFound；
 // - 用户非 active：返回错误（fail-close，避免禁用账号仍可参与鉴权/授权决策）。
 func (s *UserService) UserPermissions(ctx context.Context, userID int64) ([]string, error) {
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -514,7 +531,7 @@ func (s *UserService) UserPermissions(ctx context.Context, userID int64) ([]stri
 		return nil, errorx.New(errorx.Forbidden, "用户账户已被禁用")
 	}
 
-	_, permissions, err := s.resolveEffectiveRolesAndPermissions(ctx, user.TenantID, userID)
+	_, permissions, err := s.resolveEffectiveRolesAndPermissions(tenantCtx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -527,14 +544,7 @@ func (s *UserService) CheckPermission(ctx context.Context, userID int64, permiss
 	if err != nil {
 		return false, err
 	}
-
-	for _, perm := range permissions {
-		if iammw.PermissionPatternMatches(perm, permission) {
-			return true, nil
-		}
-	}
-
-	return false, nil
+	return (authz.Principal{Permissions: permissions}).AllowsPermission(permission), nil
 }
 
 // SearchUsers 搜索用户
@@ -546,7 +556,11 @@ func (s *UserService) SearchUsers(ctx context.Context, keyword string, limit int
 	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:user:read", tenantID); err != nil {
 		return nil, err
 	}
-	return s.userRepo.SearchUsers(ctx, tenantID, keyword, limit)
+	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return s.userRepo.SearchUsers(tenantCtx, keyword, limit)
 }
 
 // UsersByStatus 根据状态获取用户
@@ -558,36 +572,44 @@ func (s *UserService) UsersByStatus(ctx context.Context, status string) ([]*iame
 	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:user:read", tenantID); err != nil {
 		return nil, err
 	}
-	return s.userRepo.FindByStatus(ctx, tenantID, status)
+	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return s.userRepo.FindByStatus(tenantCtx, status)
 }
 
 // UserRoles 获取用户角色
 func (s *UserService) UserRoles(ctx context.Context, userID int64) ([]*iamentity.Role, error) {
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:user:read", user.TenantID); err != nil {
 		return nil, err
 	}
-	return s.roleRepo.FindByUserID(ctx, user.TenantID, userID)
+	return s.roleRepo.FindByUserID(tenantCtx, userID)
 }
 
 // UserGroups 获取用户所属组织
 func (s *UserService) UserGroups(ctx context.Context, userID int64) ([]*iamentity.Group, error) {
-	user, err := s.userRepo.Get(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:user:read", user.TenantID); err != nil {
 		return nil, err
 	}
-	return s.groupRepo.FindByUserID(ctx, user.TenantID, userID)
+	return s.groupRepo.FindByUserID(tenantCtx, userID)
 }
 
 // UserProfile 获取包含关联数据的用户信息
 func (s *UserService) UserProfile(ctx context.Context, userID int64) (*iamentity.User, error) {
-	user, err := s.userRepo.FindWithRelations(ctx, userID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
+	if err != nil {
+		return nil, err
+	}
+	user, err = s.userRepo.FindWithRelations(tenantCtx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -655,18 +677,44 @@ func (s *UserService) verifyPassword(password, hashedPassword string) bool {
 	return err == nil
 }
 
+func (s *UserService) updateUserWithGuard(ctx context.Context, user *iamentity.User) error {
+	guard, err := svc.NewEntityWriteGuard(ctx, svc.UserResourceKind, user)
+	if err != nil {
+		return err
+	}
+	return s.userRepo.UpdateWithWriteGuard(ctx, user, guard)
+}
+
+func (s *UserService) updateUserWithAuthorization(
+	ctx context.Context,
+	permission string,
+	user *iamentity.User,
+	mutate func(),
+) error {
+	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, permission, user)
+	if err != nil {
+		return err
+	}
+	mutate()
+	return s.userRepo.UpdateWithWriteGuard(ctx, user, guard)
+}
+
 // assignDefaultRole 分配默认角色
 func (s *UserService) assignDefaultRole(ctx context.Context, tenantID string, userID int64) error {
 	tenantID, err := svc.NormalizeTenantID(ctx, tenantID)
 	if err != nil {
 		return err
 	}
-
-	// 查找默认用户角色
-	role, err := s.roleRepo.FindByName(ctx, tenantID, svc.UserRoleName)
+	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
 	if err != nil {
 		return err
 	}
 
-	return s.userRepo.AssignRole(ctx, userID, role.GetID())
+	// 查找默认用户角色
+	role, err := s.roleRepo.FindByName(tenantCtx, svc.UserRoleName)
+	if err != nil {
+		return err
+	}
+
+	return s.userRepo.AssignRole(tenantCtx, userID, role.GetID())
 }

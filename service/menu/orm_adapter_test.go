@@ -12,6 +12,11 @@ import (
 	"gorm.io/gorm"
 )
 
+type menuTestExecResult struct{ rows int64 }
+
+func (r menuTestExecResult) LastInsertId() (int64, error) { return 0, nil }
+func (r menuTestExecResult) RowsAffected() (int64, error) { return r.rows, nil }
+
 func newMenuTestOrm(db *gorm.DB) orm.IOrm {
 	return &menuTestGormOrm{
 		db: db,
@@ -120,11 +125,38 @@ func (m *menuTestGormModel) UpdateValues(ctx context.Context, values map[string]
 	return nil
 }
 
+func (m *menuTestGormModel) SaveWithResult(ctx context.Context, entity any, opts ...orm.QueryOption) (sql.Result, error) {
+	db := m.apply(ctx, opts...)
+	tx := db.Updates(entity)
+	if err := tx.Error; err != nil {
+		return nil, convertMenuTestError(err)
+	}
+	return menuTestExecResult{rows: tx.RowsAffected}, nil
+}
+
+func (m *menuTestGormModel) UpdateValuesWithResult(ctx context.Context, values map[string]any, opts ...orm.QueryOption) (sql.Result, error) {
+	db := m.apply(ctx, opts...)
+	tx := db.Updates(values)
+	if err := tx.Error; err != nil {
+		return nil, convertMenuTestError(err)
+	}
+	return menuTestExecResult{rows: tx.RowsAffected}, nil
+}
+
 func (m *menuTestGormModel) Delete(ctx context.Context, opts ...orm.QueryOption) error {
 	if err := m.apply(ctx, opts...).Delete(m.meta.NewModel()).Error; err != nil {
 		return convertMenuTestError(err)
 	}
 	return nil
+}
+
+func (m *menuTestGormModel) DeleteWithResult(ctx context.Context, opts ...orm.QueryOption) (sql.Result, error) {
+	db := m.apply(ctx, opts...)
+	tx := db.Delete(m.meta.NewModel())
+	if err := tx.Error; err != nil {
+		return nil, convertMenuTestError(err)
+	}
+	return menuTestExecResult{rows: tx.RowsAffected}, nil
 }
 
 func (m *menuTestGormModel) Association(owner any, name string) orm.IAssociation { return nil }

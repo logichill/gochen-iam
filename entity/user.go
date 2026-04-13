@@ -15,7 +15,9 @@ type User struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	TenantID    string     `json:"tenant_id" gorm:"size:64;not null;index;uniqueIndex:idx_user_username_tenant;uniqueIndex:idx_user_email_tenant"`
+	TenantID    string     `json:"tenant_id" gorm:"size:64;not null;index;index:idx_user_scope,priority:1;uniqueIndex:idx_user_username_tenant;uniqueIndex:idx_user_email_tenant"`
+	ScopeType   string     `json:"scope_type,omitempty" gorm:"size:32;not null;default:'';index:idx_user_scope,priority:2"`
+	ScopeCode   string     `json:"scope_code,omitempty" gorm:"size:128;not null;default:'';index:idx_user_scope,priority:3"`
 	Username    string     `json:"username" gorm:"size:50;not null;uniqueIndex:idx_user_username_tenant"`
 	Email       string     `json:"email" gorm:"size:100;not null;uniqueIndex:idx_user_email_tenant"`
 	Password    string     `json:"password" gorm:"column:password_hash;size:255;not null"`
@@ -103,6 +105,18 @@ func (u *User) GetTenantID() string { return u.TenantID }
 
 // SetTenantID 设置租户ID。
 func (u *User) SetTenantID(tenantID string) { u.TenantID = tenantID }
+
+// GetScopeType 返回授权域类型。
+func (u *User) GetScopeType() string { return u.ScopeType }
+
+// SetScopeType 设置授权域类型。
+func (u *User) SetScopeType(scopeType string) { u.ScopeType = scopeType }
+
+// GetScopeCode 返回授权域编码。
+func (u *User) GetScopeCode() string { return u.ScopeCode }
+
+// SetScopeCode 设置授权域编码。
+func (u *User) SetScopeCode(scopeCode string) { u.ScopeCode = scopeCode }
 
 // IsActive 检查用户是否激活
 func (u *User) IsActive() bool {

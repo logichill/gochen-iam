@@ -1,0 +1,81 @@
+package menu
+
+import (
+	"context"
+
+	iamentity "gochen-iam/entity"
+	appcrud "gochen/app/crud"
+	"gochen/authz"
+	domaincrud "gochen/domain/crud"
+	"gochen/errorx"
+)
+
+// CRUDApplication 把 menu 的标准 CRUD 路径适配到 gochen 的统一 app/api builder。
+//
+// 约定：
+// - 读路径继续复用通用 repo/query 能力；
+// - 写路径统一委托 MenuService，避免绕过菜单自己的领域校验与 guarded write 语义。
+type CRUDApplication struct {
+	*appcrud.Application[*iamentity.MenuItem, int64]
+	menuService *MenuService
+}
+
+// NewCRUDApplication 创建菜单 CRUD 应用适配器。
+func NewCRUDApplication(
+	menuRepo domaincrud.IRepository[*iamentity.MenuItem, int64],
+	menuService *MenuService,
+) (*CRUDApplication, error) {
+	if menuService == nil {
+		return nil, errorx.New(errorx.InvalidInput, "menu service cannot be nil")
+	}
+	base, err := appcrud.NewApplication(menuRepo, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &CRUDApplication{
+		Application: base,
+		menuService: menuService,
+	}, nil
+}
+
+// Create 创建菜单，复用 MenuService 的领域校验。
+func (a *CRUDApplication) Create(ctx context.Context, entity *iamentity.MenuItem) error {
+	return a.menuService.CreateEntity(ctx, entity)
+}
+
+// Update 更新菜单，复用 MenuService 的领域校验。
+func (a *CRUDApplication) Update(ctx context.Context, entity *iamentity.MenuItem) error {
+	return a.menuService.UpdateEntity(ctx, entity)
+}
+
+// Delete 删除菜单，复用 MenuService 的领域校验。
+func (a *CRUDApplication) Delete(ctx context.Context, id int64) error {
+	return a.menuService.DeleteEntity(ctx, id)
+}
+
+// CreateWithWriteGuard 在显式 guard 下创建菜单。
+func (a *CRUDApplication) CreateWithWriteGuard(
+	ctx context.Context,
+	entity *iamentity.MenuItem,
+	guard authz.WriteGuard,
+) error {
+	return a.menuService.CreateEntityWithWriteGuard(ctx, entity, guard)
+}
+
+// UpdateWithWriteGuard 在显式 guard 下更新菜单。
+func (a *CRUDApplication) UpdateWithWriteGuard(
+	ctx context.Context,
+	entity *iamentity.MenuItem,
+	guard authz.WriteGuard,
+) error {
+	return a.menuService.UpdateEntityWithWriteGuard(ctx, entity, guard)
+}
+
+// DeleteWithWriteGuard 在显式 guard 下删除菜单。
+func (a *CRUDApplication) DeleteWithWriteGuard(
+	ctx context.Context,
+	id int64,
+	guard authz.WriteGuard,
+) error {
+	return a.menuService.DeleteEntityWithWriteGuard(ctx, id, guard)
+}

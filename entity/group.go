@@ -18,8 +18,10 @@ type Group struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	TenantID string `json:"tenant_id" gorm:"size:64;not null;index;uniqueIndex:idx_group_name_parent_tenant"`
-	Name     string `json:"name" gorm:"size:100;not null;uniqueIndex:idx_group_name_parent_tenant"`
+	TenantID  string `json:"tenant_id" gorm:"size:64;not null;index;index:idx_group_scope,priority:1;uniqueIndex:idx_group_name_parent_tenant"`
+	ScopeType string `json:"scope_type,omitempty" gorm:"size:32;not null;default:'';index:idx_group_scope,priority:2"`
+	ScopeCode string `json:"scope_code,omitempty" gorm:"size:128;not null;default:'';index:idx_group_scope,priority:3"`
+	Name      string `json:"name" gorm:"size:100;not null;uniqueIndex:idx_group_name_parent_tenant"`
 	// Code 用于承接管理端当前仍会回传的组织编码字段；当前 groups 表未持久化该列。
 	Code        string `json:"code,omitempty" gorm:"-"`
 	Description string `json:"description" gorm:"size:500"`
@@ -94,6 +96,18 @@ func (g *Group) GetTenantID() string { return g.TenantID }
 
 // SetTenantID 设置租户ID。
 func (g *Group) SetTenantID(tenantID string) { g.TenantID = tenantID }
+
+// GetScopeType 返回授权域类型。
+func (g *Group) GetScopeType() string { return g.ScopeType }
+
+// SetScopeType 设置授权域类型。
+func (g *Group) SetScopeType(scopeType string) { g.ScopeType = scopeType }
+
+// GetScopeCode 返回授权域编码。
+func (g *Group) GetScopeCode() string { return g.ScopeCode }
+
+// SetScopeCode 设置授权域编码。
+func (g *Group) SetScopeCode(scopeCode string) { g.ScopeCode = scopeCode }
 
 // IsRootGroup 检查是否为根组织
 func (g *Group) IsRootGroup() bool {

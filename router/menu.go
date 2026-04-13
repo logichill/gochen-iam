@@ -3,9 +3,11 @@ package router
 import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
-	svc "gochen-iam/service"
 	menusvc "gochen-iam/service/menu"
 	restapi "gochen/api/restapi"
+	"gochen/authz"
+	domaincrud "gochen/domain/crud"
+	"gochen/errorx"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 )
@@ -16,20 +18,31 @@ import (
 // - 菜单仅用于“导航可见性”，不作为安全边界；安全边界仍由 API 权限校验保证。
 // - /menus/me 返回基于当前请求上下文的菜单树（按菜单自身 permission 规则过滤）。
 type MenuRoutes struct {
-	menuService IMenuService
+	menuService *menusvc.MenuService
+	menuRepo    domaincrud.IRepository[*iamentity.MenuItem, int64]
+	authorizer  authz.IAuthorizer
 	utils       *hbasic.Utils
 }
 
 // NewMenuRoutes 创建菜单路由注册器。
-func NewMenuRoutes(menuService IMenuService) *MenuRoutes {
+func NewMenuRoutes(
+	menuService *menusvc.MenuService,
+	menuRepo domaincrud.IRepository[*iamentity.MenuItem, int64],
+	authorizer *authz.Authorizer,
+) *MenuRoutes {
 	return &MenuRoutes{
 		menuService: menuService,
+		menuRepo:    menuRepo,
+		authorizer:  authorizer,
 		utils:       &hbasic.Utils{},
 	}
 }
 
 // RegisterRoutes 注册菜单相关 HTTP 路由。
 func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
+	if group == nil {
+		return errorx.New(errorx.InvalidInput, "route group cannot be nil")
+	}
 	menuGroup := group.Group("/menus")
 
 	// 1. 注册当前用户菜单树接口，只要求登录即可访问。
@@ -37,28 +50,57 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	meGroup.Use(iammw.UserOnlyMiddleware())
 	meGroup.GET("", mr.getMyMenuTree)
 
-	// 2. 注册管理端菜单接口：先做管理员门禁，再按读/写/发布能力细分权限。
+	// 2. 注册管理端菜单接口：标准 CRUD 走统一 builder，自定义能力保留独立端点。
 	adminGroup := menuGroup.Group("")
 	adminGroup.Use(iammw.AdminOnlyMiddleware())
 	adminGroup.Use(iammw.PlatformScopeMiddleware())
-	// 说明：当前设计“仅允许 system_admin 管理菜单”。
-	// api:menu:read/api:menu:write/api:menu:publish 仍会通过 PermissionMiddleware 注册到 required permissions，用于权限治理与审计。
-	// 如需支持“非 system_admin 但具备 menu:* 权限的角色”管理菜单：移除 AdminOnlyMiddleware，仅保留 PermissionMiddleware。
 
-	adminReadGroup := adminGroup.Group("")
-	adminReadGroup.Use(iammw.PermissionMiddleware(
-		iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionRead).Desc("读取菜单").Scope(iammw.ScopePlatform),
-	))
-	adminReadGroup.GET("", mr.listMenuItems)
+	menuCRUD, err := menusvc.NewCRUDApplication(mr.menuRepo, mr.menuService)
+	if err != nil {
+		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+			return appErr.Wrap("create menu crud application").WithContext("route", "iam.menu")
+		}
+		return errorx.Wrap(err, errorx.Internal, "failed to create menu crud application").WithContext("route", "iam.menu")
+	}
+
+	builderOptions := []restapi.Option[*iamentity.MenuItem, int64]{}
+	if mr.authorizer != nil {
+		builderOptions = append(builderOptions, restapi.WithAuthorization[*iamentity.MenuItem, int64](mr.authorizer, restapi.CRUDPermissions{
+			List:   "api:menu:read",
+			Get:    "api:menu:read",
+			Create: "api:menu:write",
+			Update: "api:menu:write",
+			Delete: "api:menu:write",
+		}))
+	}
+	builder, err := restapi.NewApiBuilder(menuCRUD, builderOptions...)
+	if err != nil {
+		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+			return appErr.Wrap("create menu api builder").WithContext("route", "iam.menu")
+		}
+		return errorx.Wrap(err, errorx.Internal, "failed to create menu api builder").WithContext("route", "iam.menu")
+	}
+	if err := builder.
+		Route(func(cfg *restapi.RouteConfig[int64]) {
+			cfg.EnableBatch = false
+			cfg.EnablePagination = false
+			if cfg.Authorization != nil {
+				cfg.Authorization.Consistency = authz.ConsistencyModeStrong
+				cfg.Authorization.HighRisk = true
+			}
+		}).
+		Build(adminGroup); err != nil {
+		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+			return appErr.Wrap("build menu crud routes").WithContext("route", "iam.menu")
+		}
+		return errorx.Wrap(err, errorx.Internal, "failed to build menu crud routes").WithContext("route", "iam.menu")
+	}
 
 	adminWriteGroup := adminGroup.Group("")
 	adminWriteGroup.Use(iammw.PermissionMiddleware(
 		iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionWrite).Desc("维护菜单").Scope(iammw.ScopePlatform),
 	))
-	adminWriteGroup.POST("", mr.createMenuItem)
 	adminWriteGroup.POST("/sync", mr.syncMenuItems)
-	adminWriteGroup.PUT("/:id", mr.updateMenuItem)
-	adminWriteGroup.DELETE("/:id", mr.deleteMenuItem)
 	adminWriteGroup.POST("/:id/restore", mr.restoreMenuItem)
 	adminWriteGroup.DELETE("/:id/purge", mr.purgeMenuItem)
 
@@ -81,62 +123,6 @@ func (mr *MenuRoutes) Priority() int {
 	return 210
 }
 
-// listMenuItems 返回后台菜单列表。
-func (mr *MenuRoutes) listMenuItems(ctx httpx.IContext) error {
-	items, err := mr.menuService.ListMenuItems(ctx.RequestContext())
-	if err != nil {
-		return err
-	}
-	return httpx.WriteSuccess(ctx, items)
-}
-
-// createMenuItem 处理创建菜单请求。
-func (mr *MenuRoutes) createMenuItem(ctx httpx.IContext) error {
-	req := &menusvc.CreateMenuItemRequest{}
-	if err := ctx.BindJSON(req); err != nil {
-		return err
-	}
-	item, err := mr.menuService.CreateMenuItem(ctx.RequestContext(), req)
-	if err != nil {
-		return err
-	}
-	return httpx.WriteSuccess(ctx, item)
-}
-
-// updateMenuItem 处理更新菜单请求。
-func (mr *MenuRoutes) updateMenuItem(ctx httpx.IContext) error {
-	id, err := mr.utils.ParseID(ctx, "id")
-	if err != nil {
-		return err
-	}
-	req := &menusvc.UpdateMenuItemRequest{}
-	fields, err := restapi.BindJSONBodyFields(ctx, req)
-	if err != nil {
-		return err
-	}
-	item, err := mr.menuService.UpdateMenuItem(
-		ctx.RequestContext(),
-		id,
-		req,
-		menuUpdatePatches(fields, req)...,
-	)
-	if err != nil {
-		return err
-	}
-	return httpx.WriteSuccess(ctx, item)
-}
-
-func menuUpdatePatches(fields restapi.JSONBodyFields, req *menusvc.UpdateMenuItemRequest) []svc.FieldPatch[iamentity.MenuItem] {
-	if !fields.Has("parent_id") {
-		return nil
-	}
-	return []svc.FieldPatch[iamentity.MenuItem]{
-		svc.ValueFieldPatch(func(item *iamentity.MenuItem, parentID *int64) {
-			item.ParentID = parentID
-		}, req.ParentID),
-	}
-}
-
 // syncMenuItems 处理批量同步菜单请求。
 func (mr *MenuRoutes) syncMenuItems(ctx httpx.IContext) error {
 	req := &menusvc.SyncMenuItemsRequest{}
@@ -148,18 +134,6 @@ func (mr *MenuRoutes) syncMenuItems(ctx httpx.IContext) error {
 		return err
 	}
 	return httpx.WriteSuccess(ctx, result)
-}
-
-// deleteMenuItem 处理软删除菜单请求。
-func (mr *MenuRoutes) deleteMenuItem(ctx httpx.IContext) error {
-	id, err := mr.utils.ParseID(ctx, "id")
-	if err != nil {
-		return err
-	}
-	if err := mr.menuService.DeleteMenuItem(ctx.RequestContext(), id); err != nil {
-		return err
-	}
-	return httpx.WriteSuccess(ctx, map[string]any{"id": id})
 }
 
 // restoreMenuItem 处理恢复菜单请求。

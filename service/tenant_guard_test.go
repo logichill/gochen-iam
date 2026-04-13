@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	iamauth "gochen-iam/auth"
+	iammw "gochen-iam/middleware"
 	"gochen-iam/tenant"
+	"gochen/authz"
 	ctxx "gochen/contextx"
 	httpx "gochen/httpx"
 	nethttp "gochen/httpx/nethttp"
@@ -25,12 +27,43 @@ func newTenantGuardRequestContext(t *testing.T, tenantID string) httpx.IRequestC
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
+	baseCtx, err = authz.WithPrincipal(baseCtx, authz.Principal{TenantID: tenantID})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
 	return ctx.RequestContext().WithContext(baseCtx)
 }
 
+func withPermissions(t *testing.T, reqCtx httpx.IRequestContext, permissions ...string) httpx.IRequestContext {
+	t.Helper()
+	derived := iamauth.WithPermissions(reqCtx, permissions)
+	principal, _ := authz.PrincipalFromContext(derived)
+	principal.Permissions = permissions
+	updated, err := authz.WithPrincipal(derived, principal)
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+	return derived.WithContext(updated)
+}
+
+func withActiveScope(t *testing.T, reqCtx httpx.IRequestContext, scopeID int64, scopeCode, scopeType string) httpx.IRequestContext {
+	t.Helper()
+	derived := iamauth.WithActiveScope(reqCtx, scopeID, scopeCode, scopeType)
+	principal, _ := authz.PrincipalFromContext(derived)
+	principal.ActiveScopeID = scopeID
+	principal.ActiveScopeCode = scopeCode
+	principal.ActiveScopeType = scopeType
+	updated, err := authz.WithPrincipal(derived, principal)
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+	return derived.WithContext(updated)
+}
+
 func TestRequireTenantMatch_AllowsPlatformScopeCrossTenant(t *testing.T) {
-	reqCtx := newTenantGuardRequestContext(t, "tenant-b")
-	reqCtx = iamauth.WithActiveScope(reqCtx, 101, "/platform/", "platform")
+	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeTenant))
+
+	reqCtx := withActiveScope(t, newTenantGuardRequestContext(t, "tenant-b"), 101, "/platform/", "platform")
 
 	tenantID, err := RequireTenantMatch(reqCtx, "platform-tenant")
 	if err != nil {
@@ -51,7 +84,7 @@ func TestRequireTenantMatch_RejectsCrossTenantWithoutPlatformScope(t *testing.T)
 }
 
 func TestRequireTenantPermission_ReusesTenantGuardWhenAuthorizerUnavailable(t *testing.T) {
-	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeRequired))
+	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeTenant))
 	reqCtx := newTenantGuardRequestContext(t, "tenant-a")
 
 	tenantID, err := RequireTenantPermission(reqCtx, nil, "api:user:read", "tenant-a")
@@ -64,7 +97,7 @@ func TestRequireTenantPermission_ReusesTenantGuardWhenAuthorizerUnavailable(t *t
 }
 
 func TestRequireSameTenantPermission_RejectsCrossTenantBeforePermissionCheck(t *testing.T) {
-	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeRequired))
+	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeTenant))
 	reqCtx := newTenantGuardRequestContext(t, "tenant-a")
 
 	_, err := RequireSameTenantPermission(reqCtx, nil, "api:user:write", "tenant-a", "tenant-b")
@@ -74,7 +107,7 @@ func TestRequireSameTenantPermission_RejectsCrossTenantBeforePermissionCheck(t *
 }
 
 func TestPreflightTenant_WithoutPermissionStillChecksTenant(t *testing.T) {
-	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeRequired))
+	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeTenant))
 	reqCtx := newTenantGuardRequestContext(t, "tenant-a")
 
 	tenantID, err := PreflightTenant(reqCtx, nil, "tenant-a", "")
@@ -83,5 +116,62 @@ func TestPreflightTenant_WithoutPermissionStillChecksTenant(t *testing.T) {
 	}
 	if tenantID != "tenant-a" {
 		t.Fatalf("expected tenant-a, got %s", tenantID)
+	}
+}
+
+func TestRequireTenantMatch_FixedModeUsesConfiguredTenant(t *testing.T) {
+	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
+	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
+
+	reqCtx := newTenantGuardRequestContext(t, "ignored")
+
+	tenantID, err := RequireTenantMatch(reqCtx, "")
+	if err != nil {
+		t.Fatalf("RequireTenantMatch: %v", err)
+	}
+	if tenantID != "single-tenant" {
+		t.Fatalf("expected single-tenant, got %s", tenantID)
+	}
+}
+
+func TestRequireTenantMatch_SingleModeRejectsMismatchedTarget(t *testing.T) {
+	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
+	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
+
+	reqCtx := newTenantGuardRequestContext(t, "ignored")
+
+	if _, err := RequireTenantMatch(reqCtx, "tenant-b"); err == nil {
+		t.Fatalf("expected fixed tenant mismatch to be rejected")
+	}
+}
+
+func TestRequireTenantPermission_SingleModeStillChecksPermission(t *testing.T) {
+	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
+	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
+
+	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "api:user:read")
+
+	tenantID, err := RequireTenantPermission(reqCtx, NewScopeAuthorizer(nil, nil), "api:user:read", "")
+	if err != nil {
+		t.Fatalf("RequireTenantPermission: %v", err)
+	}
+	if tenantID != "single-tenant" {
+		t.Fatalf("expected single-tenant, got %s", tenantID)
+	}
+}
+
+func TestRequireTenantPermission_SingleModeRejectsMissingPermission(t *testing.T) {
+	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
+	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
+
+	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "api:user:list")
+
+	err := iammw.RequirePermission(reqCtx, "api:user:read")
+	if err == nil {
+		t.Fatalf("expected middleware permission helper to reject missing permission")
+	}
+
+	if _, err := RequireTenantPermission(reqCtx, NewScopeAuthorizer(nil, nil), "api:user:read", ""); err == nil {
+		t.Fatalf("expected missing permission to be rejected even in single mode")
 	}
 }

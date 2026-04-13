@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"gochen/authz"
 )
 
 type requiredPermissionMeta struct {
@@ -290,7 +292,7 @@ func HasRequiredPermission(permission string) bool {
 		return true
 	}
 	for registered := range requiredPermissionsRegistry.perms {
-		if PermissionPatternMatches(normalized, registered) || PermissionPatternMatches(registered, normalized) {
+		if authz.PermissionPatternMatches(normalized, registered) || authz.PermissionPatternMatches(registered, normalized) {
 			return true
 		}
 	}

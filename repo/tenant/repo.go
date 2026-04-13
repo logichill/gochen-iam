@@ -4,6 +4,7 @@ import (
 	"context"
 
 	iamentity "gochen-iam/entity"
+	"gochen/authz"
 	"gochen/db/orm"
 	db "gochen/db/orm/repo"
 	"gochen/errorx"
@@ -21,6 +22,8 @@ func NewTenantRepository(o orm.IOrm) (*TenantRepo, error) {
 		o,
 		"tenants",
 		db.WithIDGenerator[*iamentity.Tenant, int64](ident.DefaultInt64Generator()),
+		db.WithResourceKind[*iamentity.Tenant, int64]("iam.tenant"),
+		db.WithSoftDeleteColumns[*iamentity.Tenant, int64]("deleted_at", ""),
 	)
 	if err != nil {
 		return nil, err
@@ -30,26 +33,34 @@ func NewTenantRepository(o orm.IOrm) (*TenantRepo, error) {
 
 // Create 覆盖通用创建
 func (r *TenantRepo) Create(ctx context.Context, t *iamentity.Tenant) error {
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return err
-	}
 	if t != nil {
 		t.SyncPlatformSlot()
 	}
-	return model.Create(ctx, t)
+	return r.Repo.Create(ctx, t)
 }
 
 // Update 覆盖通用更新
 func (r *TenantRepo) Update(ctx context.Context, t *iamentity.Tenant) error {
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return err
-	}
 	if t != nil {
 		t.SyncPlatformSlot()
 	}
-	return model.Save(ctx, t, orm.WithWhere("id = ? AND deleted_at IS NULL", t.GetID()))
+	return r.Repo.Update(ctx, t)
+}
+
+// CreateWithWriteGuard 在显式写边界下创建租户。
+func (r *TenantRepo) CreateWithWriteGuard(ctx context.Context, t *iamentity.Tenant, guard authz.WriteGuard) error {
+	if t != nil {
+		t.SyncPlatformSlot()
+	}
+	return r.Repo.CreateWithWriteGuard(ctx, t, guard)
+}
+
+// UpdateWithWriteGuard 在显式写边界下更新租户。
+func (r *TenantRepo) UpdateWithWriteGuard(ctx context.Context, t *iamentity.Tenant, guard authz.WriteGuard) error {
+	if t != nil {
+		t.SyncPlatformSlot()
+	}
+	return r.Repo.UpdateWithWriteGuard(ctx, t, guard)
 }
 
 // Get 根据ID获取租户（过滤软删记录）

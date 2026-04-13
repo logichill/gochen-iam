@@ -1,10 +1,29 @@
 package router
 
 import (
+	"context"
 	"testing"
 
+	iamentity "gochen-iam/entity"
+	menusvc "gochen-iam/service/menu"
 	httpx "gochen/httpx"
 )
+
+type menuRouteTestRepo struct{}
+
+func (menuRouteTestRepo) Create(context.Context, *iamentity.MenuItem) error { return nil }
+func (menuRouteTestRepo) Update(context.Context, *iamentity.MenuItem) error { return nil }
+func (menuRouteTestRepo) Delete(context.Context, int64) error               { return nil }
+func (menuRouteTestRepo) Get(context.Context, int64) (*iamentity.MenuItem, error) {
+	return &iamentity.MenuItem{}, nil
+}
+func (menuRouteTestRepo) List(context.Context, int, int) ([]*iamentity.MenuItem, error) {
+	return nil, nil
+}
+func (menuRouteTestRepo) Count(context.Context) (int64, error) { return 0, nil }
+func (menuRouteTestRepo) Exists(context.Context, int64) (bool, error) {
+	return false, nil
+}
 
 type recordingRouteGroup struct {
 	prefix      string
@@ -67,7 +86,7 @@ func TestMenuRoutes_RegisterRoutes(t *testing.T) {
 	routes := map[string]struct{}{}
 	root := newRecordingGroup("", routes)
 
-	mr := NewMenuRoutes(nil)
+	mr := NewMenuRoutes(&menusvc.MenuService{}, menuRouteTestRepo{}, nil)
 	if err := mr.RegisterRoutes(root); err != nil {
 		t.Fatalf("RegisterRoutes failed: %v", err)
 	}
@@ -75,6 +94,7 @@ func TestMenuRoutes_RegisterRoutes(t *testing.T) {
 	want := []string{
 		"GET /menus/me",
 		"GET /menus",
+		"GET /menus/:id",
 		"POST /menus",
 		"POST /menus/sync",
 		"PUT /menus/:id",

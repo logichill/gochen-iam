@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"testing"
 
+	iammw "gochen-iam/middleware"
 	tenantrepo "gochen-iam/repo/tenant"
+	svc "gochen-iam/service"
+	"gochen/authz"
 	"gochen/db"
 	"gochen/db/orm"
 )
@@ -61,8 +64,22 @@ func TestTenantService_ListTenants_FiltersSoftDeletedRows(t *testing.T) {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}
 
-	svc := NewTenantService(repo, nil)
-	if _, err := svc.ListTenants(context.Background()); err != nil {
+	iammw.RegisterRequiredPermissionDefinitions(svc.AllPermissionDefinitions...)
+	authorizer, err := svc.NewIAMAuthorizer(nil)
+	if err != nil {
+		t.Fatalf("NewIAMAuthorizer: %v", err)
+	}
+	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+		SubjectID:       1,
+		Permissions:     []string{"*:*:*"},
+		ActiveScopeType: string(iammw.ScopePlatform),
+	})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+
+	service := NewTenantService(repo, nil, authorizer)
+	if _, err := service.ListTenants(ctx); err != nil {
 		t.Fatalf("ListTenants: %v", err)
 	}
 

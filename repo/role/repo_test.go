@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"gochen/authz"
 	"gochen/db"
 	"gochen/db/orm"
 )
@@ -13,14 +14,22 @@ import (
 type capturingModel struct {
 	meta *orm.ModelMeta
 
-	findCalls int
-	findFn    func(dest any) error
-	lastOpts  orm.QueryOptions
+	findCalls     int
+	findFn        func(dest any) error
+	firstFn       func(dest any) error
+	firstCalls    int
+	lastOpts      orm.QueryOptions
+	lastFirstOpts orm.QueryOptions
 }
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities { return nil }
-func (m *capturingModel) First(context.Context, any, ...orm.QueryOption) error {
+func (m *capturingModel) First(_ context.Context, dest any, opts ...orm.QueryOption) error {
+	m.firstCalls++
+	m.lastFirstOpts = orm.CollectQueryOptions(opts...)
+	if m.firstFn != nil {
+		return m.firstFn(dest)
+	}
 	return nil
 }
 func (m *capturingModel) Find(ctx context.Context, dest any, opts ...orm.QueryOption) error {
@@ -93,6 +102,15 @@ func (s *fakeSession) Raw() any               { return nil }
 func (s *fakeSession) Commit() error          { return nil }
 func (s *fakeSession) Rollback() error        { return nil }
 
+func withTenantPrincipal(t *testing.T, ctx context.Context, tenantID string) context.Context {
+	t.Helper()
+	derived, err := authz.WithPrincipal(ctx, authz.Principal{SubjectID: 1, TenantID: tenantID})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+	return derived
+}
+
 func TestRoleRepo_GetRoleUsageStats_UsesTxSessionEngineModels(t *testing.T) {
 	roleModel := &capturingModel{
 		findFn: func(dest any) error {
@@ -136,6 +154,7 @@ func TestRoleRepo_GetRoleUsageStats_UsesTxSessionEngineModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTxSession: %v", err)
 	}
+	txCtx = withTenantPrincipal(t, txCtx, "tenant-a")
 	if _, err := r.RoleUsageStats(txCtx); err != nil {
 		t.Fatalf("RoleUsageStats: %v", err)
 	}
@@ -161,20 +180,15 @@ func TestRoleRepo_FindByNames_FiltersByTenant(t *testing.T) {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
 
-	if _, err := r.FindByNames(context.Background(), "tenant-a", []string{"admin", "viewer"}); err != nil {
+	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
+	if _, err := r.FindByNames(ctx, []string{"admin", "viewer"}); err != nil {
 		t.Fatalf("FindByNames: %v", err)
 	}
 
 	where := o.baseRoleModel.lastOpts.Where
-	if len(where) != 1 {
-		t.Fatalf("expected one where condition, got %d", len(where))
-	}
-	if where[0].Expr != "tenant_id = ? AND name IN ? AND deleted_at IS NULL" {
-		t.Fatalf("unexpected where expr: %s", where[0].Expr)
-	}
-	if len(where[0].Args) != 2 || where[0].Args[0] != "tenant-a" {
-		t.Fatalf("unexpected where args: %#v", where[0].Args)
-	}
+	requireCondition(t, where, "tenant_id = ?", "tenant-a")
+	requireCondition(t, where, "name IN ?", []string{"admin", "viewer"})
+	requireCondition(t, where, "deleted_at IS NULL")
 }
 
 func TestRoleRepo_FindUserRoles_FiltersByTenant(t *testing.T) {
@@ -184,20 +198,15 @@ func TestRoleRepo_FindUserRoles_FiltersByTenant(t *testing.T) {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
 
-	if _, err := r.FindUserRoles(context.Background(), "tenant-a"); err != nil {
+	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
+	if _, err := r.FindUserRoles(ctx); err != nil {
 		t.Fatalf("FindUserRoles: %v", err)
 	}
 
 	where := o.baseRoleModel.lastOpts.Where
-	if len(where) != 1 {
-		t.Fatalf("expected one where condition, got %d", len(where))
-	}
-	if where[0].Expr != "tenant_id = ? AND is_system = ? AND deleted_at IS NULL" {
-		t.Fatalf("unexpected where expr: %s", where[0].Expr)
-	}
-	if len(where[0].Args) != 2 || where[0].Args[0] != "tenant-a" || where[0].Args[1] != false {
-		t.Fatalf("unexpected where args: %#v", where[0].Args)
-	}
+	requireCondition(t, where, "tenant_id = ?", "tenant-a")
+	requireCondition(t, where, "is_system = ?", false)
+	requireCondition(t, where, "deleted_at IS NULL")
 }
 
 func TestRoleRepo_FindByPermission_FiltersByTenant(t *testing.T) {
@@ -207,18 +216,49 @@ func TestRoleRepo_FindByPermission_FiltersByTenant(t *testing.T) {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
 
-	if _, err := r.FindByPermission(context.Background(), "tenant-a", ""); err != nil {
+	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
+	if _, err := r.FindByPermission(ctx, ""); err != nil {
 		t.Fatalf("FindByPermission: %v", err)
 	}
 
 	where := o.baseRoleModel.lastOpts.Where
-	if len(where) != 1 {
-		t.Fatalf("expected one where condition, got %d", len(where))
+	requireCondition(t, where, "tenant_id = ?", "tenant-a")
+	requireCondition(t, where, "deleted_at IS NULL")
+}
+
+func TestRoleRepo_Get_FiltersByTenantFromPrincipal(t *testing.T) {
+	o := &fakeOrm{baseRoleModel: &capturingModel{}}
+	r, err := NewRoleRepository(o)
+	if err != nil {
+		t.Fatalf("NewRoleRepository: %v", err)
 	}
-	if where[0].Expr != "tenant_id = ? AND deleted_at IS NULL" {
-		t.Fatalf("unexpected where expr: %s", where[0].Expr)
+
+	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
+	if _, err := r.Get(ctx, 7); err != nil {
+		t.Fatalf("Get: %v", err)
 	}
-	if len(where[0].Args) != 1 || where[0].Args[0] != "tenant-a" {
-		t.Fatalf("unexpected where args: %#v", where[0].Args)
+
+	where := o.baseRoleModel.lastFirstOpts.Where
+	requireCondition(t, where, "tenant_id = ?", "tenant-a")
+	requireCondition(t, where, "id = ?", int64(7))
+	requireCondition(t, where, "deleted_at IS NULL")
+}
+
+func requireCondition(t *testing.T, conditions []orm.Condition, expr string, wantArgs ...any) {
+	t.Helper()
+	for _, condition := range conditions {
+		if condition.Expr != expr {
+			continue
+		}
+		if len(condition.Args) != len(wantArgs) {
+			t.Fatalf("unexpected arg count for %q: %#v", expr, condition.Args)
+		}
+		for i := range wantArgs {
+			if !reflect.DeepEqual(condition.Args[i], wantArgs[i]) {
+				t.Fatalf("unexpected arg %d for %q: %#v", i, expr, condition.Args)
+			}
+		}
+		return
 	}
+	t.Fatalf("condition %q not found in %#v", expr, conditions)
 }

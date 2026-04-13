@@ -14,6 +14,7 @@ import (
 	svc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
+	"gochen/authz"
 	ctxx "gochen/contextx"
 	"gochen/errorx"
 	"gorm.io/driver/sqlite"
@@ -42,7 +43,7 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	// 配置环境变量
 	t.Setenv("DB_DRIVER", "sqlite")
 	t.Setenv("DB_DATABASE", dbPath)
-	t.Setenv("IAM_TENANT_MODE", "required") // 测试使用 required 模式
+	t.Setenv("IAM_TENANT_MODE", "tenant") // 测试使用 tenant 模式
 
 	// 打开数据库
 	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
@@ -75,16 +76,33 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
+	authorizer, err := svc.NewIAMAuthorizer(nil)
+	if err != nil {
+		t.Fatalf("NewIAMAuthorizer: %v", err)
+	}
 
 	// 创建服务
-	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, nil)
-	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, nil)
+	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, nil, authorizer)
+	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, nil, authorizer)
 
 	// 创建背景上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	ctx, err = ctxx.WithTenantID(ctx, "test-tenant")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
+	}
+	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
+		SubjectID:   1,
+		TenantID:    "test-tenant",
+		Permissions: []string{"*:*:*"},
+		IsSystem:    true,
+	})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+	ctx, err = authz.WithDataScope(ctx, authz.DataScope{TenantID: "test-tenant"})
+	if err != nil {
+		t.Fatalf("WithDataScope: %v", err)
 	}
 
 	return &groupServiceTestEnv{
@@ -791,9 +809,9 @@ func TestGroupServiceGetGroupTree_IsTenantScoped(t *testing.T) {
 		t.Fatalf("create tenant-a root: %v", err)
 	}
 
-	otherCtx, err := ctxx.WithTenantID(context.Background(), "other-tenant")
+	otherCtx, err := svc.BindTenantContext(env.backgroundCtx, "other-tenant")
 	if err != nil {
-		t.Fatalf("WithTenantID(other): %v", err)
+		t.Fatalf("BindTenantContext(other): %v", err)
 	}
 	if _, err := env.groupService.CreateGroup(otherCtx, &svc.CreateGroupRequest{
 		TenantID:    "other-tenant",

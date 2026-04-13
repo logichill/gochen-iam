@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"gochen-iam/auth"
+	"gochen/authz"
 	ctxx "gochen/contextx"
 	"gochen/errorx"
 	nethttp "gochen/httpx/nethttp"
@@ -78,8 +79,8 @@ func TestOptionalAuthMiddleware_InvalidToken_Returns401(t *testing.T) {
 }
 
 func TestOptionalAuthMiddleware_FixedModeInjectsTenantWithoutHeaderOrToken(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "fixed")
-	t.Setenv("IAM_FIXED_TENANT_ID", "fixed-tenant")
+	t.Setenv("IAM_TENANT_MODE", "single")
+	t.Setenv("IAM_SINGLE_TENANT_ID", "single-tenant")
 
 	resetRequiredPermissionsRegistryForTest()
 	strictRegistryValidated = 0
@@ -96,8 +97,8 @@ func TestOptionalAuthMiddleware_FixedModeInjectsTenantWithoutHeaderOrToken(t *te
 	called := false
 	err := mw(ctx, func() error {
 		called = true
-		if got := ctxx.TenantID(ctx.RequestContext()); got != "fixed-tenant" {
-			t.Fatalf("expected fixed-tenant, got %s", got)
+		if got := ctxx.TenantID(ctx.RequestContext()); got != "single-tenant" {
+			t.Fatalf("expected single-tenant, got %s", got)
 		}
 		return nil
 	})
@@ -110,7 +111,7 @@ func TestOptionalAuthMiddleware_FixedModeInjectsTenantWithoutHeaderOrToken(t *te
 }
 
 func TestOptionalAuthMiddleware_UsesTenantFromTokenWhenHeaderMissing(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "required") // 测试 required 模式下从 token 读取 tenant
+	t.Setenv("IAM_TENANT_MODE", "tenant") // 测试 tenant 模式下从 token 读取 tenant
 
 	resetRequiredPermissionsRegistryForTest()
 	strictRegistryValidated = 0
@@ -137,6 +138,16 @@ func TestOptionalAuthMiddleware_UsesTenantFromTokenWhenHeaderMissing(t *testing.
 		if got := ctxx.TenantID(ctx.RequestContext()); got != "tenant-a" {
 			t.Fatalf("expected tenant-a in context, got %s", got)
 		}
+		principal, ok := authz.PrincipalFromContext(ctx.RequestContext())
+		if !ok {
+			t.Fatalf("expected principal in request context")
+		}
+		if principal.SubjectID != 1 || principal.TenantID != "tenant-a" {
+			t.Fatalf("unexpected principal: %+v", principal)
+		}
+		if !principal.HasPermission("read") {
+			t.Fatalf("expected principal to include read permission")
+		}
 		return nil
 	})
 	if err != nil {
@@ -148,7 +159,7 @@ func TestOptionalAuthMiddleware_UsesTenantFromTokenWhenHeaderMissing(t *testing.
 }
 
 func TestOptionalAuthMiddleware_RejectsTenantMismatchBetweenHeaderAndToken(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "required") // 测试 required 模式下的跨租户拒绝
+	t.Setenv("IAM_TENANT_MODE", "tenant") // 测试 tenant 模式下的跨租户拒绝
 
 	resetRequiredPermissionsRegistryForTest()
 	strictRegistryValidated = 0
@@ -178,7 +189,7 @@ func TestOptionalAuthMiddleware_RejectsTenantMismatchBetweenHeaderAndToken(t *te
 }
 
 func TestOptionalAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "required")
+	t.Setenv("IAM_TENANT_MODE", "tenant")
 
 	resetRequiredPermissionsRegistryForTest()
 	strictRegistryValidated = 0
@@ -232,7 +243,7 @@ func TestOptionalAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.
 }
 
 func TestAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "required")
+	t.Setenv("IAM_TENANT_MODE", "tenant")
 
 	resetRequiredPermissionsRegistryForTest()
 	strictRegistryValidated = 0
@@ -271,6 +282,16 @@ func TestAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
 		called = true
 		if got := ctxx.TenantID(ctx.RequestContext()); got != "tenant-b" {
 			t.Fatalf("expected tenant-b in context, got %s", got)
+		}
+		principal, ok := authz.PrincipalFromContext(ctx.RequestContext())
+		if !ok {
+			t.Fatalf("expected principal in request context")
+		}
+		if principal.TenantID != "tenant-b" || principal.ActiveScopeType != "platform" {
+			t.Fatalf("unexpected principal: %+v", principal)
+		}
+		if !principal.HasPermission("*:*:*") {
+			t.Fatalf("expected platform wildcard permission in principal")
 		}
 		return nil
 	})

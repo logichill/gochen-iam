@@ -51,7 +51,7 @@
 - `tenant_id`（可选）
 - `roles`
 - `permissions`
-- `active_scope_id / active_scope_key / active_scope_type`
+- `active_scope_id / active_scope_code / active_scope_type`
 
 ### 关键环境变量（AuthConfig）
 
@@ -63,8 +63,8 @@
 - `AUTH_REQUIRE_TENANT`：是否强制要求 `tenant_id`
 - `AUTH_ALLOW_TENANT_QUERY`：是否允许从 query 读取 `tenant_id`
 - `AUTH_TENANT_HEADER`：tenant header key（默认 `X-Tenant-ID`）
-- `IAM_TENANT_MODE`：tenant 模式，支持 `fixed`（默认）/ `required`
-- `IAM_FIXED_TENANT_ID`：默认 tenant ID（默认值 `default`）。当 `IAM_TENANT_MODE` 为空或 `fixed` 时使用
+- `IAM_TENANT_MODE`：tenant 模式，支持 `single`（默认）/ `tenant`
+- `IAM_SINGLE_TENANT_ID`：单租户模式下的 tenant ID（默认值 `default`）。当 `IAM_TENANT_MODE` 为空或 `single` 时使用
 
 ---
 
@@ -124,8 +124,8 @@ gochen-iam 默认启用严格权限字典：仅允许为角色写入“系统已
 
 也支持“固定 tenant / 单租户模式”：
 
-- 设置 `IAM_TENANT_MODE=fixed`
-- 可选设置 `IAM_FIXED_TENANT_ID=<your-tenant>`，默认 `default`
+- 设置 `IAM_TENANT_MODE=single`
+- 可选设置 `IAM_SINGLE_TENANT_ID=<your-tenant>`，默认 `default`
 - 该模式下：
   - 请求无需显式传 `tenant_id`
   - 内部仍然保留 `tenant_id NOT NULL` 数据模型
@@ -379,7 +379,7 @@ CREATE UNIQUE INDEX uq_tenants_platform_slot ON tenants (platform_slot);
 > - 上述 SQL 以 PostgreSQL 语法为例；MySQL/SQLite 需调整 `BOOLEAN`、`NOW()`、`SET NOT NULL` 和条件索引语法。
 > - `parent_key` 必须先完成 backfill，再切换唯一索引；否则根组织唯一性仍然会被 `NULL parent_id` 漏掉。
 > - 如果历史数据里存在重复的“同租户同父节点同名”组织，建唯一索引前必须先清洗冲突数据。
-> - 若准备切到“固定 tenant / 单租户模式”，建议把历史数据统一回填为 `IAM_FIXED_TENANT_ID` 对应的值。
+> - 若准备切到“单租户模式”，建议把历史数据统一回填为 `IAM_SINGLE_TENANT_ID` 对应的值。
 > - `platform_slot` 是“全库最多一个 platform tenant”的唯一哨兵。非 platform tenant 应保持 `NULL`；platform tenant 建议固定回填为 `1`。
 > - `namespace_scope_id` 目前默认回填为租户 root scope；后续若角色要下沉到更细粒度 scope，再单独演进。
 > - 更完整的授权域设计背景，可参考 `docs/domain-authorization-design.md`。

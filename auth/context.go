@@ -13,7 +13,7 @@ const (
 	contextKeyPermissions     contextKey = "auth_permissions"
 	contextKeyPermSet         contextKey = "auth_permission_set"
 	contextKeyActiveScopeID   contextKey = "auth_active_scope_id"
-	contextKeyActiveScopeKey  contextKey = "auth_active_scope_key"
+	contextKeyActiveScopeCode contextKey = "auth_active_scope_code"
 	contextKeyActiveScopeType contextKey = "auth_active_scope_type"
 )
 
@@ -83,15 +83,15 @@ func PermissionSet(ctx httpx.IRequestContext) map[string]struct{} {
 }
 
 // WithActiveScope 将当前 token 生效的 active scope 写入请求上下文。
-func WithActiveScope(ctx httpx.IRequestContext, scopeID int64, scopeKey, scopeType string) httpx.IRequestContext {
+func WithActiveScope(ctx httpx.IRequestContext, scopeID int64, scopeCode, scopeType string) httpx.IRequestContext {
 	if ctx == nil {
 		return nil
 	}
 	if scopeID > 0 {
 		ctx = ctx.WithValue(contextKeyActiveScopeID, scopeID)
 	}
-	if scopeKey != "" {
-		ctx = ctx.WithValue(contextKeyActiveScopeKey, scopeKey)
+	if scopeCode != "" {
+		ctx = ctx.WithValue(contextKeyActiveScopeCode, scopeCode)
 	}
 	if scopeType != "" {
 		ctx = ctx.WithValue(contextKeyActiveScopeType, scopeType)
@@ -111,13 +111,13 @@ func ActiveScopeID(ctx httpx.IRequestContext) int64 {
 	return 0
 }
 
-func ActiveScopeKey(ctx httpx.IRequestContext) string {
+func ActiveScopeCode(ctx httpx.IRequestContext) string {
 	if ctx == nil {
 		return ""
 	}
-	if val := ctx.Value(contextKeyActiveScopeKey); val != nil {
-		if scopeKey, ok := val.(string); ok {
-			return scopeKey
+	if val := ctx.Value(contextKeyActiveScopeCode); val != nil {
+		if scopeCode, ok := val.(string); ok {
+			return scopeCode
 		}
 	}
 	return ""

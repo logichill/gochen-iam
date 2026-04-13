@@ -8,7 +8,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v4"
 
-	"gochen-iam/auth"
 	"gochen-iam/tenant"
 	ctxx "gochen/contextx"
 	"gochen/errorx"
@@ -167,13 +166,7 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return err
 		}
 
-		// 设置用户ID到上下文
 		reqCtx := ctx.RequestContext()
-		derived, derr := ctxx.WithUserID(reqCtx, claims.UserID)
-		if derr != nil {
-			return derr
-		}
-		reqCtx = reqCtx.WithContext(derived)
 
 		tenantID, err := tenant.ResolveRequestTenantIDWithScope(readRequestTenantID(ctx, config), claims.TenantID, claims.ActiveScopeType, config.RequireTenant)
 		if err != nil {
@@ -183,22 +176,14 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 			})
 			return err
 		}
-		if tenantID != "" {
-			derived, err := ctxx.WithTenantID(reqCtx, tenantID)
-			if err != nil {
-				recordAuthzDenied(ctx, AuditRecord{
-					Decision: "deny",
-					Reason:   "invalid tenant_id",
-				})
-				return err
-			}
-			reqCtx = reqCtx.WithContext(derived)
+		reqCtx, err = InjectClaimsRequestContext(reqCtx, tenantID, claims)
+		if err != nil {
+			recordAuthzDenied(ctx, AuditRecord{
+				Decision: "deny",
+				Reason:   "invalid auth claims context",
+			})
+			return err
 		}
-
-		// 注入角色、权限与 active scope 信息，供后续 RBAC / scope authorizer 使用
-		reqCtx = auth.WithRoles(reqCtx, claims.Roles)
-		reqCtx = auth.WithPermissions(reqCtx, claims.Permissions)
-		reqCtx = auth.WithActiveScope(reqCtx, claims.ActiveScopeID, claims.ActiveScopeKey, claims.ActiveScopeType)
 
 		ctx.SetContext(reqCtx)
 
@@ -232,7 +217,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 		reqCtx := ctx.RequestContext()
 		requestTenantID := readRequestTenantID(ctx, config)
 		tenantID := requestTenantID
-		if tenant.Current().IsFixed() {
+		if tenant.Current().IsSingle() {
 			var err error
 			tenantID, err = tenant.ResolveRequestTenantID(requestTenantID, "", config.RequireTenant)
 			if err != nil {
@@ -289,12 +274,6 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return err
 		}
 
-		// 验证成功，设置用户ID，并注入角色/权限信息
-		derived, derr := ctxx.WithUserID(reqCtx, claims.UserID)
-		if derr != nil {
-			return derr
-		}
-		reqCtx = reqCtx.WithContext(derived)
 		tenantID, err = tenant.ResolveRequestTenantIDWithScope(requestTenantID, claims.TenantID, claims.ActiveScopeType, config.RequireTenant)
 		if err != nil {
 			recordAuthzDenied(ctx, AuditRecord{
@@ -303,20 +282,14 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			})
 			return err
 		}
-		if tenantID != "" {
-			derived, err = ctxx.WithTenantID(reqCtx, tenantID)
-			if err != nil {
-				recordAuthzDenied(ctx, AuditRecord{
-					Decision: "deny",
-					Reason:   "invalid tenant_id",
-				})
-				return err
-			}
-			reqCtx = reqCtx.WithContext(derived)
+		reqCtx, err = InjectClaimsRequestContext(reqCtx, tenantID, claims)
+		if err != nil {
+			recordAuthzDenied(ctx, AuditRecord{
+				Decision: "deny",
+				Reason:   "invalid auth claims context",
+			})
+			return err
 		}
-		reqCtx = auth.WithRoles(reqCtx, claims.Roles)
-		reqCtx = auth.WithPermissions(reqCtx, claims.Permissions)
-		reqCtx = auth.WithActiveScope(reqCtx, claims.ActiveScopeID, claims.ActiveScopeKey, claims.ActiveScopeType)
 		ctx.SetContext(reqCtx)
 
 		// 认证成功后继续处理（无 token 已在上方直接放行；有 token 但无效会返回 401）。
@@ -382,7 +355,7 @@ type JWTClaims struct {
 	Roles           []string `json:"roles"`
 	Permissions     []string `json:"permissions"`
 	ActiveScopeID   int64    `json:"active_scope_id,omitempty"`
-	ActiveScopeKey  string   `json:"active_scope_key,omitempty"`
+	ActiveScopeCode string   `json:"active_scope_code,omitempty"`
 	ActiveScopeType string   `json:"active_scope_type,omitempty"`
 	jwt.RegisteredClaims
 }
@@ -398,7 +371,7 @@ func GenerateTokenWithScope(
 	tenantID, username string,
 	roles, permissions []string,
 	activeScopeID int64,
-	activeScopeKey, activeScopeType string,
+	activeScopeCode, activeScopeType string,
 	secretKey string,
 	ttl time.Duration,
 ) (string, error) {
@@ -417,7 +390,7 @@ func GenerateTokenWithScope(
 		Roles:           roles,
 		Permissions:     permissions,
 		ActiveScopeID:   activeScopeID,
-		ActiveScopeKey:  activeScopeKey,
+		ActiveScopeCode: activeScopeCode,
 		ActiveScopeType: activeScopeType,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
@@ -478,7 +451,7 @@ func RefreshToken(token, secretKey string) (string, error) {
 		claims.Roles,
 		claims.Permissions,
 		claims.ActiveScopeID,
-		claims.ActiveScopeKey,
+		claims.ActiveScopeCode,
 		claims.ActiveScopeType,
 		secretKey,
 		defaultAccessTokenTTL,

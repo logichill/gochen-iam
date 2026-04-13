@@ -4,11 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"gochen-iam/auth"
-	iammw "gochen-iam/middleware"
 	"gochen-iam/tenant"
 	"gochen/errorx"
-	"gochen/httpx"
 )
 
 func TenantIDFromContext(ctx context.Context) (string, error) {
@@ -20,25 +17,11 @@ func NormalizeTenantID(ctx context.Context, targetTenantID string) (string, erro
 }
 
 func RequireTenantMatch(ctx context.Context, targetTenantID string) (string, error) {
-	targetTenantID = strings.TrimSpace(targetTenantID)
-	if reqCtx, ok := ctx.(httpx.IRequestContext); ok && auth.ActiveScopeType(reqCtx) == string(iammw.ScopePlatform) {
-		if targetTenantID == "" {
-			return TenantIDFromContext(ctx)
-		}
-		return targetTenantID, nil
-	}
-	tenantID, err := NormalizeTenantID(ctx, targetTenantID)
+	resolution, err := resolveTenantAccess(ctx, targetTenantID)
 	if err != nil {
 		return "", err
 	}
-	currentTenantID, err := TenantIDFromContext(ctx)
-	if err != nil {
-		return "", err
-	}
-	if currentTenantID != tenantID {
-		return "", errorx.New(errorx.Forbidden, "跨租户访问被拒绝")
-	}
-	return tenantID, nil
+	return resolution.TenantID, nil
 }
 
 func RequireSameTenant(ctx context.Context, tenantIDs ...string) (string, error) {
@@ -61,9 +44,6 @@ func RequireSameTenant(ctx context.Context, tenantIDs ...string) (string, error)
 
 func RequirePermissionInTenant(ctx context.Context, scopeAuthorizer *ScopeAuthorizer, permission, tenantID string) error {
 	if scopeAuthorizer == nil {
-		return nil
-	}
-	if _, ok := ctx.(httpx.IRequestContext); !ok {
 		return nil
 	}
 	return scopeAuthorizer.RequirePermissionInTenant(ctx, permission, tenantID)

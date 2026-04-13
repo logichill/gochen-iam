@@ -13,19 +13,19 @@ import (
 type Mode string
 
 const (
-	ModeRequired Mode = "required"
-	ModeFixed    Mode = "fixed"
+	ModeTenant Mode = "tenant"
+	ModeSingle Mode = "single"
 
-	EnvTenantMode    = "IAM_TENANT_MODE"
-	EnvFixedTenantID = "IAM_FIXED_TENANT_ID"
+	EnvTenantMode     = "IAM_TENANT_MODE"
+	EnvSingleTenantID = "IAM_SINGLE_TENANT_ID"
 
-	DefaultFixedTenantID = "default"
-	activeScopePlatform  = "platform"
+	DefaultSingleTenantID = "default"
+	activeScopePlatform   = "platform"
 )
 
 type Policy struct {
-	Mode          Mode
-	FixedTenantID string
+	Mode           Mode
+	SingleTenantID string
 }
 
 // InstallTenantResolver 由组合根显式安装 CRUD tenant 解析策略。
@@ -33,37 +33,37 @@ func InstallTenantResolver() {
 	domaincrud.SetTenantResolver(domaincrud.TenantResolverFunc(ResolveTenantIDForFramework))
 }
 
-func fixedPolicy() Policy {
-	fixedTenantID := strings.TrimSpace(os.Getenv(EnvFixedTenantID))
-	if fixedTenantID == "" {
-		fixedTenantID = DefaultFixedTenantID
+func singlePolicy() Policy {
+	singleTenantID := strings.TrimSpace(os.Getenv(EnvSingleTenantID))
+	if singleTenantID == "" {
+		singleTenantID = DefaultSingleTenantID
 	}
 	return Policy{
-		Mode:          ModeFixed,
-		FixedTenantID: fixedTenantID,
+		Mode:           ModeSingle,
+		SingleTenantID: singleTenantID,
 	}
 }
 
 func Current() Policy {
 	rawMode := strings.TrimSpace(strings.ToLower(os.Getenv(EnvTenantMode)))
 	switch Mode(rawMode) {
-	case ModeRequired:
-		return Policy{Mode: ModeRequired}
-	case "", ModeFixed:
-		return fixedPolicy()
+	case ModeTenant:
+		return Policy{Mode: ModeTenant}
+	case "", ModeSingle:
+		return singlePolicy()
 	default:
-		return fixedPolicy()
+		return singlePolicy()
 	}
 }
 
-func (p Policy) IsFixed() bool {
-	return p.Mode == ModeFixed
+func (p Policy) IsSingle() bool {
+	return p.Mode == ModeSingle
 }
 
 func ResolveTenantID(ctx context.Context) (string, error) {
 	policy := Current()
-	if policy.IsFixed() {
-		return policy.FixedTenantID, nil
+	if policy.IsSingle() {
+		return policy.SingleTenantID, nil
 	}
 	tenantID := strings.TrimSpace(ctxx.TenantID(ctx))
 	if tenantID == "" {
@@ -74,8 +74,8 @@ func ResolveTenantID(ctx context.Context) (string, error) {
 
 func ResolveTenantIDForFramework(ctx context.Context) (string, error) {
 	policy := Current()
-	if policy.IsFixed() {
-		return policy.FixedTenantID, nil
+	if policy.IsSingle() {
+		return policy.SingleTenantID, nil
 	}
 	tenantID := strings.TrimSpace(ctxx.TenantID(ctx))
 	if tenantID == "" {
@@ -110,14 +110,14 @@ func ResolveRequestTenantIDWithScope(requestTenantID, tokenTenantID, activeScope
 	activeScopeType = strings.TrimSpace(strings.ToLower(activeScopeType))
 
 	policy := Current()
-	if policy.IsFixed() {
-		if requestTenantID != "" && requestTenantID != policy.FixedTenantID {
+	if policy.IsSingle() {
+		if requestTenantID != "" && requestTenantID != policy.SingleTenantID {
 			return "", errorx.New(errorx.Forbidden, "request tenant does not match configured tenant")
 		}
-		if tokenTenantID != "" && tokenTenantID != policy.FixedTenantID {
+		if tokenTenantID != "" && tokenTenantID != policy.SingleTenantID {
 			return "", errorx.New(errorx.Forbidden, "token tenant does not match configured tenant")
 		}
-		return policy.FixedTenantID, nil
+		return policy.SingleTenantID, nil
 	}
 
 	if activeScopeType == activeScopePlatform && requestTenantID != "" {

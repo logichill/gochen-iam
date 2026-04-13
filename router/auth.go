@@ -4,7 +4,6 @@ import (
 	"strings"
 	"time"
 
-	iamauth "gochen-iam/auth"
 	iammw "gochen-iam/middleware"
 	iamsvc "gochen-iam/service"
 	"gochen-iam/tenant"
@@ -137,7 +136,7 @@ func (ar *AuthRoutes) login(ctx httpx.IContext) error {
 		authResult.Roles,
 		authResult.Permissions,
 		authResult.ActiveScopeID,
-		authResult.ActiveScopeKey,
+		authResult.ActiveScopeCode,
 		authResult.ActiveScopeType,
 		ar.authConfig.SecretKey,
 		ar.authConfig.AccessTokenTTL,
@@ -202,17 +201,10 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(ctxx.TenantID(reqCtx)) != tenantID {
-		derived, err := ctxx.WithTenantID(reqCtx, tenantID)
-		if err != nil {
-			return err
-		}
-		reqCtx = reqCtx.WithContext(derived)
-		ctx.SetContext(reqCtx)
+	reqCtx, err = iammw.InjectClaimsRequestContext(reqCtx, tenantID, claims)
+	if err != nil {
+		return err
 	}
-	reqCtx = iamauth.WithRoles(reqCtx, claims.Roles)
-	reqCtx = iamauth.WithPermissions(reqCtx, claims.Permissions)
-	reqCtx = iamauth.WithActiveScope(reqCtx, claims.ActiveScopeID, claims.ActiveScopeKey, claims.ActiveScopeType)
 	ctx.SetContext(reqCtx)
 
 	// 2) 重新从数据源获取最新有效 RBAC（过滤软删/非激活角色，避免沿用旧 token 快照）
@@ -228,7 +220,7 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 		authSnapshot.Roles,
 		authSnapshot.Permissions,
 		authSnapshot.ActiveScopeID,
-		authSnapshot.ActiveScopeKey,
+		authSnapshot.ActiveScopeCode,
 		authSnapshot.ActiveScopeType,
 		ar.authConfig.SecretKey,
 		ar.authConfig.AccessTokenTTL,

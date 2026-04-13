@@ -5,11 +5,14 @@ import (
 	"time"
 
 	iamentity "gochen-iam/entity"
+	assocguard "gochen-iam/repo/internal/guard"
+	"gochen/authz"
 	"gochen/db/orm"
 	db "gochen/db/orm/repo"
 	dataquery "gochen/db/query"
 	"gochen/domain/crud"
 	"gochen/errorx"
+	"gochen/ident"
 )
 
 // UserRepo 用户数据访问层
@@ -17,9 +20,22 @@ type UserRepo struct {
 	*db.Repo[*iamentity.User, int64]
 }
 
+const (
+	userResourceKind  = "iam.user"
+	groupResourceKind = "iam.group"
+	roleResourceKind  = "iam.role"
+)
+
 // NewUserRepository 创建用户仓储。
 func NewUserRepository(o orm.IOrm) (*UserRepo, error) {
-	base, err := db.NewRepo[*iamentity.User, int64](o, "users")
+	base, err := db.NewRepo[*iamentity.User, int64](
+		o,
+		"users",
+		db.WithIDGenerator[*iamentity.User, int64](ident.DefaultInt64Generator()),
+		db.WithResourceKind[*iamentity.User, int64]("iam.user"),
+		db.WithSoftDeleteColumns[*iamentity.User, int64]("deleted_at", ""),
+		db.WithAuthzColumns[*iamentity.User, int64]("tenant_id", "scope_type", "scope_code", ""),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -30,6 +46,16 @@ func NewUserRepository(o orm.IOrm) (*UserRepo, error) {
 
 // Create 覆盖通用创建，省略非表字段（version/created_by/updated_by/deleted_by）
 func (r *UserRepo) Create(ctx context.Context, u *iamentity.User) error {
+	tenantID, err := crud.ResolveTenantID(ctx)
+	if err == nil {
+		if u.TenantID == "" {
+			u.TenantID = tenantID
+		} else if u.TenantID != tenantID {
+			return errorx.New(errorx.Forbidden, "跨租户访问被拒绝")
+		}
+	} else if !errorx.Is(err, errorx.InvalidInput) {
+		return err
+	}
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return err
@@ -39,11 +65,30 @@ func (r *UserRepo) Create(ctx context.Context, u *iamentity.User) error {
 
 // Update 覆盖通用更新，省略非表字段
 func (r *UserRepo) Update(ctx context.Context, u *iamentity.User) error {
+	tenantID, err := crud.ResolveTenantID(ctx)
+	if err != nil {
+		return err
+	}
+	if u.TenantID == "" {
+		u.TenantID = tenantID
+	} else if u.TenantID != tenantID {
+		return errorx.New(errorx.Forbidden, "跨租户访问被拒绝")
+	}
 	model, err := r.ModelFor(ctx)
 	if err != nil {
 		return err
 	}
-	return model.Save(ctx, u, orm.WithWhere("id = ? AND deleted_at IS NULL", u.GetID()))
+	return model.Save(ctx, u, orm.WithWhere("id = ? AND tenant_id = ? AND deleted_at IS NULL", u.GetID(), tenantID))
+}
+
+// CreateWithWriteGuard 在显式写边界下创建用户。
+func (r *UserRepo) CreateWithWriteGuard(ctx context.Context, u *iamentity.User, guard authz.WriteGuard) error {
+	return r.Repo.CreateWithWriteGuard(ctx, u, guard)
+}
+
+// UpdateWithWriteGuard 在显式写边界下更新用户。
+func (r *UserRepo) UpdateWithWriteGuard(ctx context.Context, u *iamentity.User, guard authz.WriteGuard) error {
+	return r.Repo.UpdateWithWriteGuard(ctx, u, guard)
 }
 
 // Query 覆盖通用查询，补齐用户分页列表所需的角色/组织关联。
@@ -55,59 +100,37 @@ func (r *UserRepo) Query(ctx context.Context, opts dataquery.QueryOptions) ([]*i
 	return r.hydrateUsersRelations(ctx, users)
 }
 
-// Get 根据ID获取用户（过滤软删记录）
+// Get 根据ID获取用户。
 func (r *UserRepo) Get(ctx context.Context, id int64) (*iamentity.User, error) {
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var user iamentity.User
-	err = model.First(ctx, &user, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
+	user, err := r.Repo.Get(ctx, id)
 	if err != nil {
 		if errorx.Is(err, errorx.NotFound) {
 			return nil, errorx.New(errorx.NotFound, "用户不存在")
 		}
 		return nil, errorx.Wrap(err, errorx.Database, "查询用户失败")
 	}
-	return &user, nil
+	return user, nil
 }
 
 // FindWithRelations 根据ID获取用户及关联数据
 func (r *UserRepo) FindWithRelations(ctx context.Context, id int64) (*iamentity.User, error) {
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var user iamentity.User
-	err = model.First(ctx, &user,
-		orm.WithWhere("users.id = ? AND users.deleted_at IS NULL", id),
-		orm.WithPreload("Groups"),
-		orm.WithPreload("Roles"),
-	)
-
+	user, err := r.Repo.GetWith(ctx, id, func(q *db.ScopedQuery) {
+		q.Preload("Groups", "Roles")
+	})
 	if err != nil {
 		if errorx.Is(err, errorx.NotFound) {
 			return nil, errorx.New(errorx.NotFound, "用户不存在")
 		}
 		return nil, errorx.Wrap(err, errorx.Database, "查询用户失败")
 	}
-
-	return &user, nil
+	return user, nil
 }
 
-// FindByEmail 根据邮箱查找用户（租户内唯一）
-func (r *UserRepo) FindByEmail(ctx context.Context, tenantID, email string) (*iamentity.User, error) {
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var user iamentity.User
-	err = model.First(ctx, &user,
-		orm.WithWhere("tenant_id = ? AND email = ? AND deleted_at IS NULL", tenantID, email),
-		orm.WithPreload("Groups"),
-		orm.WithPreload("Roles"),
-	)
-
+// FindByEmail 根据邮箱查找用户（租户内唯一）。
+func (r *UserRepo) FindByEmail(ctx context.Context, email string) (*iamentity.User, error) {
+	user, err := r.Repo.FindOneWith(ctx, func(q *db.ScopedQuery) {
+		q.Where("email = ?", email).Preload("Groups", "Roles")
+	})
 	if err != nil {
 		if errorx.Is(err, errorx.NotFound) {
 			return nil, errorx.New(errorx.NotFound, "用户不存在")
@@ -115,22 +138,14 @@ func (r *UserRepo) FindByEmail(ctx context.Context, tenantID, email string) (*ia
 		return nil, errorx.Wrap(err, errorx.Database, "查询用户失败")
 	}
 
-	return &user, nil
+	return user, nil
 }
 
-// FindByUsername 根据用户名查找用户（租户内唯一）
-func (r *UserRepo) FindByUsername(ctx context.Context, tenantID, username string) (*iamentity.User, error) {
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var user iamentity.User
-	err = model.First(ctx, &user,
-		orm.WithWhere("tenant_id = ? AND username = ? AND deleted_at IS NULL", tenantID, username),
-		orm.WithPreload("Groups"),
-		orm.WithPreload("Roles"),
-	)
-
+// FindByUsername 根据用户名查找用户（租户内唯一）。
+func (r *UserRepo) FindByUsername(ctx context.Context, username string) (*iamentity.User, error) {
+	user, err := r.Repo.FindOneWith(ctx, func(q *db.ScopedQuery) {
+		q.Where("username = ?", username).Preload("Groups", "Roles")
+	})
 	if err != nil {
 		if errorx.Is(err, errorx.NotFound) {
 			return nil, errorx.New(errorx.NotFound, "用户不存在")
@@ -138,7 +153,7 @@ func (r *UserRepo) FindByUsername(ctx context.Context, tenantID, username string
 		return nil, errorx.Wrap(err, errorx.Database, "查询用户失败")
 	}
 
-	return &user, nil
+	return user, nil
 }
 
 // UpdateLastLogin 更新最后登录时间
@@ -158,19 +173,17 @@ func (r *UserRepo) UpdateLastLogin(ctx context.Context, userID int64) error {
 	return nil
 }
 
-// FindByStatus 根据状态查找用户（租户隔离）
-func (r *UserRepo) FindByStatus(ctx context.Context, tenantID, status string) ([]*iamentity.User, error) {
-	model, err := r.ModelFor(ctx)
+// FindByStatus 根据状态查找用户。
+func (r *UserRepo) FindByStatus(ctx context.Context, status string) ([]*iamentity.User, error) {
+	var users []*iamentity.User
+	query, err := r.Repo.ScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var users []*iamentity.User
-	err = model.Find(ctx, &users,
-		orm.WithWhere("tenant_id = ? AND status = ? AND deleted_at IS NULL", tenantID, status),
-		orm.WithPreload("Groups"),
-		orm.WithPreload("Roles"),
-	)
-
+	err = query.
+		Where("status = ?", status).
+		Preload("Groups", "Roles").
+		Find(&users)
 	if err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "查询用户失败")
 	}
@@ -178,20 +191,18 @@ func (r *UserRepo) FindByStatus(ctx context.Context, tenantID, status string) ([
 	return users, nil
 }
 
-// FindByGroupID 根据组织ID查找用户（租户隔离）
-func (r *UserRepo) FindByGroupID(ctx context.Context, tenantID string, groupID int64) ([]*iamentity.User, error) {
-	model, err := r.ModelFor(ctx)
+// FindByGroupID 根据组织ID查找用户。
+func (r *UserRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamentity.User, error) {
+	var users []*iamentity.User
+	query, err := r.Repo.ScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var users []*iamentity.User
-	err = model.Find(ctx, &users,
-		orm.WithJoin(orm.InnerJoin("user_groups", "", orm.On("users.id", "user_groups.user_id"))),
-		orm.WithWhere("user_groups.group_id = ? AND users.tenant_id = ? AND users.deleted_at IS NULL", groupID, tenantID),
-		orm.WithPreload("Groups"),
-		orm.WithPreload("Roles"),
-	)
-
+	err = query.
+		Join(orm.InnerJoin("user_groups", "", orm.On("users.id", "user_groups.user_id"))).
+		Where("user_groups.group_id = ?", groupID).
+		Preload("Groups", "Roles").
+		Find(&users)
 	if err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "查询组织用户失败")
 	}
@@ -199,20 +210,18 @@ func (r *UserRepo) FindByGroupID(ctx context.Context, tenantID string, groupID i
 	return users, nil
 }
 
-// FindByRoleID 根据角色ID查找用户（租户隔离）
-func (r *UserRepo) FindByRoleID(ctx context.Context, tenantID string, roleID int64) ([]*iamentity.User, error) {
-	model, err := r.ModelFor(ctx)
+// FindByRoleID 根据角色ID查找用户。
+func (r *UserRepo) FindByRoleID(ctx context.Context, roleID int64) ([]*iamentity.User, error) {
+	var users []*iamentity.User
+	query, err := r.Repo.ScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var users []*iamentity.User
-	err = model.Find(ctx, &users,
-		orm.WithJoin(orm.InnerJoin("user_roles", "", orm.On("users.id", "user_roles.user_id"))),
-		orm.WithWhere("user_roles.role_id = ? AND users.tenant_id = ? AND users.deleted_at IS NULL", roleID, tenantID),
-		orm.WithPreload("Groups"),
-		orm.WithPreload("Roles"),
-	)
-
+	err = query.
+		Join(orm.InnerJoin("user_roles", "", orm.On("users.id", "user_roles.user_id"))).
+		Where("user_roles.role_id = ?", roleID).
+		Preload("Groups", "Roles").
+		Find(&users)
 	if err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "查询角色用户失败")
 	}
@@ -264,6 +273,21 @@ func (r *UserRepo) AssignToGroup(ctx context.Context, userID, groupID int64) err
 	return nil
 }
 
+// AssignToGroupWithWriteGuard 在显式多资源写边界下把用户加入组织。
+func (r *UserRepo) AssignToGroupWithWriteGuard(ctx context.Context, userID, groupID int64, guard authz.WriteGuard) error {
+	return r.mutateUserAssociationWithWriteGuard(
+		ctx,
+		userID,
+		"Groups",
+		groupResourceKind,
+		groupID,
+		&iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}},
+		false,
+		"分配用户到组织失败",
+		guard,
+	)
+}
+
 // RemoveFromGroup 从组织中移除用户
 func (r *UserRepo) RemoveFromGroup(ctx context.Context, userID, groupID int64) error {
 	user, err := r.Repo.Get(ctx, userID)
@@ -283,6 +307,21 @@ func (r *UserRepo) RemoveFromGroup(ctx context.Context, userID, groupID int64) e
 	}
 
 	return nil
+}
+
+// RemoveFromGroupWithWriteGuard 在显式多资源写边界下把用户移出组织。
+func (r *UserRepo) RemoveFromGroupWithWriteGuard(ctx context.Context, userID, groupID int64, guard authz.WriteGuard) error {
+	return r.mutateUserAssociationWithWriteGuard(
+		ctx,
+		userID,
+		"Groups",
+		groupResourceKind,
+		groupID,
+		&iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}},
+		true,
+		"从组织移除用户失败",
+		guard,
+	)
 }
 
 // AssignRole 为用户分配角色
@@ -306,6 +345,21 @@ func (r *UserRepo) AssignRole(ctx context.Context, userID, roleID int64) error {
 	return nil
 }
 
+// AssignRoleWithWriteGuard 在显式多资源写边界下给用户分配角色。
+func (r *UserRepo) AssignRoleWithWriteGuard(ctx context.Context, userID, roleID int64, guard authz.WriteGuard) error {
+	return r.mutateUserAssociationWithWriteGuard(
+		ctx,
+		userID,
+		"Roles",
+		roleResourceKind,
+		roleID,
+		&iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}},
+		false,
+		"分配角色失败",
+		guard,
+	)
+}
+
 // RemoveRole 移除用户角色
 func (r *UserRepo) RemoveRole(ctx context.Context, userID, roleID int64) error {
 	user, err := r.Repo.Get(ctx, userID)
@@ -327,24 +381,73 @@ func (r *UserRepo) RemoveRole(ctx context.Context, userID, roleID int64) error {
 	return nil
 }
 
-// CountByStatus 统计各状态用户数量（租户隔离）
-func (r *UserRepo) CountByStatus(ctx context.Context, tenantID string) (map[string]int64, error) {
+// RemoveRoleWithWriteGuard 在显式多资源写边界下移除用户角色。
+func (r *UserRepo) RemoveRoleWithWriteGuard(ctx context.Context, userID, roleID int64, guard authz.WriteGuard) error {
+	return r.mutateUserAssociationWithWriteGuard(
+		ctx,
+		userID,
+		"Roles",
+		roleResourceKind,
+		roleID,
+		&iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}},
+		true,
+		"移除角色失败",
+		guard,
+	)
+}
+
+func (r *UserRepo) mutateUserAssociationWithWriteGuard(
+	ctx context.Context,
+	userID int64,
+	association string,
+	relatedKind string,
+	relatedID int64,
+	related any,
+	remove bool,
+	message string,
+	guard authz.WriteGuard,
+) error {
+	if _, _, err := assocguard.RequirePair(guard, userResourceKind, userID, relatedKind, relatedID); err != nil {
+		return err
+	}
+
+	user, err := r.Repo.Get(ctx, userID)
+	if err != nil {
+		return err
+	}
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return err
+	}
+
+	associationRef := model.Association(user, association)
+	if remove {
+		err = associationRef.Delete(ctx, related)
+	} else {
+		err = associationRef.Append(ctx, related)
+	}
+	if err != nil {
+		return errorx.Wrap(err, errorx.Database, message)
+	}
+	return nil
+}
+
+// CountByStatus 统计各状态用户数量。
+func (r *UserRepo) CountByStatus(ctx context.Context) (map[string]int64, error) {
 	type StatusCount struct {
 		Status string `json:"status"`
 		Count  int64  `json:"count"`
 	}
 
 	var results []StatusCount
-	model, err := r.ModelFor(ctx)
+	query, err := r.Repo.ScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
-	err = model.Find(ctx, &results,
-		orm.WithSelect("status", "COUNT(*) as count"),
-		orm.WithWhere("tenant_id = ? AND deleted_at IS NULL", tenantID),
-		orm.WithGroupBy("status"),
-	)
-
+	err = query.
+		Select("status", "COUNT(*) as count").
+		GroupBy("status").
+		Find(&results)
 	if err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "统计用户状态失败")
 	}
@@ -357,29 +460,21 @@ func (r *UserRepo) CountByStatus(ctx context.Context, tenantID string) (map[stri
 	return statusMap, nil
 }
 
-// SearchUsers 搜索用户（支持用户名、邮箱模糊搜索，租户隔离）
-func (r *UserRepo) SearchUsers(ctx context.Context, tenantID, keyword string, limit int) ([]*iamentity.User, error) {
-	model, err := r.ModelFor(ctx)
+// SearchUsers 搜索用户（支持用户名、邮箱模糊搜索）。
+func (r *UserRepo) SearchUsers(ctx context.Context, keyword string, limit int) ([]*iamentity.User, error) {
+	var users []*iamentity.User
+	query, err := r.Repo.ScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var users []*iamentity.User
-	opts := []orm.QueryOption{
-		orm.WithWhere("tenant_id = ? AND deleted_at IS NULL", tenantID),
-		orm.WithPreload("Groups"),
-		orm.WithPreload("Roles"),
-	}
-
+	query.Preload("Groups", "Roles")
 	if keyword != "" {
-		opts = append(opts, orm.WithWhere("username LIKE ? OR email LIKE ?", "%"+keyword+"%", "%"+keyword+"%"))
+		query.Where("username LIKE ? OR email LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
 	}
-
 	if limit > 0 {
-		opts = append(opts, orm.WithLimit(limit))
+		query.Limit(limit)
 	}
-
-	err = model.Find(ctx, &users, opts...)
-
+	err = query.Find(&users)
 	if err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "搜索用户失败")
 	}

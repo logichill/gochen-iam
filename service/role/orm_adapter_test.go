@@ -71,6 +71,11 @@ type roleTestGormModel struct {
 	meta *orm.ModelMeta
 }
 
+type roleTestExecResult struct{ rows int64 }
+
+func (r roleTestExecResult) LastInsertId() (int64, error) { return 0, nil }
+func (r roleTestExecResult) RowsAffected() (int64, error) { return r.rows, nil }
+
 func (m *roleTestGormModel) Meta() *orm.ModelMeta { return m.meta }
 func (m *roleTestGormModel) Capabilities() orm.Capabilities {
 	return orm.NewCapabilities(
@@ -134,12 +139,39 @@ func (m *roleTestGormModel) UpdateValues(ctx context.Context, values map[string]
 	return nil
 }
 
+func (m *roleTestGormModel) SaveWithResult(ctx context.Context, entity any, opts ...orm.QueryOption) (sql.Result, error) {
+	db := m.apply(ctx, opts...)
+	tx := db.Updates(entity)
+	if err := tx.Error; err != nil {
+		return nil, convertRoleTestError(err)
+	}
+	return roleTestExecResult{rows: tx.RowsAffected}, nil
+}
+
+func (m *roleTestGormModel) UpdateValuesWithResult(ctx context.Context, values map[string]any, opts ...orm.QueryOption) (sql.Result, error) {
+	db := m.apply(ctx, opts...)
+	tx := db.Updates(values)
+	if err := tx.Error; err != nil {
+		return nil, convertRoleTestError(err)
+	}
+	return roleTestExecResult{rows: tx.RowsAffected}, nil
+}
+
 func (m *roleTestGormModel) Delete(ctx context.Context, opts ...orm.QueryOption) error {
 	db := m.apply(ctx, opts...)
 	if err := db.Delete(m.meta.NewModel()).Error; err != nil {
 		return convertRoleTestError(err)
 	}
 	return nil
+}
+
+func (m *roleTestGormModel) DeleteWithResult(ctx context.Context, opts ...orm.QueryOption) (sql.Result, error) {
+	db := m.apply(ctx, opts...)
+	tx := db.Delete(m.meta.NewModel())
+	if err := tx.Error; err != nil {
+		return nil, convertRoleTestError(err)
+	}
+	return roleTestExecResult{rows: tx.RowsAffected}, nil
 }
 
 func (m *roleTestGormModel) Association(owner any, name string) orm.IAssociation {

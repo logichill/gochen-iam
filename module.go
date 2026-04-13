@@ -38,6 +38,7 @@ func NewModule() (server.IModule, error) {
 			menurepo.NewMenuItemRepository,
 			// Services
 			iamservice.NewScopeAuthorizer,
+			iamservice.NewIAMAuthorizer,
 			tenantsvc.NewTenantService,
 			usersvc.NewUserService,
 			groupsvc.NewGroupService,

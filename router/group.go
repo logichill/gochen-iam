@@ -10,6 +10,7 @@ import (
 	svc "gochen-iam/service"
 	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
+	"gochen/authz"
 	dataquery "gochen/db/query"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
@@ -33,15 +34,21 @@ var groupQuerySchema = dataquery.MustInferQuerySchema[groupQueryFields](nil)
 type GroupRoutes struct {
 	groupService IGroupService
 	utils        *hbasic.Utils
-	groupRepo    domaincrud.IRepository[*iamentity.Group, int64]
+	groupRepo    domaincrud.IResourceBoundaryRepository[*iamentity.Group, int64]
+	authorizer   authz.IAuthorizer
 }
 
 // NewGroupRoutes 创建组织路由注册器
-func NewGroupRoutes(groupService IGroupService, groupRepo domaincrud.IRepository[*iamentity.Group, int64]) *GroupRoutes {
+func NewGroupRoutes(
+	groupService IGroupService,
+	groupRepo domaincrud.IResourceBoundaryRepository[*iamentity.Group, int64],
+	authorizer *authz.Authorizer,
+) *GroupRoutes {
 	return &GroupRoutes{
 		groupService: groupService,
 		utils:        &hbasic.Utils{},
-		groupRepo:    domaincrud.NewTenantAwareWrapper[*iamentity.Group, int64](groupRepo),
+		groupRepo:    groupRepo,
+		authorizer:   authorizer,
 	}
 }
 
@@ -69,6 +76,13 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	builder, err := restapi.NewApiBuilder(
 		appService,
 		restapi.WithQuerySchema[*iamentity.Group, int64](groupQuerySchema),
+		restapi.WithAuthorization[*iamentity.Group, int64](gr.authorizer, restapi.CRUDPermissions{
+			List:   "api:group:read",
+			Get:    "api:group:read",
+			Create: "api:group:write",
+			Update: "api:group:write",
+			Delete: "api:group:delete",
+		}),
 		restapi.WithHooks[*iamentity.Group, int64](func(h *appcrud.Hooks[*iamentity.Group, int64]) {
 			*h = *newGroupCRUDHooks(gr.groupRepo)
 		}),
@@ -81,11 +95,16 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 	if err := builder.
 		Route(func(cfg *restapi.RouteConfig[int64]) {
+			cfg.EnableBatch = false
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000
+			if cfg.Authorization != nil {
+				cfg.Authorization.Consistency = authz.ConsistencyModeStrong
+				cfg.Authorization.HighRisk = true
+			}
 		}).
-		Build(adminGroup); err != nil {
+		Build(groupGroup); err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("build group crud routes").WithContext("route", "iam.group")
 		}
@@ -380,7 +399,7 @@ func (gr *GroupRoutes) getGroupStatistics(ctx httpx.IContext) error {
 	return httpx.WriteSuccess(ctx, stats)
 }
 
-func newGroupCRUDHooks(repo domaincrud.IRepository[*iamentity.Group, int64]) *appcrud.Hooks[*iamentity.Group, int64] {
+func newGroupCRUDHooks(repo domaincrud.IResourceBoundaryRepository[*iamentity.Group, int64]) *appcrud.Hooks[*iamentity.Group, int64] {
 	return &appcrud.Hooks[*iamentity.Group, int64]{
 		BeforeCreate: func(ctx context.Context, group *iamentity.Group) error {
 			// 1. 租户隔离：从上下文注入 tenant_id
@@ -389,6 +408,9 @@ func newGroupCRUDHooks(repo domaincrud.IRepository[*iamentity.Group, int64]) *ap
 				return err
 			}
 			group.SetTenantID(tenantID)
+			if err := applyScopeFromContext(group, ctx); err != nil {
+				return err
+			}
 			// 2. 层级准备
 			return prepareGroupHierarchy(ctx, repo, nil, group)
 		},
@@ -396,12 +418,17 @@ func newGroupCRUDHooks(repo domaincrud.IRepository[*iamentity.Group, int64]) *ap
 			if group == nil {
 				return errorx.New(errorx.InvalidInput, "group cannot be nil")
 			}
-			current, err := repo.Get(ctx, group.GetID())
+			current, _, err := loadTenantBoundEntity(ctx, repo, group.GetID())
 			if err != nil {
 				return err
 			}
 			// 更新时始终沿用已存在实体的租户，避免请求体伪造/遗漏 tenant_id。
 			group.SetTenantID(current.GetTenantID())
+			group.SetScopeType(current.GetScopeType())
+			group.SetScopeCode(current.GetScopeCode())
+			if err := applyScopeFromContext(group, ctx); err != nil {
+				return err
+			}
 			return prepareGroupHierarchy(ctx, repo, current, group)
 		},
 		BeforeDelete: func(ctx context.Context, id int64) error {
@@ -412,7 +439,7 @@ func newGroupCRUDHooks(repo domaincrud.IRepository[*iamentity.Group, int64]) *ap
 
 func prepareGroupHierarchy(
 	ctx context.Context,
-	repo domaincrud.IRepository[*iamentity.Group, int64],
+	repo domaincrud.IResourceBoundaryRepository[*iamentity.Group, int64],
 	current *iamentity.Group,
 	group *iamentity.Group,
 ) error {
@@ -427,7 +454,7 @@ func prepareGroupHierarchy(
 		return errorx.New(errorx.Validation, "不能将组织设置为自己的父组织")
 	}
 
-	parent, err := repo.Get(ctx, *group.ParentID)
+	parent, _, err := loadTenantBoundEntity(ctx, repo, *group.ParentID)
 	if err != nil {
 		return errorx.Wrap(err, errorx.NotFound, "父组织不存在")
 	}

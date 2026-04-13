@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
+	"gochen/authz"
 	"gochen/db"
 	"gochen/db/orm"
 )
@@ -26,14 +27,16 @@ type capturingModel struct {
 
 	firstCalls       int
 	associationCalls int
+	lastFirstOpts    orm.QueryOptions
 
 	lastAssociation *capturingAssociation
 }
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities { return nil }
-func (m *capturingModel) First(context.Context, any, ...orm.QueryOption) error {
+func (m *capturingModel) First(_ context.Context, _ any, opts ...orm.QueryOption) error {
 	m.firstCalls++
+	m.lastFirstOpts = orm.CollectQueryOptions(opts...)
 	return nil
 }
 func (m *capturingModel) Find(context.Context, any, ...orm.QueryOption) error { return nil }
@@ -92,6 +95,15 @@ func (s *fakeSession) Raw() any               { return nil }
 func (s *fakeSession) Commit() error          { return nil }
 func (s *fakeSession) Rollback() error        { return nil }
 
+func withTenantPrincipal(t *testing.T, ctx context.Context, tenantID string) context.Context {
+	t.Helper()
+	derived, err := authz.WithPrincipal(ctx, authz.Principal{SubjectID: 1, TenantID: tenantID})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+	return derived
+}
+
 func TestGroupRepo_Get_UsesTxSessionModel(t *testing.T) {
 	o := &fakeOrm{
 		baseModel:    &capturingModel{},
@@ -106,6 +118,7 @@ func TestGroupRepo_Get_UsesTxSessionModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTxSession: %v", err)
 	}
+	txCtx = withTenantPrincipal(t, txCtx, "tenant-a")
 	if _, err := r.Get(txCtx, 1); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -132,6 +145,7 @@ func TestGroupRepo_AddUserToGroup_UsesTxSessionAssociation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTxSession: %v", err)
 	}
+	txCtx = withTenantPrincipal(t, txCtx, "tenant-a")
 	if err := r.AddUserToGroup(txCtx, 1, 2); err != nil {
 		t.Fatalf("AddUserToGroup: %v", err)
 	}
@@ -145,4 +159,44 @@ func TestGroupRepo_AddUserToGroup_UsesTxSessionAssociation(t *testing.T) {
 	if o.sessionModel.lastAssociation == nil || o.sessionModel.lastAssociation.appendCalls != 1 {
 		t.Fatalf("expected association Append called once")
 	}
+}
+
+func TestGroupRepo_Get_FiltersByTenantFromPrincipal(t *testing.T) {
+	o := &fakeOrm{
+		baseModel:    &capturingModel{},
+		sessionModel: &capturingModel{},
+	}
+	r, err := NewGroupRepository(o)
+	if err != nil {
+		t.Fatalf("NewGroupRepository: %v", err)
+	}
+
+	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
+	if _, err := r.Get(ctx, 7); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+
+	where := o.baseModel.lastFirstOpts.Where
+	requireCondition(t, where, "tenant_id = ?", "tenant-a")
+	requireCondition(t, where, "id = ?", int64(7))
+	requireCondition(t, where, "deleted_at IS NULL")
+}
+
+func requireCondition(t *testing.T, conditions []orm.Condition, expr string, wantArgs ...any) {
+	t.Helper()
+	for _, condition := range conditions {
+		if condition.Expr != expr {
+			continue
+		}
+		if len(condition.Args) != len(wantArgs) {
+			t.Fatalf("unexpected arg count for %q: %#v", expr, condition.Args)
+		}
+		for i := range wantArgs {
+			if condition.Args[i] != wantArgs[i] {
+				t.Fatalf("unexpected arg %d for %q: %#v", i, expr, condition.Args)
+			}
+		}
+		return
+	}
+	t.Fatalf("condition %q not found in %#v", expr, conditions)
 }

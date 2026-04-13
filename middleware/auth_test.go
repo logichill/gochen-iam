@@ -223,7 +223,7 @@ func TestRefreshToken_PreservesTenantClaim(t *testing.T) {
 }
 
 func TestResolveRequestTenantID(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "required") // 测试 required 模式下的行为
+	t.Setenv("IAM_TENANT_MODE", "tenant") // 测试 tenant 模式下的行为
 
 	tests := []struct {
 		name          string

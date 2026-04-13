@@ -2,17 +2,19 @@ package router
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
 	iamentity "gochen-iam/entity"
+	"gochen/authz"
 	ctxx "gochen/contextx"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 )
 
 func TestMain(m *testing.M) {
-	os.Setenv("IAM_TENANT_MODE", "required")
+	os.Setenv("IAM_TENANT_MODE", "tenant")
 	os.Exit(m.Run())
 }
 
@@ -21,7 +23,7 @@ type groupHookRepoStub struct {
 	updated []*iamentity.Group
 }
 
-var _ domaincrud.IRepository[*iamentity.Group, int64] = (*groupHookRepoStub)(nil)
+var _ domaincrud.IResourceBoundaryRepository[*iamentity.Group, int64] = (*groupHookRepoStub)(nil)
 
 func (s *groupHookRepoStub) Create(context.Context, *iamentity.Group) error { return nil }
 
@@ -43,11 +45,42 @@ func (s *groupHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Group, 
 	return &cp, nil
 }
 
+func (s *groupHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (authz.Resource, error) {
+	g, ok := s.groups[id]
+	if !ok {
+		return authz.Resource{}, errorx.New(errorx.NotFound, "组织不存在")
+	}
+	return authz.Resource{
+		Kind:     "iam.group",
+		ID:       "group",
+		TenantID: g.GetTenantID(),
+	}, nil
+}
+
 func tenantCtx(t *testing.T, tenantID string) context.Context {
 	t.Helper()
 	ctx, err := ctxx.WithTenantID(context.Background(), tenantID)
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
+	}
+	scopeCode := fmt.Sprintf("tenant:%s", tenantID)
+	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
+		SubjectID:       1,
+		TenantID:        tenantID,
+		ActiveScopeType: iamentity.ScopeTypeTenant,
+		ActiveScopeCode: scopeCode,
+	})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+	ctx, err = authz.WithDataScope(ctx, authz.DataScope{
+		TenantID:  tenantID,
+		ScopeType: iamentity.ScopeTypeTenant,
+		ScopeCode: scopeCode,
+		Mode:      authz.ScopeModeScoped,
+	})
+	if err != nil {
+		t.Fatalf("WithDataScope: %v", err)
 	}
 	return ctx
 }

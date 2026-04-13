@@ -72,6 +72,11 @@ type testGormModel struct {
 	meta *orm.ModelMeta
 }
 
+type testExecResult struct{ rows int64 }
+
+func (r testExecResult) LastInsertId() (int64, error) { return 0, nil }
+func (r testExecResult) RowsAffected() (int64, error) { return r.rows, nil }
+
 func (m *testGormModel) Meta() *orm.ModelMeta { return m.meta }
 func (m *testGormModel) Capabilities() orm.Capabilities {
 	return orm.NewCapabilities(
@@ -135,12 +140,39 @@ func (m *testGormModel) UpdateValues(ctx context.Context, values map[string]any,
 	return nil
 }
 
+func (m *testGormModel) SaveWithResult(ctx context.Context, entity any, opts ...orm.QueryOption) (sql.Result, error) {
+	db := m.apply(ctx, opts...)
+	tx := db.Updates(entity)
+	if err := tx.Error; err != nil {
+		return nil, convertTestError(err)
+	}
+	return testExecResult{rows: tx.RowsAffected}, nil
+}
+
+func (m *testGormModel) UpdateValuesWithResult(ctx context.Context, values map[string]any, opts ...orm.QueryOption) (sql.Result, error) {
+	db := m.apply(ctx, opts...)
+	tx := db.Updates(values)
+	if err := tx.Error; err != nil {
+		return nil, convertTestError(err)
+	}
+	return testExecResult{rows: tx.RowsAffected}, nil
+}
+
 func (m *testGormModel) Delete(ctx context.Context, opts ...orm.QueryOption) error {
 	db := m.apply(ctx, opts...)
 	if err := db.Delete(m.meta.NewModel()).Error; err != nil {
 		return convertTestError(err)
 	}
 	return nil
+}
+
+func (m *testGormModel) DeleteWithResult(ctx context.Context, opts ...orm.QueryOption) (sql.Result, error) {
+	db := m.apply(ctx, opts...)
+	tx := db.Delete(m.meta.NewModel())
+	if err := tx.Error; err != nil {
+		return nil, convertTestError(err)
+	}
+	return testExecResult{rows: tx.RowsAffected}, nil
 }
 
 func (m *testGormModel) Association(owner any, name string) orm.IAssociation {
