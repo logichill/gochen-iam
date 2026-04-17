@@ -52,8 +52,8 @@ func TestIsValidPermission(t *testing.T) {
 
 func TestValidatePermissions_StrictRegistry(t *testing.T) {
 	// 注册系统所需权限（模拟路由装配期调用 PermissionMiddleware）
-	_ = iammw.PermissionMiddleware("api:role_permission_validation_test:read")
-	_ = iammw.PermissionMiddleware("menu:role_permission_validation_test:view")
+	_ = iammw.PermissionMiddleware(iammw.PermissionCode("api:role_permission_validation_test:read"))
+	_ = iammw.PermissionMiddleware(iammw.PermissionCode("menu:role_permission_validation_test:view"))
 
 	s := &RoleService{}
 	if err := s.validatePermissions([]string{"api:role_permission_validation_test:read"}); err != nil {

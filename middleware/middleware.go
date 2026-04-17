@@ -91,19 +91,9 @@ func RoleMiddleware(requiredRole string) httpx.Middleware {
 
 // PermissionMiddleware 权限验证中间件。
 //
-// 为了平滑承接现有字符串调用点，这里同时接受：
-// - `PermissionSpec`
-// - `string`（内部会转换成 `PermissionCode(...)`）
-func PermissionMiddleware(required any) httpx.Middleware {
-	var requiredPermission PermissionDefinition
-	switch v := required.(type) {
-	case PermissionSpec:
-		requiredPermission = v.Definition()
-	case string:
-		requiredPermission = PermissionCode(v).Definition()
-	default:
-		requiredPermission = PermissionDefinition{}
-	}
+// 只接受结构化 PermissionSpec，避免字符串入口静默丢失风险等级等运行时元数据。
+func PermissionMiddleware(required PermissionSpec) httpx.Middleware {
+	requiredPermission := required.Definition()
 	if !IsValidPermissionCode(requiredPermission.Code) {
 		// 这是“装配期配置错误”，直接 fail-close，避免无意间放开保护。
 		return func(ctx httpx.IContext, next func() error) error {

@@ -259,7 +259,7 @@ func TestPermissionMiddleware_UsesRegisteredRiskMetadataForRuntime(t *testing.T)
 	ctx.SetContext(reqCtx)
 
 	called := false
-	err = PermissionMiddleware("api:task:write")(ctx, func() error {
+	err = PermissionMiddleware(PermissionCode("api:task:write"))(ctx, func() error {
 		called = true
 		if !authz.IsHighRiskAuthorizationFromContext(ctx.RequestContext()) {
 			t.Fatalf("expected high-risk authorization marker to be present")
@@ -302,7 +302,7 @@ func TestPermissionMiddleware_DoesNotMarkLowRiskPermissionAsHighRisk(t *testing.
 	ctx.SetContext(reqCtx)
 
 	called := false
-	err = PermissionMiddleware("api:task:read")(ctx, func() error {
+	err = PermissionMiddleware(PermissionCode("api:task:read"))(ctx, func() error {
 		called = true
 		if authz.IsHighRiskAuthorizationFromContext(ctx.RequestContext()) {
 			t.Fatalf("expected low-risk permission to avoid high-risk marker")

@@ -130,7 +130,7 @@
 ### 中间件与辅助函数
 
 - `middleware.RoleMiddleware(role)`
-- `middleware.PermissionMiddleware(permission)`
+- `middleware.PermissionMiddleware(permissionSpec)`
 - `middleware.AdminOnlyMiddleware()`
 - `middleware.PlatformScopeMiddleware()`
 - `middleware.UserOnlyMiddleware()`
@@ -139,7 +139,7 @@
 
 - `AdminOnlyMiddleware()` 要求当前 active scope 内具备 `*:*:*`
 - `PlatformScopeMiddleware()` 要求当前 active scope kind 为 `platform`
-- `PermissionMiddleware(...)` 既做运行期校验，也会把权限注册进 required permissions registry
+- `PermissionMiddleware(...)` 只接受结构化 `PermissionSpec`，既做运行期校验，也会把权限注册进 required permissions registry
 
 ### 权限码格式
 
@@ -229,7 +229,8 @@ repo / orm 默认围绕资源归属字段注入边界：
 当前菜单后台路由要求：
 
 - `AdminOnlyMiddleware()`
-- 对应 `PermissionMiddleware("api:menu:read|write|publish")`
+- 对应 `PermissionMiddleware(ApiPermission(ResourceMenu, ActionRead))`
+- 写操作 / 发布操作分别使用各自的结构化权限 spec，例如 `PermissionMiddleware(ApiPermission(ResourceMenu, ActionWrite))`
 
 ## 数据库迁移 / 回填
 

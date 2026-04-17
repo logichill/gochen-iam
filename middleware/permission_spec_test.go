@@ -75,3 +75,26 @@ func TestPermissionSet_CodeAndMustExposeActionIndexedAccess(t *testing.T) {
 		t.Fatalf("expected 6 codes, got %d", got)
 	}
 }
+
+func TestPermissionSpecDefinitionUsesCoreNormalization(t *testing.T) {
+	def := ApiPermission(ResourceUser, ActionWrite).
+		Label(" User Write ").
+		Desc(" Update user ").
+		Scope(ScopeTenant, ScopeTenant).
+		Builtin().
+		Risk(RiskLevelHigh).
+		Definition()
+
+	if def.Code != "api:user:write" {
+		t.Fatalf("expected normalized code, got %q", def.Code)
+	}
+	if def.Name != "User Write" || def.Description != "Update user" {
+		t.Fatalf("expected normalized metadata, got %#v", def)
+	}
+	if len(def.Scopes) != 1 || def.Scopes[0] != string(ScopeTenant) {
+		t.Fatalf("expected deduplicated scopes, got %#v", def.Scopes)
+	}
+	if !def.BuiltinOnly || def.RiskLevel != string(RiskLevelHigh) {
+		t.Fatalf("expected builtin high-risk definition, got %#v", def)
+	}
+}

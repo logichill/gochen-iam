@@ -1,14 +1,12 @@
 package middleware
 
-import (
-	"fmt"
-	"strings"
-)
+import "gochen/authz"
 
 type Resource string
-type Action string
-type ScopeType string
-type RiskLevel string
+
+type Action = authz.PermissionAction
+type ScopeType = authz.PermissionScope
+type RiskLevel = authz.PermissionRisk
 
 const (
 	ResourceAny    Resource = "*"
@@ -27,27 +25,27 @@ const (
 	ResourceStory  Resource = "story"
 	ResourceMCP    Resource = "mcp"
 
-	ActionAny      Action = "*"
-	ActionRead     Action = "read"
-	ActionList     Action = "list"
-	ActionWrite    Action = "write"
-	ActionDelete   Action = "delete"
-	ActionPublish  Action = "publish"
-	ActionActivate Action = "activate"
-	ActionManage   Action = "manage"
-	ActionAdmin    Action = "admin"
-	ActionView     Action = "view"
-	ActionInvoke   Action = "invoke"
-	ActionSelfRead Action = "read_self"
-	ActionSelfEdit Action = "update_self"
+	ActionAny      Action = authz.PermissionActionAny
+	ActionRead     Action = authz.PermissionActionRead
+	ActionList     Action = authz.PermissionActionList
+	ActionWrite    Action = authz.PermissionActionWrite
+	ActionDelete   Action = authz.PermissionActionDelete
+	ActionPublish  Action = authz.PermissionActionPublish
+	ActionActivate Action = authz.PermissionActionActivate
+	ActionManage   Action = authz.PermissionActionManage
+	ActionAdmin    Action = authz.PermissionActionAdmin
+	ActionView     Action = authz.PermissionActionView
+	ActionInvoke   Action = authz.PermissionActionInvoke
+	ActionSelfRead Action = authz.PermissionActionSelfRead
+	ActionSelfEdit Action = authz.PermissionActionSelfEdit
 
-	ScopePlatform ScopeType = "platform"
-	ScopeTenant   ScopeType = "tenant"
+	ScopePlatform ScopeType = authz.PermissionScopePlatform
+	ScopeTenant   ScopeType = authz.PermissionScopeTenant
 
-	RiskLevelLow      RiskLevel = "low"
-	RiskLevelMedium   RiskLevel = "medium"
-	RiskLevelHigh     RiskLevel = "high"
-	RiskLevelCritical RiskLevel = "critical"
+	RiskLevelLow      RiskLevel = authz.PermissionRiskLow
+	RiskLevelMedium   RiskLevel = authz.PermissionRiskMedium
+	RiskLevelHigh     RiskLevel = authz.PermissionRiskHigh
+	RiskLevelCritical RiskLevel = authz.PermissionRiskCritical
 )
 
 type PermissionSpec struct {
@@ -63,310 +61,234 @@ type PermissionSpec struct {
 }
 
 type PermissionSet struct {
-	specs    []PermissionSpec
-	byAction map[Action]PermissionSpec
+	inner authz.PermissionSet
 }
 
 func NewPermissionSet(specs ...PermissionSpec) PermissionSet {
-	specs = JoinPermissionSpecs(specs)
-	set := PermissionSet{
-		specs:    append([]PermissionSpec(nil), specs...),
-		byAction: make(map[Action]PermissionSpec, len(specs)),
-	}
-	for _, spec := range specs {
-		action := Action(strings.TrimSpace(string(spec.Action)))
-		if action == "" {
-			continue
-		}
-		set.byAction[action] = spec
-	}
-	return set
+	return PermissionSet{inner: authz.NewPermissionSet(toAuthzPermissionSpecs(specs)...)}
 }
 
 func NewAPIPermissionSet(resource Resource, actions ...Action) PermissionSet {
-	return NewPermissionSet(APIPermissions(resource, actions...)...)
+	return PermissionSet{inner: authz.NewAPIPermissionSet(string(resource), toAuthzActions(actions)...)}
 }
 
 func NewMenuPermissionSet(resource Resource, actions ...Action) PermissionSet {
-	return NewPermissionSet(MenuPermissions(resource, actions...)...)
+	return PermissionSet{inner: authz.NewMenuPermissionSet(string(resource), toAuthzActions(actions)...)}
 }
 
 func NewActionPermissionSet(resource Resource, actions ...Action) PermissionSet {
-	return NewPermissionSet(ActionPermissions(resource, actions...)...)
+	return PermissionSet{inner: authz.NewActionPermissionSet(string(resource), toAuthzActions(actions)...)}
 }
 
 func APIPermissions(resource Resource, actions ...Action) []PermissionSpec {
-	return permissionSpecs(PermissionTypeAPI, resource, actions...)
+	return fromAuthzPermissionSpecs(authz.APIPermissions(string(resource), toAuthzActions(actions)...))
 }
 
 func MenuPermissions(resource Resource, actions ...Action) []PermissionSpec {
-	return permissionSpecs(PermissionTypeMenu, resource, actions...)
+	return fromAuthzPermissionSpecs(authz.MenuPermissions(string(resource), toAuthzActions(actions)...))
 }
 
 func ActionPermissions(resource Resource, actions ...Action) []PermissionSpec {
-	return permissionSpecs(PermissionTypeAction, resource, actions...)
+	return fromAuthzPermissionSpecs(authz.ActionPermissions(string(resource), toAuthzActions(actions)...))
 }
 
 func ApiPermission(resource Resource, action Action) PermissionSpec {
-	return permissionSpec(PermissionTypeAPI, resource, action)
+	return fromAuthzPermissionSpec(authz.APIPermission(string(resource), action))
 }
 
 func MenuPermission(resource Resource, action Action) PermissionSpec {
-	return permissionSpec(PermissionTypeMenu, resource, action)
+	return fromAuthzPermissionSpec(authz.MenuPermission(string(resource), action))
 }
 
 func ActionPermission(resource Resource, action Action) PermissionSpec {
-	return permissionSpec(PermissionTypeAction, resource, action)
+	return fromAuthzPermissionSpec(authz.ActionPermission(string(resource), action))
 }
 
 func PermissionCode(code string) PermissionSpec {
-	code = strings.ToLower(strings.TrimSpace(code))
-	spec := PermissionSpec{Code: code}
-	if !IsValidPermissionCode(code) {
-		return spec
-	}
-	segments := strings.Split(code, ":")
-	spec.Type = PermissionType(segments[0])
-	spec.Resource = Resource(segments[1])
-	spec.Action = Action(segments[2])
-	return spec
+	return fromAuthzPermissionSpec(authz.PermissionCode(code))
 }
 
 func (s PermissionSet) Specs() []PermissionSpec {
-	return append([]PermissionSpec(nil), s.specs...)
+	return fromAuthzPermissionSpecs(s.inner.Specs())
 }
 
 func (s PermissionSet) Codes() []string {
-	return PermissionCodes(s.specs...)
+	return s.inner.Codes()
 }
 
 func (s PermissionSet) Definitions() []PermissionDefinition {
-	return PermissionDefinitions(s.specs...)
+	return PermissionDefinitionsFromAuthz(s.inner.Definitions()...)
 }
 
 func (s PermissionSet) Find(action Action) (PermissionSpec, bool) {
-	action = Action(strings.TrimSpace(string(action)))
-	if action == "" {
-		return PermissionSpec{}, false
-	}
-	spec, ok := s.byAction[action]
-	return spec, ok
+	spec, ok := s.inner.Find(action)
+	return fromAuthzPermissionSpec(spec), ok
 }
 
 func (s PermissionSet) Must(action Action) PermissionSpec {
-	spec, ok := s.Find(action)
-	if !ok {
-		return PermissionSpec{}
-	}
-	return spec
+	return fromAuthzPermissionSpec(s.inner.Must(action))
 }
 
 func (s PermissionSet) Code(action Action) string {
-	return s.Must(action).Code
+	return s.inner.Code(action)
 }
 
 func JoinActions(groups ...[]Action) []Action {
-	if len(groups) == 0 {
-		return nil
-	}
-	actions := make([]Action, 0)
-	for _, group := range groups {
-		actions = append(actions, group...)
-	}
-	return normalizeActions(actions)
+	joined := authz.JoinActions(toAuthzActionGroups(groups)...)
+	return append([]Action(nil), joined...)
 }
 
 func ReadWriteDeleteActions() []Action {
-	return []Action{ActionRead, ActionWrite, ActionDelete}
+	return append([]Action(nil), authz.ReadWriteDeleteActions()...)
 }
 
 func ReadWriteActions() []Action {
-	return []Action{ActionRead, ActionWrite}
+	return append([]Action(nil), authz.ReadWriteActions()...)
 }
 
 func ManageActions() []Action {
-	return []Action{ActionManage, ActionRead, ActionWrite, ActionDelete}
+	return append([]Action(nil), authz.ManageActions()...)
 }
 
 func SelfActions() []Action {
-	return []Action{ActionSelfRead, ActionSelfEdit}
+	return append([]Action(nil), authz.SelfActions()...)
 }
 
 func JoinPermissionSpecs(groups ...[]PermissionSpec) []PermissionSpec {
-	if len(groups) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{})
-	out := make([]PermissionSpec, 0)
-	for _, group := range groups {
-		for _, spec := range group {
-			code := strings.TrimSpace(spec.Code)
-			if code == "" {
-				continue
-			}
-			if _, ok := seen[code]; ok {
-				continue
-			}
-			seen[code] = struct{}{}
-			out = append(out, spec)
-		}
-	}
-	return out
+	return fromAuthzPermissionSpecs(authz.JoinPermissionSpecs(toAuthzPermissionSpecGroups(groups)...))
 }
 
 func PermissionByAction(specs []PermissionSpec, action Action) PermissionSpec {
-	action = Action(strings.TrimSpace(string(action)))
-	for _, spec := range specs {
-		if spec.Action == action {
-			return spec
-		}
-	}
-	return PermissionSpec{}
+	return fromAuthzPermissionSpec(authz.PermissionByAction(toAuthzPermissionSpecs(specs), action))
 }
 
 func PermissionCodes(specs ...PermissionSpec) []string {
-	if len(specs) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(specs))
-	out := make([]string, 0, len(specs))
-	for _, spec := range specs {
-		code := strings.ToLower(strings.TrimSpace(spec.Code))
-		if code == "" {
-			continue
-		}
-		if _, ok := seen[code]; ok {
-			continue
-		}
-		seen[code] = struct{}{}
-		out = append(out, code)
-	}
-	return out
+	return authz.PermissionCodesFromSpecs(toAuthzPermissionSpecs(specs)...)
 }
 
 func PermissionDefinitions(specs ...PermissionSpec) []PermissionDefinition {
-	if len(specs) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(specs))
-	out := make([]PermissionDefinition, 0, len(specs))
-	for _, spec := range specs {
-		code := strings.ToLower(strings.TrimSpace(spec.Code))
-		if code == "" {
-			continue
-		}
-		if _, ok := seen[code]; ok {
-			continue
-		}
-		seen[code] = struct{}{}
-		out = append(out, spec.Definition())
-	}
-	return out
-}
-
-func permissionSpecs(permissionType PermissionType, resource Resource, actions ...Action) []PermissionSpec {
-	actions = normalizeActions(actions)
-	if len(actions) == 0 {
-		return nil
-	}
-	specs := make([]PermissionSpec, 0, len(actions))
-	for _, action := range actions {
-		specs = append(specs, permissionSpec(permissionType, resource, action))
-	}
-	return specs
-}
-
-func permissionSpec(permissionType PermissionType, resource Resource, action Action) PermissionSpec {
-	spec := PermissionSpec{
-		Type:     permissionType,
-		Resource: resource,
-		Action:   action,
-	}
-	if resource != "" && action != "" {
-		spec.Code = fmt.Sprintf("%s:%s:%s", permissionType, resource, action)
-	}
-	return spec
-}
-
-func normalizeActions(actions []Action) []Action {
-	if len(actions) == 0 {
-		return nil
-	}
-	seen := make(map[Action]struct{}, len(actions))
-	out := make([]Action, 0, len(actions))
-	for _, action := range actions {
-		action = Action(strings.TrimSpace(string(action)))
-		if action == "" {
-			continue
-		}
-		if _, ok := seen[action]; ok {
-			continue
-		}
-		seen[action] = struct{}{}
-		out = append(out, action)
-	}
-	return out
+	return PermissionDefinitionsFromAuthz(authz.PermissionDefinitions(toAuthzPermissionSpecs(specs)...)...)
 }
 
 func (p PermissionSpec) Desc(description string) PermissionSpec {
-	p.Description = strings.TrimSpace(description)
-	return p
+	return fromAuthzPermissionSpec(p.toAuthz().Desc(description))
 }
 
 func (p PermissionSpec) Label(name string) PermissionSpec {
-	p.Name = strings.TrimSpace(name)
-	return p
+	return fromAuthzPermissionSpec(p.toAuthz().Label(name))
 }
 
 func (p PermissionSpec) Scope(scopes ...ScopeType) PermissionSpec {
-	if len(scopes) == 0 {
-		p.Scopes = nil
-		return p
-	}
-	seen := make(map[ScopeType]struct{}, len(scopes))
-	p.Scopes = p.Scopes[:0]
-	for _, scope := range scopes {
-		scope = ScopeType(strings.TrimSpace(string(scope)))
-		if scope == "" {
-			continue
-		}
-		if _, ok := seen[scope]; ok {
-			continue
-		}
-		seen[scope] = struct{}{}
-		p.Scopes = append(p.Scopes, scope)
-	}
-	return p
+	return fromAuthzPermissionSpec(p.toAuthz().Scope(toAuthzScopes(scopes)...))
 }
 
 func (p PermissionSpec) Builtin() PermissionSpec {
-	p.BuiltinOnly = true
-	return p
+	return fromAuthzPermissionSpec(p.toAuthz().Builtin())
 }
 
 func (p PermissionSpec) Risk(level RiskLevel) PermissionSpec {
-	p.RiskLevel = strings.TrimSpace(string(level))
-	return p
+	return fromAuthzPermissionSpec(p.toAuthz().Risk(level))
 }
 
 func (p PermissionSpec) Definition() PermissionDefinition {
-	def := PermissionDefinition{
-		Code:        strings.ToLower(strings.TrimSpace(p.Code)),
-		Type:        p.Type,
+	return PermissionDefinitionFromAuthz(p.toAuthz().Definition())
+}
+
+func (p PermissionSpec) toAuthz() authz.PermissionSpec {
+	spec := authz.PermissionSpec{
+		Code:        p.Code,
+		Type:        authz.PermissionType(p.Type),
 		Resource:    string(p.Resource),
-		Action:      string(p.Action),
+		Action:      p.Action,
 		Name:        p.Name,
 		Description: p.Description,
 		BuiltinOnly: p.BuiltinOnly,
 		RiskLevel:   p.RiskLevel,
 	}
 	if len(p.Scopes) > 0 {
-		def.Scopes = make([]string, 0, len(p.Scopes))
-		for _, scope := range p.Scopes {
-			if normalized := strings.TrimSpace(string(scope)); normalized != "" {
-				def.Scopes = append(def.Scopes, normalized)
-			}
-		}
+		spec.Scopes = toAuthzScopes(p.Scopes)
 	}
-	return def
+	return spec
+}
+
+func fromAuthzPermissionSpec(spec authz.PermissionSpec) PermissionSpec {
+	out := PermissionSpec{
+		Code:        spec.Code,
+		Type:        PermissionType(spec.Type),
+		Resource:    Resource(spec.Resource),
+		Action:      Action(spec.Action),
+		Name:        spec.Name,
+		Description: spec.Description,
+		BuiltinOnly: spec.BuiltinOnly,
+		RiskLevel:   spec.RiskLevel,
+	}
+	if len(spec.Scopes) > 0 {
+		out.Scopes = fromAuthzScopes(spec.Scopes)
+	}
+	return out
+}
+
+func toAuthzPermissionSpecs(specs []PermissionSpec) []authz.PermissionSpec {
+	if len(specs) == 0 {
+		return nil
+	}
+	out := make([]authz.PermissionSpec, 0, len(specs))
+	for _, spec := range specs {
+		out = append(out, spec.toAuthz())
+	}
+	return out
+}
+
+func fromAuthzPermissionSpecs(specs []authz.PermissionSpec) []PermissionSpec {
+	if len(specs) == 0 {
+		return nil
+	}
+	out := make([]PermissionSpec, 0, len(specs))
+	for _, spec := range specs {
+		out = append(out, fromAuthzPermissionSpec(spec))
+	}
+	return out
+}
+
+func toAuthzPermissionSpecGroups(groups [][]PermissionSpec) [][]authz.PermissionSpec {
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make([][]authz.PermissionSpec, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, toAuthzPermissionSpecs(group))
+	}
+	return out
+}
+
+func toAuthzActions(actions []Action) []authz.PermissionAction {
+	if len(actions) == 0 {
+		return nil
+	}
+	return append([]authz.PermissionAction(nil), actions...)
+}
+
+func toAuthzActionGroups(groups [][]Action) [][]authz.PermissionAction {
+	if len(groups) == 0 {
+		return nil
+	}
+	out := make([][]authz.PermissionAction, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, toAuthzActions(group))
+	}
+	return out
+}
+
+func toAuthzScopes(scopes []ScopeType) []authz.PermissionScope {
+	if len(scopes) == 0 {
+		return nil
+	}
+	return append([]authz.PermissionScope(nil), scopes...)
+}
+
+func fromAuthzScopes(scopes []authz.PermissionScope) []ScopeType {
+	if len(scopes) == 0 {
+		return nil
+	}
+	return append([]ScopeType(nil), scopes...)
 }
