@@ -12,7 +12,11 @@ import (
 
 func TestIAMAuthorizerCreateResourceUsesContextTenant(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
-	authorizer, err := NewIAMAuthorizer(nil)
+	registry, err := NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -46,7 +50,11 @@ func TestIAMAuthorizerCreateResourceUsesContextTenant(t *testing.T) {
 
 func TestIAMAuthorizerDeniesMixedTenantResources(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
-	authorizer, err := NewIAMAuthorizer(nil)
+	registry, err := NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -82,7 +90,11 @@ func TestIAMAuthorizerDeniesMixedTenantResources(t *testing.T) {
 
 func TestIAMAuthorizerDeniesCreateResourceWithForeignTenantBoundary(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
-	authorizer, err := NewIAMAuthorizer(nil)
+	registry, err := NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -120,7 +132,11 @@ func TestIAMAuthorizerDeniesCreateResourceWithForeignTenantBoundary(t *testing.T
 
 func TestIAMAuthorizerAllowsPlatformScopeCrossTenant(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
-	authorizer, err := NewIAMAuthorizer(nil)
+	registry, err := NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -148,7 +164,11 @@ func TestIAMAuthorizerAllowsPlatformScopeCrossTenant(t *testing.T) {
 }
 
 func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
-	authorizer, err := NewIAMAuthorizer(nil)
+	registry, err := NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -176,7 +196,11 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 }
 
 func TestIAMAuthorizerAllowsPlatformScopedMenuWrite(t *testing.T) {
-	authorizer, err := NewIAMAuthorizer(nil)
+	registry, err := NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}

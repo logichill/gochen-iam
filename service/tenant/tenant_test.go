@@ -66,7 +66,11 @@ func TestTenantService_ListTenants_FiltersSoftDeletedRows(t *testing.T) {
 	}
 
 	iammw.RegisterRequiredPermissionDefinitions(svc.AllPermissionDefinitions...)
-	authorizer, err := svc.NewIAMAuthorizer(nil)
+	authzRegistry, err := svc.NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	iamentity "gochen-iam/entity"
+	iammw "gochen-iam/middleware"
 
 	grouprepo "gochen-iam/repo/group"
 
@@ -574,7 +575,7 @@ func (s *UserService) ActivateUser(ctx context.Context, userID int64) error {
 	if err != nil {
 		return err
 	}
-	if err := s.updateUserWithAuthorization(tenantCtx, "api:user:write", user, user.Activate); err != nil {
+	if err := s.updateUserWithAuthorization(tenantCtx, svc.UserPermissionSet.Code(iammw.ActionWrite), user, user.Activate); err != nil {
 		return err
 	}
 	return nil
@@ -586,7 +587,7 @@ func (s *UserService) DeactivateUser(ctx context.Context, userID int64) error {
 	if err != nil {
 		return err
 	}
-	if err := s.updateUserWithAuthorization(tenantCtx, "api:user:write", user, user.Deactivate); err != nil {
+	if err := s.updateUserWithAuthorization(tenantCtx, svc.UserPermissionSet.Code(iammw.ActionWrite), user, user.Deactivate); err != nil {
 		return err
 	}
 	return nil
@@ -598,7 +599,7 @@ func (s *UserService) LockUser(ctx context.Context, userID int64) error {
 	if err != nil {
 		return err
 	}
-	if err := s.updateUserWithAuthorization(tenantCtx, "api:user:write", user, user.Lock); err != nil {
+	if err := s.updateUserWithAuthorization(tenantCtx, svc.UserPermissionSet.Code(iammw.ActionWrite), user, user.Lock); err != nil {
 		return err
 	}
 	return nil
@@ -610,7 +611,7 @@ func (s *UserService) UnlockUser(ctx context.Context, userID int64) error {
 	if err != nil {
 		return err
 	}
-	if err := s.updateUserWithAuthorization(tenantCtx, "api:user:write", user, user.Unlock); err != nil {
+	if err := s.updateUserWithAuthorization(tenantCtx, svc.UserPermissionSet.Code(iammw.ActionWrite), user, user.Unlock); err != nil {
 		return err
 	}
 	return nil
@@ -626,7 +627,7 @@ func (s *UserService) AssignRole(ctx context.Context, userID, roleID int64) erro
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:user:write", user, role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iammw.ActionWrite), user, role)
 	if err != nil {
 		return err
 	}
@@ -643,7 +644,7 @@ func (s *UserService) RemoveRole(ctx context.Context, userID, roleID int64) erro
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:user:write", user, role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iammw.ActionWrite), user, role)
 	if err != nil {
 		return err
 	}
@@ -660,7 +661,7 @@ func (s *UserService) AssignToGroup(ctx context.Context, userID, groupID int64) 
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:user:write", user, group)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iammw.ActionWrite), user, group)
 	if err != nil {
 		return err
 	}
@@ -677,7 +678,7 @@ func (s *UserService) RemoveFromGroup(ctx context.Context, userID, groupID int64
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:user:write", user, group)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iammw.ActionWrite), user, group)
 	if err != nil {
 		return err
 	}
@@ -694,7 +695,7 @@ func (s *UserService) UserPermissions(ctx context.Context, userID int64) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:user:read", user.TenantID); err != nil {
+	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.UserPermissionSet.Code(iammw.ActionRead), user.TenantID); err != nil {
 		return nil, err
 	}
 	if !user.IsActive() {
@@ -723,7 +724,7 @@ func (s *UserService) SearchUsers(ctx context.Context, keyword string, limit int
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:user:read", tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.UserPermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
@@ -739,7 +740,7 @@ func (s *UserService) UsersByStatus(ctx context.Context, status string) ([]*iame
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:user:read", tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.UserPermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
@@ -755,7 +756,7 @@ func (s *UserService) UserRoles(ctx context.Context, userID int64) ([]*iamentity
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:user:read", user.TenantID); err != nil {
+	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.UserPermissionSet.Code(iammw.ActionRead), user.TenantID); err != nil {
 		return nil, err
 	}
 	return s.roleRepo.FindByUserID(tenantCtx, userID)
@@ -767,7 +768,7 @@ func (s *UserService) UserGroups(ctx context.Context, userID int64) ([]*iamentit
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:user:read", user.TenantID); err != nil {
+	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.UserPermissionSet.Code(iammw.ActionRead), user.TenantID); err != nil {
 		return nil, err
 	}
 	return s.groupRepo.FindByUserID(tenantCtx, userID)

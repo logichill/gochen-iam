@@ -81,7 +81,11 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(nil)
+	authzRegistry, err := svc.NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}

@@ -148,7 +148,11 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	if err != nil {
 		t.Fatalf("rebind tenant context: %v", err)
 	}
-	authorizer, err := iamservice.NewIAMAuthorizer(scopeAuthorizer)
+	authzRegistry, err := iamservice.NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := iamservice.NewIAMAuthorizer(scopeAuthorizer, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}

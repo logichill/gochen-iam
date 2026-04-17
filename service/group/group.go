@@ -5,6 +5,7 @@ import (
 	"time"
 
 	iamentity "gochen-iam/entity"
+	iammw "gochen-iam/middleware"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
@@ -72,7 +73,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 	if managedScopeID == 0 {
 		return nil, errorx.New(errorx.InvalidInput, "managed scope is required")
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:write", &iamentity.Group{TenantID: tenantID})
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), &iamentity.Group{TenantID: tenantID})
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +202,7 @@ func (s *GroupService) UpdateGroup(
 		}
 		targets = appendGroupTargets(targets, descendants)
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:write", targets...)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), targets...)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +246,7 @@ func (s *GroupService) DeleteGroup(ctx context.Context, tenantID string, groupID
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:delete", group)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionDelete), group)
 	if err != nil {
 		return err
 	}
@@ -278,7 +279,7 @@ func (s *GroupService) GroupTree(ctx context.Context) ([]*svc.GroupTreeNode, err
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:group:read", tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
@@ -303,7 +304,7 @@ func (s *GroupService) RootGroups(ctx context.Context, tenantID string) ([]*iame
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:group:read", tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
@@ -319,7 +320,7 @@ func (s *GroupService) GroupsByLevel(ctx context.Context, level int) ([]*iamenti
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:group:read", tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
@@ -335,7 +336,7 @@ func (s *GroupService) GroupUsers(ctx context.Context, groupID int64) ([]*iament
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:group:read", group.TenantID); err != nil {
+	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), group.TenantID); err != nil {
 		return nil, err
 	}
 	return s.userRepo.FindByGroupID(tenantCtx, groupID)
@@ -351,7 +352,7 @@ func (s *GroupService) AddUserToGroup(ctx context.Context, groupID, userID int64
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:write", group, user)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), group, user)
 	if err != nil {
 		return err
 	}
@@ -368,7 +369,7 @@ func (s *GroupService) RemoveUserFromGroup(ctx context.Context, groupID, userID 
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:write", group, user)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), group, user)
 	if err != nil {
 		return err
 	}
@@ -418,7 +419,7 @@ func (s *GroupService) GroupRoles(ctx context.Context, groupID int64) ([]*iament
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:group:read", group.TenantID); err != nil {
+	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), group.TenantID); err != nil {
 		return nil, err
 	}
 	return s.roleRepo.FindByGroupID(tenantCtx, groupID)
@@ -434,7 +435,7 @@ func (s *GroupService) AddGroupRole(ctx context.Context, groupID, roleID int64) 
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:write", group, role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), group, role)
 	if err != nil {
 		return err
 	}
@@ -451,7 +452,7 @@ func (s *GroupService) RemoveGroupRole(ctx context.Context, groupID, roleID int6
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:write", group, role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), group, role)
 	if err != nil {
 		return err
 	}
@@ -464,7 +465,7 @@ func (s *GroupService) GroupStatistics(ctx context.Context) (*svc.StatisticsResp
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:group:read", tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)

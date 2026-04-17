@@ -77,11 +77,11 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		appService,
 		restapi.WithQuerySchema[*iamentity.Group, int64](groupQuerySchema),
 		restapi.WithAuthorization[*iamentity.Group, int64](gr.authorizer, restapi.CRUDPermissions{
-			List:   "api:group:read",
-			Get:    "api:group:read",
-			Create: "api:group:write",
-			Update: "api:group:write",
-			Delete: "api:group:delete",
+			List:   svc.GroupPermissionSet.Code(iammw.ActionRead),
+			Get:    svc.GroupPermissionSet.Code(iammw.ActionRead),
+			Create: svc.GroupPermissionSet.Code(iammw.ActionWrite),
+			Update: svc.GroupPermissionSet.Code(iammw.ActionWrite),
+			Delete: svc.GroupPermissionSet.Code(iammw.ActionDelete),
 		}),
 		restapi.WithHooks[*iamentity.Group, int64](func(h *appcrud.Hooks[*iamentity.Group, int64]) {
 			*h = *newGroupCRUDHooks(gr.groupRepo)

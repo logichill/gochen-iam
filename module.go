@@ -25,9 +25,14 @@ import (
 // NewModule 创建 IAM 领域模块
 func NewModule() (server.IModule, error) {
 	tenant.InstallTenantResolver()
+	if err := iamservice.InstallIAMPermissionCatalog(); err != nil {
+		return nil, err
+	}
 	return boot.BuildModule(
 		boot.Module("iam").
 			Name("IAM").
+			PermissionDefinitions(iamservice.IAMAuthzPermissionDefinitions()...).
+			ResourceResolver(iamservice.IAMResourceResolvers()...).
 			Provide(
 				// Repos
 				tenantrepo.NewTenantRepository,
@@ -54,7 +59,6 @@ func NewModule() (server.IModule, error) {
 				iamrouter.NewGroupRoutes,
 				iamrouter.NewTenantRoutes,
 				iamrouter.NewMenuRoutes,
-				NewStrictPermissionRegistryValidator,
 				NewAuthConfigValidator,
 			).
 			// IAM 模块既包含匿名可访问的登录/注册端点，也包含需要鉴权的管理端点。
@@ -63,23 +67,6 @@ func NewModule() (server.IModule, error) {
 				iammw.OptionalAuthMiddleware(nil),
 			),
 	), nil
-}
-
-type strictPermissionRegistryValidator struct{}
-
-// NewStrictPermissionRegistryValidator 创建Strict权限注册表Validator。
-func NewStrictPermissionRegistryValidator() *strictPermissionRegistryValidator {
-	return &strictPermissionRegistryValidator{}
-}
-
-// RegisterRoutes 注册路由集合。
-func (v *strictPermissionRegistryValidator) RegisterRoutes(httpx.IRouteGroup) error {
-	// 启动期 fail-close：严格权限字典模式校验（走 error 通道）。
-	iammw.RegisterRequiredPermissionDefinitions(iamservice.AllPermissionDefinitions...)
-	if err := iammw.ValidateStrictPermissionRegistry(); err != nil {
-		return errorx.Wrap(err, errorx.Internal, "strict permission registry validation failed")
-	}
-	return nil
 }
 
 // authConfigValidator 在启动期对鉴权配置做 fail-fast 校验。

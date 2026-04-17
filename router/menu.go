@@ -66,11 +66,11 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	builderOptions := []restapi.Option[*iamentity.MenuItem, int64]{}
 	if mr.authorizer != nil {
 		builderOptions = append(builderOptions, restapi.WithAuthorization[*iamentity.MenuItem, int64](mr.authorizer, restapi.CRUDPermissions{
-			List:   "api:menu:read",
-			Get:    "api:menu:read",
-			Create: "api:menu:write",
-			Update: "api:menu:write",
-			Delete: "api:menu:write",
+			List:   iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionRead).Code,
+			Get:    iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionRead).Code,
+			Create: iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionWrite).Code,
+			Update: iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionWrite).Code,
+			Delete: iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionWrite).Code,
 		}))
 	}
 	builder, err := restapi.NewApiBuilder(menuCRUD, builderOptions...)

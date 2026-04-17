@@ -6,6 +6,7 @@ import (
 
 	iamentity "gochen-iam/entity"
 	iamevent "gochen-iam/event"
+	iammw "gochen-iam/middleware"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
@@ -83,7 +84,7 @@ func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest
 			return nil, err
 		}
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", &iamentity.Role{TenantID: tenantID})
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), &iamentity.Role{TenantID: tenantID})
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +122,7 @@ func (s *RoleService) UpdateRole(ctx context.Context, roleID int64, req *svc.Upd
 		return nil, err
 	}
 	current := currentRoleSnapshot(role)
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), role)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +159,7 @@ func (s *RoleService) DeleteRole(ctx context.Context, roleID int64) error {
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:delete", role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionDelete), role)
 	if err != nil {
 		return err
 	}
@@ -182,7 +183,7 @@ func (s *RoleService) AssignRoleToUser(ctx context.Context, roleID, userID int64
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role, user)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), role, user)
 	if err != nil {
 		return err
 	}
@@ -212,7 +213,7 @@ func (s *RoleService) RemoveRoleFromUser(ctx context.Context, roleID, userID int
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role, user)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), role, user)
 	if err != nil {
 		return err
 	}
@@ -236,7 +237,7 @@ func (s *RoleService) AssignRoleToGroup(ctx context.Context, roleID, groupID int
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role, group)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), role, group)
 	if err != nil {
 		return err
 	}
@@ -260,7 +261,7 @@ func (s *RoleService) RemoveRoleFromGroup(ctx context.Context, roleID, groupID i
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role, group)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), role, group)
 	if err != nil {
 		return err
 	}
@@ -274,7 +275,7 @@ func (s *RoleService) AddPermission(ctx context.Context, roleID int64, permissio
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), role)
 	if err != nil {
 		return err
 	}
@@ -304,7 +305,7 @@ func (s *RoleService) RemovePermission(ctx context.Context, roleID int64, permis
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), role)
 	if err != nil {
 		return err
 	}
@@ -325,7 +326,7 @@ func (s *RoleService) ActivateRole(ctx context.Context, roleID int64) error {
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), role)
 	if err != nil {
 		return err
 	}
@@ -344,7 +345,7 @@ func (s *RoleService) DeactivateRole(ctx context.Context, roleID int64) error {
 	if role.IsSystem {
 		return errorx.New(errorx.Validation, "系统角色不能被停用")
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), role)
 	if err != nil {
 		return err
 	}
@@ -379,7 +380,7 @@ func (s *RoleService) CloneRole(ctx context.Context, roleID int64, newName strin
 	}
 
 	// 4. 保存克隆的角色
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", clonedRole)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), clonedRole)
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +397,7 @@ func (s *RoleService) RoleUsers(ctx context.Context, roleID int64) ([]*iamentity
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:role:read", role.TenantID); err != nil {
+	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iammw.ActionRead), role.TenantID); err != nil {
 		return nil, err
 	}
 	return s.userRepo.FindByRoleID(tenantCtx, roleID)
@@ -408,7 +409,7 @@ func (s *RoleService) RoleGroups(ctx context.Context, roleID int64) ([]*iamentit
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, "api:role:read", role.TenantID); err != nil {
+	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iammw.ActionRead), role.TenantID); err != nil {
 		return nil, err
 	}
 	return s.groupRepo.FindByDefaultRoleID(tenantCtx, roleID)
@@ -447,7 +448,7 @@ func (s *RoleService) SearchRoles(ctx context.Context, keyword string, limit int
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:role:read", tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
@@ -463,7 +464,7 @@ func (s *RoleService) ActiveRoles(ctx context.Context) ([]*iamentity.Role, error
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:role:read", tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
@@ -479,7 +480,7 @@ func (s *RoleService) SystemRoles(ctx context.Context) ([]*iamentity.Role, error
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:role:read", tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
@@ -495,7 +496,7 @@ func (s *RoleService) InitializeSystemRoles(ctx context.Context, tenantID string
 	if err != nil {
 		return err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:role:write", tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), tenantID); err != nil {
 		return err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
@@ -515,7 +516,7 @@ func (s *RoleService) RoleStatistics(ctx context.Context) (map[string]interface{
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, "api:role:read", tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)

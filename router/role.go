@@ -85,11 +85,11 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		appService,
 		restapi.WithQuerySchema[*iamentity.Role, int64](roleQuerySchema),
 		restapi.WithAuthorization[*iamentity.Role, int64](rr.authorizer, restapi.CRUDPermissions{
-			List:   "api:role:read",
-			Get:    "api:role:read",
-			Create: "api:role:write",
-			Update: "api:role:write",
-			Delete: "api:role:delete",
+			List:   svc.RolePermissionSet.Code(iammw.ActionRead),
+			Get:    svc.RolePermissionSet.Code(iammw.ActionRead),
+			Create: svc.RolePermissionSet.Code(iammw.ActionWrite),
+			Update: svc.RolePermissionSet.Code(iammw.ActionWrite),
+			Delete: svc.RolePermissionSet.Code(iammw.ActionDelete),
 		}),
 		restapi.WithHooks[*iamentity.Role, int64](func(h *appcrud.Hooks[*iamentity.Role, int64]) {
 			*h = *newScopeBackedRoleCRUDHooks(rr.roleRepo, rr.scopeAuthorizer, rr.governance)

@@ -76,11 +76,11 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		appService,
 		restapi.WithQuerySchema[*iamentity.User, int64](userQuerySchema),
 		restapi.WithAuthorization[*iamentity.User, int64](ur.authorizer, restapi.CRUDPermissions{
-			List:   "api:user:read",
-			Get:    "api:user:read",
-			Create: "api:user:write",
-			Update: "api:user:write",
-			Delete: "api:user:delete",
+			List:   iamsvc.UserPermissionSet.Code(iammw.ActionRead),
+			Get:    iamsvc.UserPermissionSet.Code(iammw.ActionRead),
+			Create: iamsvc.UserPermissionSet.Code(iammw.ActionWrite),
+			Update: iamsvc.UserPermissionSet.Code(iammw.ActionWrite),
+			Delete: iamsvc.UserPermissionSet.Code(iammw.ActionDelete),
 		}),
 		restapi.WithHooks[*iamentity.User, int64](func(h *appcrud.Hooks[*iamentity.User, int64]) {
 			*h = *TenantHooksForUser(ur.userRepo)

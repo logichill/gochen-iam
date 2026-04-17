@@ -43,7 +43,11 @@ func setupMenuServiceTest(t *testing.T) *menuServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewMenuItemRepository: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(nil)
+	authzRegistry, err := svc.NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}

@@ -64,11 +64,11 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	builder, err := restapi.NewApiBuilder(
 		appService,
 		restapi.WithAuthorization[*iamentity.Tenant, int64](tr.authorizer, restapi.CRUDPermissions{
-			List:   "api:tenant:read",
-			Get:    "api:tenant:read",
-			Create: "api:tenant:write",
-			Update: "api:tenant:write",
-			Delete: "api:tenant:delete",
+			List:   svc.TenantPermissionSet.Code(iammw.ActionRead),
+			Get:    svc.TenantPermissionSet.Code(iammw.ActionRead),
+			Create: svc.TenantPermissionSet.Code(iammw.ActionWrite),
+			Update: svc.TenantPermissionSet.Code(iammw.ActionWrite),
+			Delete: svc.TenantPermissionSet.Code(iammw.ActionDelete),
 		}),
 		restapi.WithHooks[*iamentity.Tenant, int64](func(h *appcrud.Hooks[*iamentity.Tenant, int64]) {
 			*h = *newTenantCRUDHooks(tr.tenantRepo, tr.scopeAuthorizer)

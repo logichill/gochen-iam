@@ -209,7 +209,7 @@ func (s *MenuService) UpdateMenuItem(
 		return nil, err
 	}
 
-	if err := s.updateMenuWithAuthorization(ctx, "api:menu:write", item); err != nil {
+	if err := s.updateMenuWithAuthorization(ctx, svc.MenuPermissionSet.Code(iammw.ActionWrite), item); err != nil {
 		return nil, err
 	}
 	s.logger.Info(ctx, "[MenuService] update menu",
@@ -347,7 +347,7 @@ func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsReque
 		if err := s.validateParentNoCycle(ctx, item.GetID(), item.ParentID); err != nil {
 			return nil, err
 		}
-		if err := s.updateMenuWithAuthorization(ctx, "api:menu:write", item); err != nil {
+		if err := s.updateMenuWithAuthorization(ctx, svc.MenuPermissionSet.Code(iammw.ActionWrite), item); err != nil {
 			return nil, err
 		}
 		if !created {
@@ -380,7 +380,7 @@ func (s *MenuService) RestoreMenuItem(ctx context.Context, id int64) (*iamentity
 	if err != nil {
 		return nil, err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, "api:menu:write", item)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, svc.MenuPermissionSet.Code(iammw.ActionWrite), item)
 	if err != nil {
 		return nil, err
 	}
@@ -401,7 +401,7 @@ func (s *MenuService) PurgeMenuItem(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, "api:menu:write", item)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, svc.MenuPermissionSet.Code(iammw.ActionWrite), item)
 	if err != nil {
 		return err
 	}
@@ -423,7 +423,7 @@ func (s *MenuService) PublishMenuItem(ctx context.Context, id int64, published b
 	}
 	item.Published = published
 	item.SetUpdatedAt(time.Now())
-	if err := s.updateMenuWithAuthorization(ctx, "api:menu:publish", item); err != nil {
+	if err := s.updateMenuWithAuthorization(ctx, svc.MenuPermissionSet.Code(iammw.ActionPublish), item); err != nil {
 		return nil, err
 	}
 	s.logger.Info(ctx, "[MenuService] publish menu",
@@ -436,7 +436,7 @@ func (s *MenuService) PublishMenuItem(ctx context.Context, id int64, published b
 
 // ListMenuItems 返回全部菜单定义。
 func (s *MenuService) ListMenuItems(ctx context.Context) ([]*iamentity.MenuItem, error) {
-	if err := s.authorizePlatform(ctx, "api:menu:read", &iamentity.MenuItem{}); err != nil {
+	if err := s.authorizePlatform(ctx, svc.MenuPermissionSet.Code(iammw.ActionRead), &iamentity.MenuItem{}); err != nil {
 		return nil, err
 	}
 	return s.menuRepo.ListAll(ctx)
@@ -544,7 +544,7 @@ func (s *MenuService) createMenuWithConstraint(ctx context.Context, item *iament
 }
 
 func (s *MenuService) createMenuWithAuthorization(ctx context.Context, item *iamentity.MenuItem) error {
-	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, "api:menu:write", item)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, svc.MenuPermissionSet.Code(iammw.ActionWrite), item)
 	if err != nil {
 		return err
 	}
@@ -588,7 +588,7 @@ func (s *MenuService) deleteMenuWithConstraint(ctx context.Context, item *iament
 }
 
 func (s *MenuService) deleteMenuWithAuthorization(ctx context.Context, item *iamentity.MenuItem) error {
-	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, "api:menu:write", item)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, svc.MenuPermissionSet.Code(iammw.ActionWrite), item)
 	if err != nil {
 		return err
 	}

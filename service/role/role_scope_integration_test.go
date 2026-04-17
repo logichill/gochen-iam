@@ -124,7 +124,11 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 		t.Fatalf("create role: %v", err)
 	}
 	scopeAuthorizer := svc.NewScopeAuthorizer(scopeRepo, tenantRepo)
-	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer)
+	authzRegistry, err := svc.NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -251,7 +255,11 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 	}
 
 	scopeAuthorizer := svc.NewScopeAuthorizer(scopeRepo, tenantRepo)
-	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer)
+	authzRegistry, err := svc.NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}

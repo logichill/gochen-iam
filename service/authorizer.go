@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	iamaccess "gochen-iam/access"
-	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	"gochen-iam/tenant"
 	appaccess "gochen/app/access"
@@ -27,25 +26,7 @@ const (
 // NewIAMAuthorizer 创建 IAM 领域统一授权器：
 // - 标准 CRUD 通过 route/builder 自动调用；
 // - 自定义单资源/关联写路径也复用同一套 permission + tenant/scope 决策。
-func NewIAMAuthorizer(scopeAuthorizer *ScopeAuthorizer) (*authz.Authorizer, error) {
-	registry := authz.NewResourceRegistry(
-		authz.TypedResourceResolver[*iamentity.User](func(target *iamentity.User) (authz.Resource, bool) {
-			return resourceFromEntity(UserResourceKind, target)
-		}),
-		authz.TypedResourceResolver[*iamentity.Group](func(target *iamentity.Group) (authz.Resource, bool) {
-			return resourceFromEntity(GroupResourceKind, target)
-		}),
-		authz.TypedResourceResolver[*iamentity.Role](func(target *iamentity.Role) (authz.Resource, bool) {
-			return resourceFromEntity(RoleResourceKind, target)
-		}),
-		authz.TypedResourceResolver[*iamentity.Tenant](func(target *iamentity.Tenant) (authz.Resource, bool) {
-			return platformResourceFromEntity(TenantResourceKind, target)
-		}),
-		authz.TypedResourceResolver[*iamentity.MenuItem](func(target *iamentity.MenuItem) (authz.Resource, bool) {
-			return platformResourceFromEntity(MenuResourceKind, target)
-		}),
-	)
-
+func NewIAMAuthorizer(scopeAuthorizer *ScopeAuthorizer, registry *authz.Registry) (*authz.Authorizer, error) {
 	return authz.NewAuthorizer(
 		authz.EvaluatorFunc(func(
 			ctx context.Context,

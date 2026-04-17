@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	iammw "gochen-iam/middleware"
 	"gochen/domain"
 	"gochen/domain/crud"
 	"gochen/errorx"
@@ -264,7 +265,7 @@ var (
 		Name:        "system_admin",
 		Description: "系统管理员，拥有所有权限",
 		Permissions: PermissionArray{
-			"*:*:*",
+			iammw.PermissionCode("*:*:*").Code,
 		},
 		IsSystem: true,
 		Status:   "active",
@@ -274,8 +275,8 @@ var (
 		Name:        "admin",
 		Description: "租户管理员，拥有租户内管理权限",
 		Permissions: PermissionArray{
-			"api:*:*",
-			"menu:*:view",
+			iammw.ApiPermission(iammw.ResourceAny, iammw.ActionAny).Code,
+			iammw.MenuPermission(iammw.ResourceAny, iammw.ActionView).Code,
 		},
 		IsSystem: true,
 		Status:   "active",
@@ -285,7 +286,8 @@ var (
 		Name:        "user",
 		Description: "普通用户角色",
 		Permissions: PermissionArray{
-			"api:user:read_self", "api:user:update_self",
+			iammw.ApiPermission(iammw.ResourceUser, iammw.ActionSelfRead).Code,
+			iammw.ApiPermission(iammw.ResourceUser, iammw.ActionSelfEdit).Code,
 		},
 		IsSystem: true,
 		Status:   "active",

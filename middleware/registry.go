@@ -38,6 +38,60 @@ type PermissionDefinition struct {
 	RiskLevel   string         `json:"risk_level,omitempty"`
 }
 
+// AuthzPermissionDefinition 将 IAM 权限 definition 转换为核心 authz definition。
+func (d PermissionDefinition) AuthzPermissionDefinition() authz.PermissionDefinition {
+	return authz.PermissionDefinition{
+		Code:        d.Code,
+		Type:        string(d.Type),
+		Resource:    d.Resource,
+		Action:      d.Action,
+		Name:        d.Name,
+		Description: d.Description,
+		Scopes:      append([]string(nil), d.Scopes...),
+		BuiltinOnly: d.BuiltinOnly,
+		RiskLevel:   d.RiskLevel,
+	}
+}
+
+// AuthzPermissionDefinitions 批量将 IAM 权限 definition 转换为核心 authz definition。
+func AuthzPermissionDefinitions(definitions ...PermissionDefinition) []authz.PermissionDefinition {
+	if len(definitions) == 0 {
+		return nil
+	}
+	out := make([]authz.PermissionDefinition, 0, len(definitions))
+	for _, definition := range definitions {
+		out = append(out, definition.AuthzPermissionDefinition())
+	}
+	return out
+}
+
+// PermissionDefinitionFromAuthz 将核心 authz definition 转换为 IAM 权限 definition。
+func PermissionDefinitionFromAuthz(definition authz.PermissionDefinition) PermissionDefinition {
+	return PermissionDefinition{
+		Code:        definition.Code,
+		Type:        PermissionType(strings.TrimSpace(definition.Type)),
+		Resource:    definition.Resource,
+		Action:      definition.Action,
+		Name:        definition.Name,
+		Description: definition.Description,
+		Scopes:      append([]string(nil), definition.Scopes...),
+		BuiltinOnly: definition.BuiltinOnly,
+		RiskLevel:   definition.RiskLevel,
+	}
+}
+
+// PermissionDefinitionsFromAuthz 批量将核心 authz definition 转换为 IAM 权限 definition。
+func PermissionDefinitionsFromAuthz(definitions ...authz.PermissionDefinition) []PermissionDefinition {
+	if len(definitions) == 0 {
+		return nil
+	}
+	out := make([]PermissionDefinition, 0, len(definitions))
+	for _, definition := range definitions {
+		out = append(out, PermissionDefinitionFromAuthz(definition))
+	}
+	return out
+}
+
 type registeredPermission struct {
 	definition PermissionDefinition
 	metas      []requiredPermissionMeta
@@ -61,14 +115,19 @@ func requiredPermissionsCount() int {
 // normalizePermissionDefinition 规范化权限Definition。
 func normalizePermissionDefinition(def PermissionDefinition) PermissionDefinition {
 	def.Code = strings.ToLower(strings.TrimSpace(def.Code))
-	if def.Code == "" || !IsValidPermissionCode(def.Code) {
+	if def.Code == "" {
 		return PermissionDefinition{}
 	}
-
-	segments := strings.Split(def.Code, ":")
-	def.Type = PermissionType(segments[0])
-	def.Resource = segments[1]
-	def.Action = segments[2]
+	if IsValidPermissionCode(def.Code) {
+		segments := strings.Split(def.Code, ":")
+		def.Type = PermissionType(segments[0])
+		def.Resource = segments[1]
+		def.Action = segments[2]
+	} else {
+		def.Type = PermissionType(strings.TrimSpace(string(def.Type)))
+		def.Resource = strings.TrimSpace(def.Resource)
+		def.Action = strings.TrimSpace(def.Action)
+	}
 	def.Name = strings.TrimSpace(def.Name)
 	def.Description = strings.TrimSpace(def.Description)
 	def.RiskLevel = strings.ToLower(strings.TrimSpace(def.RiskLevel))
@@ -297,15 +356,18 @@ func HasRequiredPermission(permission string) bool {
 		return false
 	}
 	normalized := strings.ToLower(strings.TrimSpace(permission))
-	if !IsValidPermissionCode(normalized) {
-		return false
-	}
 	requiredPermissionsRegistry.mu.RLock()
 	defer requiredPermissionsRegistry.mu.RUnlock()
 	if _, ok := requiredPermissionsRegistry.perms[normalized]; ok {
 		return true
 	}
+	if !IsValidPermissionCode(normalized) {
+		return false
+	}
 	for registered := range requiredPermissionsRegistry.perms {
+		if !IsValidPermissionCode(registered) {
+			continue
+		}
 		if authz.PermissionPatternMatches(normalized, registered) || authz.PermissionPatternMatches(registered, normalized) {
 			return true
 		}

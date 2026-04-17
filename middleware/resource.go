@@ -7,7 +7,7 @@ import (
 
 // IsAdmin 判断当前 active scope 是否具备管理员级全量权限。
 func IsAdmin(ctx httpx.IRequestContext) bool {
-	return HasPermission(ctx, "*:*:*")
+	return HasPermission(ctx, PermissionCode("*:*:*").Code)
 }
 
 // RequireSelfOrAdmin 要求“本人”或“管理员”。
