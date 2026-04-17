@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"gochen/authz"
+	ctxx "gochen/contextx"
 	"gochen/db"
 	"gochen/db/orm"
 )
@@ -83,7 +84,7 @@ func (s *fakeSession) Model(meta *orm.ModelMeta) (orm.IModel, error) {
 	case "roles":
 		s.parent.sessionRoleModel.meta = meta
 		return s.parent.sessionRoleModel, nil
-	case "user_roles":
+	case "user_role_bindings":
 		s.parent.sessionUserRoleModel.meta = meta
 		return s.parent.sessionUserRoleModel, nil
 	case "group_roles":
@@ -104,9 +105,13 @@ func (s *fakeSession) Rollback() error        { return nil }
 
 func withTenantPrincipal(t *testing.T, ctx context.Context, tenantID string) context.Context {
 	t.Helper()
-	derived, err := authz.WithPrincipal(ctx, authz.Principal{SubjectID: 1, TenantID: tenantID})
+	derived, err := authz.WithPrincipal(ctx, authz.Principal{SubjectID: 1, ActiveScopeID: 1})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
+	}
+	derived, err = ctxx.WithTenantID(derived, tenantID)
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
 	}
 	return derived
 }
@@ -166,7 +171,7 @@ func TestRoleRepo_GetRoleUsageStats_UsesTxSessionEngineModels(t *testing.T) {
 		t.Fatalf("expected roles query on session model, got findCalls=%d", o.sessionRoleModel.findCalls)
 	}
 	if o.sessionUserRoleModel.findCalls != 1 {
-		t.Fatalf("expected user_roles query on session model, got findCalls=%d", o.sessionUserRoleModel.findCalls)
+		t.Fatalf("expected user_role_bindings query on session model, got findCalls=%d", o.sessionUserRoleModel.findCalls)
 	}
 	if o.sessionGroupRoleModel.findCalls != 1 {
 		t.Fatalf("expected group_roles query on session model, got findCalls=%d", o.sessionGroupRoleModel.findCalls)

@@ -18,10 +18,10 @@ type Group struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	TenantID  string `json:"tenant_id" gorm:"size:64;not null;index;index:idx_group_scope,priority:1;uniqueIndex:idx_group_name_parent_tenant"`
-	ScopeType string `json:"scope_type,omitempty" gorm:"size:32;not null;default:'';index:idx_group_scope,priority:2"`
-	ScopeCode string `json:"scope_code,omitempty" gorm:"size:128;not null;default:'';index:idx_group_scope,priority:3"`
-	Name      string `json:"name" gorm:"size:100;not null;uniqueIndex:idx_group_name_parent_tenant"`
+	TenantID       string `json:"tenant_id" gorm:"size:64;not null;index;uniqueIndex:idx_group_name_parent_tenant"`
+	ManagedScopeID int64  `json:"managed_scope_id" gorm:"not null;index"`
+	OwnerID        string `json:"owner_id" gorm:"size:128;not null;index"`
+	Name           string `json:"name" gorm:"size:100;not null;uniqueIndex:idx_group_name_parent_tenant"`
 	// Code 用于承接管理端当前仍会回传的组织编码字段；当前 groups 表未持久化该列。
 	Code        string `json:"code,omitempty" gorm:"-"`
 	Description string `json:"description" gorm:"size:500"`
@@ -46,6 +46,12 @@ func (Group) TableName() string {
 func (g *Group) Validate() error {
 	if g.TenantID == "" {
 		return errorx.New(errorx.Validation, "租户ID不能为空")
+	}
+	if g.ManagedScopeID <= 0 {
+		return errorx.New(errorx.Validation, "managed_scope_id 不能为空")
+	}
+	if g.OwnerID == "" {
+		return errorx.New(errorx.Validation, "owner_id 不能为空")
 	}
 	if err := validation.ValidateRequired(g.Name, "group name"); err != nil {
 		return errorx.New(errorx.Validation, "组织名称不能为空")
@@ -97,17 +103,17 @@ func (g *Group) GetTenantID() string { return g.TenantID }
 // SetTenantID 设置租户ID。
 func (g *Group) SetTenantID(tenantID string) { g.TenantID = tenantID }
 
-// GetScopeType 返回授权域类型。
-func (g *Group) GetScopeType() string { return g.ScopeType }
+// GetManagedScopeID 返回资源归属的管理 scope。
+func (g *Group) GetManagedScopeID() int64 { return g.ManagedScopeID }
 
-// SetScopeType 设置授权域类型。
-func (g *Group) SetScopeType(scopeType string) { g.ScopeType = scopeType }
+// SetManagedScopeID 设置资源归属的管理 scope。
+func (g *Group) SetManagedScopeID(scopeID int64) { g.ManagedScopeID = scopeID }
 
-// GetScopeCode 返回授权域编码。
-func (g *Group) GetScopeCode() string { return g.ScopeCode }
+// GetOwnerID 返回资源 owner 标识。
+func (g *Group) GetOwnerID() string { return g.OwnerID }
 
-// SetScopeCode 设置授权域编码。
-func (g *Group) SetScopeCode(scopeCode string) { g.ScopeCode = scopeCode }
+// SetOwnerID 设置资源 owner 标识。
+func (g *Group) SetOwnerID(ownerID string) { g.OwnerID = ownerID }
 
 // IsRootGroup 检查是否为根组织
 func (g *Group) IsRootGroup() bool {

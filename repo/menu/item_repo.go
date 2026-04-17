@@ -6,7 +6,8 @@ import (
 	"time"
 
 	iamentity "gochen-iam/entity"
-	"gochen/authz"
+	assocguard "gochen-iam/repo/internal/guard"
+	iamaccess "gochen-iam/access"
 	"gochen/db/orm"
 	db "gochen/db/orm/repo"
 	"gochen/errorx"
@@ -41,6 +42,18 @@ func (r *MenuItemRepo) Create(ctx context.Context, m *iamentity.MenuItem) error 
 // Update 更新记录。
 func (r *MenuItemRepo) Update(ctx context.Context, m *iamentity.MenuItem) error {
 	return r.Repo.Update(ctx, m)
+}
+
+func (r *MenuItemRepo) CreateWithConstraint(ctx context.Context, item *iamentity.MenuItem, guard iamaccess.WriteConstraint) error {
+	return r.Repo.CreateWithConstraint(assocguard.BindContext(ctx, guard), item, guard.Unwrap())
+}
+
+func (r *MenuItemRepo) UpdateWithConstraint(ctx context.Context, item *iamentity.MenuItem, guard iamaccess.WriteConstraint) error {
+	return r.Repo.UpdateWithConstraint(assocguard.BindContext(ctx, guard), item, guard.Unwrap())
+}
+
+func (r *MenuItemRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
+	return r.Repo.DeleteWithConstraint(assocguard.BindContext(ctx, guard), id, guard.Unwrap())
 }
 
 // Get 返回当前值。
@@ -164,13 +177,13 @@ func (r *MenuItemRepo) RestoreByID(ctx context.Context, id int64) (*iamentity.Me
 	return item, nil
 }
 
-// RestoreByIDWithWriteGuard 在显式写边界下恢复软删菜单。
-func (r *MenuItemRepo) RestoreByIDWithWriteGuard(ctx context.Context, id int64, guard authz.WriteGuard) (*iamentity.MenuItem, error) {
+// RestoreByIDWithConstraint 在显式写边界下恢复软删菜单。
+func (r *MenuItemRepo) RestoreByIDWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) (*iamentity.MenuItem, error) {
 	item, err := r.GetWithDeleted(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	_, expectedVersion, err := r.requireGuardedMenu(guard, id)
+	_, expectedVersion, err := r.requireConstrainedMenu(guard, id)
 	if err != nil {
 		return nil, err
 	}
@@ -213,13 +226,13 @@ func (r *MenuItemRepo) PurgeByID(ctx context.Context, id int64) error {
 	return nil
 }
 
-// PurgeByIDWithWriteGuard 在显式写边界下硬删菜单。
-func (r *MenuItemRepo) PurgeByIDWithWriteGuard(ctx context.Context, id int64, guard authz.WriteGuard) error {
+// PurgeByIDWithConstraint 在显式写边界下硬删菜单。
+func (r *MenuItemRepo) PurgeByIDWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
 	item, err := r.GetWithDeleted(ctx, id)
 	if err != nil {
 		return err
 	}
-	_, expectedVersion, err := r.requireGuardedMenu(guard, id)
+	_, expectedVersion, err := r.requireConstrainedMenu(guard, id)
 	if err != nil {
 		return err
 	}
@@ -245,14 +258,14 @@ func (r *MenuItemRepo) PurgeByIDWithWriteGuard(ctx context.Context, id int64, gu
 	return nil
 }
 
-func (r *MenuItemRepo) requireGuardedMenu(guard authz.WriteGuard, id int64) (authz.ResourceWriteGuard, uint64, error) {
+func (r *MenuItemRepo) requireConstrainedMenu(guard iamaccess.WriteConstraint, id int64) (iamaccess.ResourceConstraint, uint64, error) {
 	resource, err := guard.RequireResource("iam.menu", strconv.FormatInt(id, 10))
 	if err != nil {
-		return authz.ResourceWriteGuard{}, 0, err
+		return iamaccess.ResourceConstraint{}, 0, err
 	}
 	expectedVersion, err := strconv.ParseUint(resource.Revision, 10, 64)
 	if err != nil {
-		return authz.ResourceWriteGuard{}, 0, errorx.Wrap(err, errorx.InvalidInput, "invalid menu write guard revision")
+		return iamaccess.ResourceConstraint{}, 0, errorx.Wrap(err, errorx.InvalidInput, "invalid menu write constraint revision")
 	}
 	return resource, expectedVersion, nil
 }

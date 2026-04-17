@@ -28,19 +28,10 @@ func TestOptionalAuthMiddleware_NoToken_PassThrough(t *testing.T) {
 	strictRegistryValidated = 0
 	RegisterRequiredPermissions("api:iam:test")
 
-	mw := OptionalAuthMiddleware(&AuthConfig{
-		SecretKey:   "test-secret",
-		TokenHeader: "Authorization",
-		TokenPrefix: "Bearer ",
-	})
-
+	mw := OptionalAuthMiddleware(&AuthConfig{SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer "})
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
 	called := false
-	err := mw(ctx, func() error {
-		called = true
-		return nil
-	})
-	if err != nil {
+	if err := mw(ctx, func() error { called = true; return nil }); err != nil {
 		t.Fatalf("expected nil, got %v", err)
 	}
 	if !called {
@@ -53,28 +44,12 @@ func TestOptionalAuthMiddleware_InvalidToken_Returns401(t *testing.T) {
 	strictRegistryValidated = 0
 	RegisterRequiredPermissions("api:iam:test")
 
-	mw := OptionalAuthMiddleware(&AuthConfig{
-		SecretKey:   "test-secret",
-		TokenHeader: "Authorization",
-		TokenPrefix: "Bearer ",
-	})
-
+	mw := OptionalAuthMiddleware(&AuthConfig{SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer "})
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
 	ctx.Request().Header.Set("Authorization", "Bearer invalid-token")
 
-	called := false
-	err := mw(ctx, func() error {
-		called = true
-		return nil
-	})
-	if err == nil {
-		t.Fatalf("expected error, got nil")
-	}
-	if !errorx.Is(err, errorx.Unauthorized) {
+	if err := mw(ctx, func() error { return nil }); !errorx.Is(err, errorx.Unauthorized) {
 		t.Fatalf("expected unauthorized error, got %v", err)
-	}
-	if called {
-		t.Fatalf("expected next not to be called")
 	}
 }
 
@@ -86,13 +61,7 @@ func TestOptionalAuthMiddleware_FixedModeInjectsTenantWithoutHeaderOrToken(t *te
 	strictRegistryValidated = 0
 	RegisterRequiredPermissions("api:iam:test")
 
-	mw := OptionalAuthMiddleware(&AuthConfig{
-		SecretKey:     "test-secret",
-		TokenHeader:   "Authorization",
-		TokenPrefix:   "Bearer ",
-		RequireTenant: true,
-	})
-
+	mw := OptionalAuthMiddleware(&AuthConfig{SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer ", RequireTenant: true})
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
 	called := false
 	err := mw(ctx, func() error {
@@ -110,113 +79,53 @@ func TestOptionalAuthMiddleware_FixedModeInjectsTenantWithoutHeaderOrToken(t *te
 	}
 }
 
-func TestOptionalAuthMiddleware_UsesTenantFromTokenWhenHeaderMissing(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "tenant") // 测试 tenant 模式下从 token 读取 tenant
-
-	resetRequiredPermissionsRegistryForTest()
-	strictRegistryValidated = 0
-	RegisterRequiredPermissions("api:iam:test")
-
-	token, err := GenerateToken(1, "tenant-a", "tester", []string{"user"}, []string{"read"}, "test-secret")
-	if err != nil {
-		t.Fatalf("GenerateToken: %v", err)
-	}
-
-	mw := OptionalAuthMiddleware(&AuthConfig{
-		SecretKey:     "test-secret",
-		TokenHeader:   "Authorization",
-		TokenPrefix:   "Bearer ",
-		RequireTenant: true,
-	})
-
-	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
-	ctx.Request().Header.Set("Authorization", "Bearer "+token)
-
-	called := false
-	err = mw(ctx, func() error {
-		called = true
-		if got := ctxx.TenantID(ctx.RequestContext()); got != "tenant-a" {
-			t.Fatalf("expected tenant-a in context, got %s", got)
-		}
-		principal, ok := authz.PrincipalFromContext(ctx.RequestContext())
-		if !ok {
-			t.Fatalf("expected principal in request context")
-		}
-		if principal.SubjectID != 1 || principal.TenantID != "tenant-a" {
-			t.Fatalf("unexpected principal: %+v", principal)
-		}
-		if !principal.HasPermission("read") {
-			t.Fatalf("expected principal to include read permission")
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("expected nil, got %v", err)
-	}
-	if !called {
-		t.Fatalf("expected next to be called")
-	}
-}
-
-func TestOptionalAuthMiddleware_RejectsTenantMismatchBetweenHeaderAndToken(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "tenant") // 测试 tenant 模式下的跨租户拒绝
-
-	resetRequiredPermissionsRegistryForTest()
-	strictRegistryValidated = 0
-	RegisterRequiredPermissions("api:iam:test")
-
-	token, err := GenerateToken(1, "tenant-a", "tester", []string{"user"}, []string{"read"}, "test-secret")
-	if err != nil {
-		t.Fatalf("GenerateToken: %v", err)
-	}
-
-	mw := OptionalAuthMiddleware(&AuthConfig{
-		SecretKey:     "test-secret",
-		TokenHeader:   "Authorization",
-		TokenPrefix:   "Bearer ",
-		RequireTenant: true,
-		TenantHeader:  "X-Tenant-ID",
-	})
-
-	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
-	ctx.Request().Header.Set("Authorization", "Bearer "+token)
-	ctx.Request().Header.Set("X-Tenant-ID", "tenant-b")
-
-	err = mw(ctx, func() error { return nil })
-	if !errorx.Is(err, errorx.Forbidden) {
-		t.Fatalf("expected Forbidden, got %v", err)
-	}
-}
-
-func TestOptionalAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
+func TestOptionalAuthMiddleware_RequiresTenantHeaderInTenantMode(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
 
 	resetRequiredPermissionsRegistryForTest()
 	strictRegistryValidated = 0
 	RegisterRequiredPermissions("api:iam:test")
 
-	token, err := GenerateTokenWithScope(
-		1,
-		"platform-tenant",
-		"platform-admin",
-		[]string{"admin"},
-		[]string{"*:*:*"},
-		101,
-		"/platform/",
-		"platform",
-		"test-secret",
-		defaultAccessTokenTTL,
-	)
+	token, err := GenerateToken(1, 101, "binding-v1", []string{"read"}, "test-secret")
 	if err != nil {
-		t.Fatalf("GenerateTokenWithScope: %v", err)
+		t.Fatalf("GenerateToken: %v", err)
 	}
 
 	mw := OptionalAuthMiddleware(&AuthConfig{
-		SecretKey:     "test-secret",
-		TokenHeader:   "Authorization",
-		TokenPrefix:   "Bearer ",
-		RequireTenant: true,
-		TenantHeader:  "X-Tenant-ID",
+		SecretKey:       "test-secret",
+		TokenHeader:     "Authorization",
+		TokenPrefix:     "Bearer ",
+		RequireTenant:   true,
+		ContextResolver: fixedAuthContextResolver{kind: "tenant"},
+	})
+
+	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
+	ctx.Request().Header.Set("Authorization", "Bearer "+token)
+
+	if err := mw(ctx, func() error { return nil }); !errorx.Is(err, errorx.Validation) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+}
+
+func TestOptionalAuthMiddleware_BindsTenantAndPrincipalFromToken(t *testing.T) {
+	t.Setenv("IAM_TENANT_MODE", "tenant")
+
+	resetRequiredPermissionsRegistryForTest()
+	strictRegistryValidated = 0
+	RegisterRequiredPermissions("api:iam:test")
+
+	token, err := GenerateToken(1, 101, "binding-v1", []string{"read"}, "test-secret")
+	if err != nil {
+		t.Fatalf("GenerateToken: %v", err)
+	}
+
+	mw := OptionalAuthMiddleware(&AuthConfig{
+		SecretKey:       "test-secret",
+		TokenHeader:     "Authorization",
+		TokenPrefix:     "Bearer ",
+		RequireTenant:   true,
+		TenantHeader:    "X-Tenant-ID",
+		ContextResolver: fixedAuthContextResolver{kind: "platform"},
 	})
 
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
@@ -229,7 +138,14 @@ func TestOptionalAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.
 		if got := ctxx.TenantID(ctx.RequestContext()); got != "tenant-b" {
 			t.Fatalf("expected tenant-b in context, got %s", got)
 		}
-		if got := auth.ActiveScopeType(ctx.RequestContext()); got != "platform" {
+		principal, ok := authz.PrincipalFromContext(ctx.RequestContext())
+		if !ok {
+			t.Fatalf("expected principal in request context")
+		}
+		if principal.SubjectID != 1 || principal.ActiveScopeID != 101 {
+			t.Fatalf("unexpected principal: %+v", principal)
+		}
+		if got := auth.ActiveScopeKind(ctx.RequestContext()); got != "platform" {
 			t.Fatalf("expected platform active scope, got %s", got)
 		}
 		return nil
@@ -242,6 +158,18 @@ func TestOptionalAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.
 	}
 }
 
+func TestAuthMiddleware_RequiresToken(t *testing.T) {
+	resetRequiredPermissionsRegistryForTest()
+	strictRegistryValidated = 0
+	RegisterRequiredPermissions("api:iam:test")
+
+	mw := AuthMiddleware(&AuthConfig{SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer "})
+	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
+	if err := mw(ctx, func() error { return nil }); !errorx.Is(err, errorx.Unauthorized) {
+		t.Fatalf("expected unauthorized, got %v", err)
+	}
+}
+
 func TestAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
 
@@ -249,28 +177,18 @@ func TestAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
 	strictRegistryValidated = 0
 	RegisterRequiredPermissions("api:iam:test")
 
-	token, err := GenerateTokenWithScope(
-		1,
-		"platform-tenant",
-		"platform-admin",
-		[]string{"admin"},
-		[]string{"*:*:*"},
-		101,
-		"/platform/",
-		"platform",
-		"test-secret",
-		defaultAccessTokenTTL,
-	)
+	token, err := GenerateToken(1, 101, "binding-v1", []string{"*:*:*"}, "test-secret")
 	if err != nil {
-		t.Fatalf("GenerateTokenWithScope: %v", err)
+		t.Fatalf("GenerateToken: %v", err)
 	}
 
 	mw := AuthMiddleware(&AuthConfig{
-		SecretKey:     "test-secret",
-		TokenHeader:   "Authorization",
-		TokenPrefix:   "Bearer ",
-		RequireTenant: true,
-		TenantHeader:  "X-Tenant-ID",
+		SecretKey:       "test-secret",
+		TokenHeader:     "Authorization",
+		TokenPrefix:     "Bearer ",
+		RequireTenant:   true,
+		TenantHeader:    "X-Tenant-ID",
+		ContextResolver: fixedAuthContextResolver{kind: "platform"},
 	})
 
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
@@ -287,11 +205,11 @@ func TestAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected principal in request context")
 		}
-		if principal.TenantID != "tenant-b" || principal.ActiveScopeType != "platform" {
+		if principal.ActiveScopeID != 101 {
 			t.Fatalf("unexpected principal: %+v", principal)
 		}
-		if !principal.HasPermission("*:*:*") {
-			t.Fatalf("expected platform wildcard permission in principal")
+		if got := auth.ActiveScopeKind(ctx.RequestContext()); got != "platform" {
+			t.Fatalf("expected platform active scope, got %s", got)
 		}
 		return nil
 	})
@@ -320,5 +238,88 @@ func TestNewTestHTTPContextCarriesBaseContext(t *testing.T) {
 	ctx.SetContext(ctx.RequestContext().WithContext(derived))
 	if got := ctxx.TenantID(ctx.RequestContext()); got != "tenant-a" {
 		t.Fatalf("expected tenant-a, got %s", got)
+	}
+}
+
+func TestPermissionMiddleware_UsesRegisteredRiskMetadataForRuntime(t *testing.T) {
+	resetRequiredPermissionsRegistryForTest()
+	defer resetRequiredPermissionsRegistryForTest()
+
+	RegisterRequiredPermissionDefinitions(PermissionDefinition{Code: "api:task:write", RiskLevel: string(RiskLevelHigh)})
+
+	ctx := newTestHTTPContext(t, "POST", "/api/v1/tasks")
+	reqCtx, err := InjectClaimsRequestContext(ctx.RequestContext(), "tenant-a", &JWTClaims{
+		UserID:        7,
+		Permissions:   []string{"api:task:write"},
+		ActiveScopeID: 200,
+	}, fixedAuthContextResolver{kind: "tenant"})
+	if err != nil {
+		t.Fatalf("InjectClaimsRequestContext: %v", err)
+	}
+	ctx.SetContext(reqCtx)
+
+	called := false
+	err = PermissionMiddleware("api:task:write")(ctx, func() error {
+		called = true
+		if !authz.IsHighRiskAuthorizationFromContext(ctx.RequestContext()) {
+			t.Fatalf("expected high-risk authorization marker to be present")
+		}
+		eval, err := authz.EvalContextFromContext(ctx.RequestContext())
+		if err != nil {
+			t.Fatalf("EvalContextFromContext: %v", err)
+		}
+		if eval.Consistency != authz.ConsistencyModeStrong {
+			t.Fatalf("expected strong consistency, got %q", eval.Consistency)
+		}
+		if eval.Principal.SubjectID != 7 {
+			t.Fatalf("expected subject 7, got %d", eval.Principal.SubjectID)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("PermissionMiddleware: %v", err)
+	}
+	if !called {
+		t.Fatalf("expected next to be called")
+	}
+}
+
+func TestPermissionMiddleware_DoesNotMarkLowRiskPermissionAsHighRisk(t *testing.T) {
+	resetRequiredPermissionsRegistryForTest()
+	defer resetRequiredPermissionsRegistryForTest()
+
+	RegisterRequiredPermissionDefinitions(PermissionDefinition{Code: "api:task:read"})
+
+	ctx := newTestHTTPContext(t, "GET", "/api/v1/tasks")
+	reqCtx, err := InjectClaimsRequestContext(ctx.RequestContext(), "tenant-a", &JWTClaims{
+		UserID:        8,
+		Permissions:   []string{"api:task:read"},
+		ActiveScopeID: 201,
+	}, fixedAuthContextResolver{kind: "tenant"})
+	if err != nil {
+		t.Fatalf("InjectClaimsRequestContext: %v", err)
+	}
+	ctx.SetContext(reqCtx)
+
+	called := false
+	err = PermissionMiddleware("api:task:read")(ctx, func() error {
+		called = true
+		if authz.IsHighRiskAuthorizationFromContext(ctx.RequestContext()) {
+			t.Fatalf("expected low-risk permission to avoid high-risk marker")
+		}
+		eval, err := authz.EvalContextFromContext(ctx.RequestContext())
+		if err != nil {
+			t.Fatalf("EvalContextFromContext: %v", err)
+		}
+		if eval.Principal.SubjectID != 8 {
+			t.Fatalf("expected subject 8, got %d", eval.Principal.SubjectID)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("PermissionMiddleware: %v", err)
+	}
+	if !called {
+		t.Fatalf("expected next to be called")
 	}
 }

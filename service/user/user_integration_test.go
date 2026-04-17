@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
@@ -58,11 +59,16 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	}
 
 	ormAdapter := newTestOrm(db)
+	if err := iamentity.SetupJoinTables(db); err != nil {
+		t.Fatalf("setup join tables: %v", err)
+	}
 
 	// 自动迁移表结构
 	if err := db.AutoMigrate(
 		&iamentity.Scope{},
+		&iamentity.ScopeVisibility{},
 		&iamentity.Tenant{},
+		&iamentity.UserRoleBinding{},
 		&iamentity.User{},
 		&iamentity.Group{},
 		&iamentity.Role{},
@@ -94,23 +100,17 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 
 	// 创建背景上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	ctx, err = ctxx.WithTenantID(ctx, "test-tenant")
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
-	}
 	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
-		SubjectID:     1,
-		TenantID:      "test-tenant",
-		Permissions:   []string{"*:*:*"},
-		IsSystem:      true,
-		ActiveScopeID: 0,
+		SubjectID:   1,
+		Permissions: []string{"*:*:*"},
+		IsSystem:    true,
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = authz.WithDataScope(ctx, authz.DataScope{TenantID: "test-tenant"})
+	ctx, err = ctxx.WithTenantID(ctx, "test-tenant")
 	if err != nil {
-		t.Fatalf("WithDataScope: %v", err)
+		t.Fatalf("WithTenantID: %v", err)
 	}
 	scopeAuthorizer := iamservice.NewScopeAuthorizer(scopeRepo, tenantRepo)
 
@@ -125,6 +125,28 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	rootScope, err := scopeAuthorizer.EnsureTenantRootScope(ctx, tenant)
 	if err != nil {
 		t.Fatalf("ensure tenant root scope: %v", err)
+	}
+	ctx = iamauth.BindActiveScopeContext(ctx, rootScope.ID, string(rootScope.Type))
+	ctx, err = authz.WithDataScope(ctx, authz.DataScope{
+		ActiveScopeID:   rootScope.ID,
+		VisibleScopeIDs: []int64{rootScope.ID},
+		Mode:            authz.ScopeModeManagedScopes,
+	})
+	if err != nil {
+		t.Fatalf("bind tenant root scope: %v", err)
+	}
+	principal, ok := authz.PrincipalFromContext(ctx)
+	if !ok {
+		t.Fatalf("expected principal in background context")
+	}
+	principal.ActiveScopeID = rootScope.ID
+	ctx, err = authz.WithPrincipal(ctx, principal)
+	if err != nil {
+		t.Fatalf("rebind principal with active scope: %v", err)
+	}
+	ctx, err = ctxx.WithTenantID(ctx, tenant.Key)
+	if err != nil {
+		t.Fatalf("rebind tenant context: %v", err)
 	}
 	authorizer, err := iamservice.NewIAMAuthorizer(scopeAuthorizer)
 	if err != nil {
@@ -165,8 +187,7 @@ func (env *userServiceTestEnv) teardown(t *testing.T) {
 func (env *userServiceTestEnv) createTestRole(t *testing.T, name string, permissions []string) *iamentity.Role {
 	role := &iamentity.Role{
 		TenantID:         env.tenantID,
-		ScopeType:        string(iamentity.ScopeTypeTenant),
-		ScopeCode:        "tenant:" + env.tenantID,
+		OwnerID:          svc.TenantOwnerID(env.tenantID),
 		NamespaceScopeID: env.rootScopeID,
 		Name:             name,
 		Description:      "测试角色",
@@ -302,26 +323,11 @@ func TestUserServiceRegister(t *testing.T) {
 	}
 }
 
-func TestUserServiceAuthenticate_UsesPlatformScopeForPlatformTenant(t *testing.T) {
+func TestUserServiceAuthenticate_ListsPlatformScopeWhenUserHasPlatformBinding(t *testing.T) {
 	env := setupUserServiceTest(t)
 	defer env.teardown(t)
 
-	platformCtx, err := ctxx.WithTenantID(context.Background(), "platform-admin")
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
-	}
-
-	platformTenant := &iamentity.Tenant{
-		Key:        "platform-admin",
-		Name:       "Platform Admin",
-		Status:     svc.TenantStatusActive,
-		IsPlatform: true,
-	}
-	if err := env.tenantRepo.Create(platformCtx, platformTenant); err != nil {
-		t.Fatalf("create platform tenant: %v", err)
-	}
-
-	platformScope, err := iamservice.NewScopeAuthorizer(env.scopeRepo, env.tenantRepo).EnsureTenantRootScope(platformCtx, platformTenant)
+	platformScope, err := iamservice.NewScopeAuthorizer(env.scopeRepo, env.tenantRepo).EnsurePlatformScope(env.backgroundCtx)
 	if err != nil {
 		t.Fatalf("ensure platform scope: %v", err)
 	}
@@ -329,7 +335,7 @@ func TestUserServiceAuthenticate_UsesPlatformScopeForPlatformTenant(t *testing.T
 		t.Fatalf("expected platform scope, got %s", platformScope.Type)
 	}
 
-	user, err := env.userService.Register(platformCtx, "platform-admin", &svc.RegisterRequest{
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, &svc.RegisterRequest{
 		Username: "platform_root",
 		Email:    "platform@example.com",
 		Password: "password123",
@@ -339,9 +345,8 @@ func TestUserServiceAuthenticate_UsesPlatformScopeForPlatformTenant(t *testing.T
 	}
 
 	role := &iamentity.Role{
-		TenantID:         "platform-admin",
-		ScopeType:        platformScope.Type,
-		ScopeCode:        platformScope.Key,
+		TenantID:         env.tenantID,
+		OwnerID:          svc.TenantOwnerID(env.tenantID),
 		NamespaceScopeID: platformScope.ID,
 		Name:             svc.SystemAdminRoleName,
 		Description:      "平台管理员",
@@ -349,54 +354,64 @@ func TestUserServiceAuthenticate_UsesPlatformScopeForPlatformTenant(t *testing.T
 		IsSystem:         true,
 		Status:           svc.RoleStatusActive,
 	}
-	if err := env.roleRepo.Create(platformCtx, role); err != nil {
+	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
 		t.Fatalf("create platform admin role: %v", err)
 	}
-	if err := env.roleRepo.AssignToUser(platformCtx, role.ID, user.ID); err != nil {
+	assignCtx := iamauth.BindActiveScopeContext(env.backgroundCtx, platformScope.ID, string(platformScope.Type))
+	if err := env.roleRepo.AssignToUser(assignCtx, role.ID, user.ID); err != nil {
 		t.Fatalf("assign platform admin role: %v", err)
 	}
 
-	authResult, err := env.userService.Authenticate(platformCtx, "platform-admin", &svc.AuthenticateRequest{
+	authResult, err := env.userService.Authenticate(env.backgroundCtx, env.tenantID, &svc.AuthenticateRequest{
 		Username: "platform_root",
 		Password: "password123",
 	})
 	if err != nil {
 		t.Fatalf("authenticate platform user: %v", err)
 	}
-	if authResult.ActiveScopeID != platformScope.ID {
-		t.Fatalf("expected active scope id %d, got %d", platformScope.ID, authResult.ActiveScopeID)
+	found := false
+	for _, scope := range authResult.AvailableScopes {
+		if scope.ScopeID == platformScope.ID && scope.ScopeKind == iamentity.ScopeTypePlatform {
+			found = true
+			break
+		}
 	}
-	if authResult.ActiveScopeType != iamentity.ScopeTypePlatform {
-		t.Fatalf("expected platform active scope, got %s", authResult.ActiveScopeType)
+	if !found {
+		t.Fatalf("expected authenticate result to include platform scope, got %+v", authResult.AvailableScopes)
 	}
-	if authResult.ActiveScopeCode != platformScope.Key {
-		t.Fatalf("expected active scope code %s, got %s", platformScope.Key, authResult.ActiveScopeCode)
+
+	session, err := env.userService.ActivateScope(env.backgroundCtx, user.GetID(), platformScope.ID)
+	if err != nil {
+		t.Fatalf("activate platform scope: %v", err)
+	}
+	if session.ActiveScopeID != platformScope.ID {
+		t.Fatalf("expected active scope %d, got %d", platformScope.ID, session.ActiveScopeID)
+	}
+	if len(session.Permissions) == 0 {
+		t.Fatalf("expected platform scope permissions, got empty session: %+v", session)
 	}
 }
 
-func TestTenantRepo_Create_RejectsSecondPlatformTenant(t *testing.T) {
+func TestTenantRepo_Create_AllowsMultipleTenants(t *testing.T) {
 	env := setupUserServiceTest(t)
 	defer env.teardown(t)
 
 	first := &iamentity.Tenant{
-		Key:        "platform-a",
-		Name:       "Platform A",
-		Status:     svc.TenantStatusActive,
-		IsPlatform: true,
+		Key:    "tenant-a",
+		Name:   "Tenant A",
+		Status: svc.TenantStatusActive,
 	}
 	if err := env.tenantRepo.Create(context.Background(), first); err != nil {
-		t.Fatalf("create first platform tenant: %v", err)
+		t.Fatalf("create first tenant: %v", err)
 	}
 
 	second := &iamentity.Tenant{
-		Key:        "platform-b",
-		Name:       "Platform B",
-		Status:     svc.TenantStatusActive,
-		IsPlatform: true,
+		Key:    "tenant-b",
+		Name:   "Tenant B",
+		Status: svc.TenantStatusActive,
 	}
-	err := env.tenantRepo.Create(context.Background(), second)
-	if err == nil {
-		t.Fatalf("expected second platform tenant create to fail")
+	if err := env.tenantRepo.Create(context.Background(), second); err != nil {
+		t.Fatalf("create second tenant: %v", err)
 	}
 }
 
@@ -517,7 +532,7 @@ func TestUserServiceAuthPathsRejectDisabledUserAsForbidden(t *testing.T) {
 				t.Fatalf("expected forbidden error for authenticate/%s, got %v", tt.name, err)
 			}
 
-			_, err = env.userService.AuthSnapshot(env.backgroundCtx, user.GetID())
+			_, err = env.userService.AuthSnapshot(env.backgroundCtx, user.GetID(), env.rootScopeID)
 			if err == nil {
 				t.Fatalf("expected snapshot error for %s user", tt.name)
 			}
@@ -573,7 +588,11 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 		t.Fatalf("authenticate: %v", err)
 	}
 
-	snapshotResp, err := env.userService.AuthSnapshot(env.backgroundCtx, user.GetID())
+	activeResp, err := env.userService.ActivateScope(env.backgroundCtx, user.GetID(), env.rootScopeID)
+	if err != nil {
+		t.Fatalf("activate scope: %v", err)
+	}
+	snapshotResp, err := env.userService.AuthSnapshot(env.backgroundCtx, user.GetID(), env.rootScopeID)
 	if err != nil {
 		t.Fatalf("get auth snapshot: %v", err)
 	}
@@ -596,16 +615,35 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 		}
 	}
 
-	assertContains(authResp.Roles, "role_active", "auth roles")
-	assertNotContains(authResp.Roles, "role_inactive", "auth roles")
-	assertNotContains(authResp.Roles, "role_deleted", "auth roles")
-	assertContains(authResp.Permissions, "api:perm:active", "auth permissions")
-	assertNotContains(authResp.Permissions, "api:perm:inactive", "auth permissions")
-	assertNotContains(authResp.Permissions, "api:perm:deleted", "auth permissions")
+	scopeOption := func(scopeID int64) *svc.AuthScopeOption {
+		for i := range authResp.AvailableScopes {
+			if authResp.AvailableScopes[i].ScopeID == scopeID {
+				return &authResp.AvailableScopes[i]
+			}
+		}
+		return nil
+	}(env.rootScopeID)
+	if scopeOption == nil {
+		t.Fatalf("expected available scope %d in authenticate response", env.rootScopeID)
+	}
 
-	assertContains(snapshotResp.Roles, "role_active", "snapshot roles")
-	assertNotContains(snapshotResp.Roles, "role_inactive", "snapshot roles")
-	assertNotContains(snapshotResp.Roles, "role_deleted", "snapshot roles")
+	assertContains(scopeOption.RoleNames, "role_active", "auth roles")
+	assertNotContains(scopeOption.RoleNames, "role_inactive", "auth roles")
+	assertNotContains(scopeOption.RoleNames, "role_deleted", "auth roles")
+	assertContains(scopeOption.Permissions, "api:perm:active", "auth permissions")
+	assertNotContains(scopeOption.Permissions, "api:perm:inactive", "auth permissions")
+	assertNotContains(scopeOption.Permissions, "api:perm:deleted", "auth permissions")
+
+	assertContains(activeResp.RoleNames, "role_active", "active roles")
+	assertNotContains(activeResp.RoleNames, "role_inactive", "active roles")
+	assertNotContains(activeResp.RoleNames, "role_deleted", "active roles")
+	assertContains(activeResp.Permissions, "api:perm:active", "active permissions")
+	assertNotContains(activeResp.Permissions, "api:perm:inactive", "active permissions")
+	assertNotContains(activeResp.Permissions, "api:perm:deleted", "active permissions")
+
+	assertContains(snapshotResp.RoleNames, "role_active", "snapshot roles")
+	assertNotContains(snapshotResp.RoleNames, "role_inactive", "snapshot roles")
+	assertNotContains(snapshotResp.RoleNames, "role_deleted", "snapshot roles")
 	assertContains(snapshotResp.Permissions, "api:perm:active", "snapshot permissions")
 	assertNotContains(snapshotResp.Permissions, "api:perm:inactive", "snapshot permissions")
 	assertNotContains(snapshotResp.Permissions, "api:perm:deleted", "snapshot permissions")
@@ -1059,8 +1097,7 @@ func TestUserServiceAssignRoleMasksCrossTenantRoleAsNotFound(t *testing.T) {
 	}
 	otherRole := &iamentity.Role{
 		TenantID:         "other-tenant",
-		ScopeType:        string(iamentity.ScopeTypeTenant),
-		ScopeCode:        "tenant:other-tenant",
+		OwnerID:          svc.TenantOwnerID("other-tenant"),
 		NamespaceScopeID: 1,
 		Name:             "other-role",
 		Description:      "cross tenant role",
@@ -1101,6 +1138,9 @@ func TestUserServiceAssignToGroupMasksCrossTenantGroupAsNotFound(t *testing.T) {
 	}
 	if err := env.tenantRepo.Create(env.backgroundCtx, otherTenant); err != nil {
 		t.Fatalf("create other tenant: %v", err)
+	}
+	if _, err := iamservice.NewScopeAuthorizer(env.scopeRepo, env.tenantRepo).EnsureTenantRootScope(env.backgroundCtx, otherTenant); err != nil {
+		t.Fatalf("ensure other tenant root scope: %v", err)
 	}
 	otherGroup, err := env.groupService.CreateGroup(otherCtx, &svc.CreateGroupRequest{
 		TenantID:    "other-tenant",

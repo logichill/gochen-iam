@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"gochen/authz"
+	ctxx "gochen/contextx"
 	"gochen/db"
 	"gochen/db/orm"
 )
@@ -97,9 +98,13 @@ func (s *fakeSession) Rollback() error        { return nil }
 
 func withTenantPrincipal(t *testing.T, ctx context.Context, tenantID string) context.Context {
 	t.Helper()
-	derived, err := authz.WithPrincipal(ctx, authz.Principal{SubjectID: 1, TenantID: tenantID})
+	derived, err := authz.WithPrincipal(ctx, authz.Principal{SubjectID: 1, ActiveScopeID: 1})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
+	}
+	derived, err = ctxx.WithTenantID(derived, tenantID)
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
 	}
 	return derived
 }

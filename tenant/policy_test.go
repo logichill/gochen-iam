@@ -77,22 +77,25 @@ func TestNormalizeTenantID_SingleModeRejectsMismatch(t *testing.T) {
 	}
 }
 
-func TestResolveRequestTenantID_SingleModeRejectsTokenMismatch(t *testing.T) {
+func TestResolveRequestTenantID_SingleModeIgnoresCurrentTenantMismatch(t *testing.T) {
 	t.Setenv(EnvTenantMode, string(ModeSingle))
 	t.Setenv(EnvSingleTenantID, "single-tenant")
 
-	_, err := ResolveRequestTenantID("", "other-tenant", true)
-	if !errorx.Is(err, errorx.Forbidden) {
-		t.Fatalf("expected Forbidden, got %v", err)
+	tenantID, err := ResolveRequestTenantID("", "other-tenant", true)
+	if err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+	if tenantID != "single-tenant" {
+		t.Fatalf("expected single-tenant, got %s", tenantID)
 	}
 }
 
-func TestResolveRequestTenantIDWithScope_PlatformScopeAllowsCrossTenantHeader(t *testing.T) {
+func TestResolveRequestTenantID_RequestHeaderWins(t *testing.T) {
 	t.Setenv(EnvTenantMode, string(ModeTenant))
 
-	tenantID, err := ResolveRequestTenantIDWithScope("tenant-b", "platform-tenant", "platform", true)
+	tenantID, err := ResolveRequestTenantID("tenant-b", "tenant-a", true)
 	if err != nil {
-		t.Fatalf("ResolveRequestTenantIDWithScope: %v", err)
+		t.Fatalf("ResolveRequestTenantID: %v", err)
 	}
 	if tenantID != "tenant-b" {
 		t.Fatalf("expected tenant-b, got %s", tenantID)

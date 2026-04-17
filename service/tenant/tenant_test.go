@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"testing"
 
+	iamauth "gochen-iam/auth"
 	iammw "gochen-iam/middleware"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
@@ -70,13 +71,14 @@ func TestTenantService_ListTenants_FiltersSoftDeletedRows(t *testing.T) {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
-		SubjectID:       1,
-		Permissions:     []string{"*:*:*"},
-		ActiveScopeType: string(iammw.ScopePlatform),
+		SubjectID:     1,
+		Permissions:   []string{"*:*:*"},
+		ActiveScopeID: 1,
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
+	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iammw.ScopePlatform))
 
 	service := NewTenantService(repo, nil, authorizer)
 	if _, err := service.ListTenants(ctx); err != nil {

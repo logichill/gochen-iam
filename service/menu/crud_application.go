@@ -3,9 +3,10 @@ package menu
 import (
 	"context"
 
+	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
+	"gochen/app/access"
 	appcrud "gochen/app/crud"
-	"gochen/authz"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 )
@@ -53,29 +54,29 @@ func (a *CRUDApplication) Delete(ctx context.Context, id int64) error {
 	return a.menuService.DeleteEntity(ctx, id)
 }
 
-// CreateWithWriteGuard 在显式 guard 下创建菜单。
-func (a *CRUDApplication) CreateWithWriteGuard(
+// CreateWithConstraint 在显式 guard 下创建菜单。
+func (a *CRUDApplication) CreateWithConstraint(
 	ctx context.Context,
 	entity *iamentity.MenuItem,
-	guard authz.WriteGuard,
+	guard access.WriteConstraint,
 ) error {
-	return a.menuService.CreateEntityWithWriteGuard(ctx, entity, guard)
+	return a.menuService.CreateEntityWithConstraint(ctx, entity, iamaccess.NewWriteConstraint(guard, access.ConstraintMetadata{}))
 }
 
-// UpdateWithWriteGuard 在显式 guard 下更新菜单。
-func (a *CRUDApplication) UpdateWithWriteGuard(
+// UpdateWithConstraint 在显式 guard 下更新菜单。
+func (a *CRUDApplication) UpdateWithConstraint(
 	ctx context.Context,
 	entity *iamentity.MenuItem,
-	guard authz.WriteGuard,
+	guard access.WriteConstraint,
 ) error {
-	return a.menuService.UpdateEntityWithWriteGuard(ctx, entity, guard)
+	return a.menuService.UpdateEntityWithConstraint(ctx, entity, iamaccess.NewWriteConstraint(guard, access.ConstraintMetadata{}))
 }
 
-// DeleteWithWriteGuard 在显式 guard 下删除菜单。
-func (a *CRUDApplication) DeleteWithWriteGuard(
+// DeleteWithConstraint 在显式 guard 下删除菜单。
+func (a *CRUDApplication) DeleteWithConstraint(
 	ctx context.Context,
 	id int64,
-	guard authz.WriteGuard,
+	guard access.WriteConstraint,
 ) error {
-	return a.menuService.DeleteEntityWithWriteGuard(ctx, id, guard)
+	return a.menuService.DeleteEntityWithConstraint(ctx, id, iamaccess.NewWriteConstraint(guard, access.ConstraintMetadata{}))
 }

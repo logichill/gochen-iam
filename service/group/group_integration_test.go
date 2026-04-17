@@ -52,10 +52,15 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	}
 
 	ormAdapter := newGroupTestOrm(db)
+	if err := iamentity.SetupJoinTables(db); err != nil {
+		t.Fatalf("setup join tables: %v", err)
+	}
 
 	// 自动迁移表结构
 	if err := db.AutoMigrate(
 		&iamentity.Scope{},
+		&iamentity.ScopeVisibility{},
+		&iamentity.UserRoleBinding{},
 		&iamentity.Group{},
 		&iamentity.User{},
 		&iamentity.Role{},
@@ -87,22 +92,18 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 
 	// 创建背景上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	ctx, err = ctxx.WithTenantID(ctx, "test-tenant")
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
-	}
 	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
-		SubjectID:   1,
-		TenantID:    "test-tenant",
-		Permissions: []string{"*:*:*"},
-		IsSystem:    true,
+		SubjectID:     1,
+		Permissions:   []string{"*:*:*"},
+		ActiveScopeID: 1,
+		IsSystem:      true,
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = authz.WithDataScope(ctx, authz.DataScope{TenantID: "test-tenant"})
+	ctx, err = ctxx.WithTenantID(ctx, "test-tenant")
 	if err != nil {
-		t.Fatalf("WithDataScope: %v", err)
+		t.Fatalf("WithTenantID: %v", err)
 	}
 
 	return &groupServiceTestEnv{
@@ -812,6 +813,10 @@ func TestGroupServiceGetGroupTree_IsTenantScoped(t *testing.T) {
 	otherCtx, err := svc.BindTenantContext(env.backgroundCtx, "other-tenant")
 	if err != nil {
 		t.Fatalf("BindTenantContext(other): %v", err)
+	}
+	otherCtx, err = svc.BindManagedScopeContext(otherCtx, 1)
+	if err != nil {
+		t.Fatalf("BindManagedScopeContext(other): %v", err)
 	}
 	if _, err := env.groupService.CreateGroup(otherCtx, &svc.CreateGroupRequest{
 		TenantID:    "other-tenant",

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"strings"
 
 	"gochen/httpx"
@@ -13,8 +14,7 @@ const (
 	contextKeyPermissions     contextKey = "auth_permissions"
 	contextKeyPermSet         contextKey = "auth_permission_set"
 	contextKeyActiveScopeID   contextKey = "auth_active_scope_id"
-	contextKeyActiveScopeCode contextKey = "auth_active_scope_code"
-	contextKeyActiveScopeType contextKey = "auth_active_scope_type"
+	contextKeyActiveScopeKind contextKey = "auth_active_scope_kind"
 )
 
 // WithRoles 将角色列表写入请求上下文。
@@ -69,7 +69,6 @@ func Permissions(ctx httpx.IRequestContext) []string {
 }
 
 // PermissionSet 从请求上下文获取权限集合（用于 O(1) 判断）。
-// 若未注入集合，返回 nil（调用方可回退到 Permissions 做线性判断）。
 func PermissionSet(ctx httpx.IRequestContext) map[string]struct{} {
 	if ctx == nil {
 		return nil
@@ -83,19 +82,40 @@ func PermissionSet(ctx httpx.IRequestContext) map[string]struct{} {
 }
 
 // WithActiveScope 将当前 token 生效的 active scope 写入请求上下文。
-func WithActiveScope(ctx httpx.IRequestContext, scopeID int64, scopeCode, scopeType string) httpx.IRequestContext {
+func WithActiveScope(ctx httpx.IRequestContext, scopeID int64, scopeKind string) httpx.IRequestContext {
 	if ctx == nil {
 		return nil
 	}
 	if scopeID > 0 {
 		ctx = ctx.WithValue(contextKeyActiveScopeID, scopeID)
 	}
-	if scopeCode != "" {
-		ctx = ctx.WithValue(contextKeyActiveScopeCode, scopeCode)
+	if scopeKind != "" {
+		ctx = ctx.WithValue(contextKeyActiveScopeKind, scopeKind)
 	}
-	if scopeType != "" {
-		ctx = ctx.WithValue(contextKeyActiveScopeType, scopeType)
+	return ctx
+}
+
+// BindActiveScopeContext 将 active scope 元数据写入通用 context，便于 service/runtime 读取。
+func BindActiveScopeContext(ctx context.Context, scopeID int64, scopeKind string) context.Context {
+	if ctx == nil {
+		return nil
 	}
+	if scopeID > 0 {
+		ctx = context.WithValue(ctx, contextKeyActiveScopeID, scopeID)
+	}
+	if scopeKind = strings.TrimSpace(scopeKind); scopeKind != "" {
+		ctx = context.WithValue(ctx, contextKeyActiveScopeKind, scopeKind)
+	}
+	return ctx
+}
+
+// ClearActiveScopeContext 清空通用 context 上的 active scope 元数据。
+func ClearActiveScopeContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		return nil
+	}
+	ctx = context.WithValue(ctx, contextKeyActiveScopeID, int64(0))
+	ctx = context.WithValue(ctx, contextKeyActiveScopeKind, "")
 	return ctx
 }
 
@@ -111,25 +131,37 @@ func ActiveScopeID(ctx httpx.IRequestContext) int64 {
 	return 0
 }
 
-func ActiveScopeCode(ctx httpx.IRequestContext) string {
+func ActiveScopeKind(ctx httpx.IRequestContext) string {
 	if ctx == nil {
 		return ""
 	}
-	if val := ctx.Value(contextKeyActiveScopeCode); val != nil {
-		if scopeCode, ok := val.(string); ok {
-			return scopeCode
+	if val := ctx.Value(contextKeyActiveScopeKind); val != nil {
+		if scopeKind, ok := val.(string); ok {
+			return scopeKind
 		}
 	}
 	return ""
 }
 
-func ActiveScopeType(ctx httpx.IRequestContext) string {
+func ActiveScopeIDFromContext(ctx context.Context) int64 {
+	if ctx == nil {
+		return 0
+	}
+	if val := ctx.Value(contextKeyActiveScopeID); val != nil {
+		if scopeID, ok := val.(int64); ok {
+			return scopeID
+		}
+	}
+	return 0
+}
+
+func ActiveScopeKindFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
-	if val := ctx.Value(contextKeyActiveScopeType); val != nil {
-		if scopeType, ok := val.(string); ok {
-			return scopeType
+	if val := ctx.Value(contextKeyActiveScopeKind); val != nil {
+		if scopeKind, ok := val.(string); ok {
+			return strings.TrimSpace(scopeKind)
 		}
 	}
 	return ""

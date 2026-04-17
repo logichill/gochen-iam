@@ -16,23 +16,21 @@ func PrincipalFromClaims(claims *JWTClaims, tenantID string) authz.Principal {
 	if claims == nil {
 		return authz.Principal{}
 	}
-	tenantID = strings.TrimSpace(tenantID)
-	if tenantID == "" {
-		tenantID = strings.TrimSpace(claims.TenantID)
-	}
+	_ = strings.TrimSpace(tenantID)
 	return authz.Principal{
-		SubjectID:       claims.UserID,
-		TenantID:        tenantID,
-		Roles:           claims.Roles,
-		Permissions:     claims.Permissions,
-		ActiveScopeID:   claims.ActiveScopeID,
-		ActiveScopeCode: claims.ActiveScopeCode,
-		ActiveScopeType: claims.ActiveScopeType,
+		SubjectID:     claims.UserID,
+		Permissions:   claims.Permissions,
+		ActiveScopeID: claims.ActiveScopeID,
 	}
 }
 
 // InjectClaimsRequestContext 将 claims 统一写入 request context。
-func InjectClaimsRequestContext(reqCtx httpx.IRequestContext, tenantID string, claims *JWTClaims) (httpx.IRequestContext, error) {
+func InjectClaimsRequestContext(
+	reqCtx httpx.IRequestContext,
+	tenantID string,
+	claims *JWTClaims,
+	resolver AuthContextResolver,
+) (httpx.IRequestContext, error) {
 	if reqCtx == nil {
 		return nil, errorx.New(errorx.InvalidInput, "request context is nil")
 	}
@@ -42,14 +40,31 @@ func InjectClaimsRequestContext(reqCtx httpx.IRequestContext, tenantID string, c
 
 	baseCtx := context.Context(reqCtx)
 	var err error
+	var runtime *ResolvedAuthContext
 	if claims.UserID > 0 {
 		baseCtx, err = ctxx.WithUserID(baseCtx, claims.UserID)
 		if err != nil {
 			return nil, err
 		}
 	}
-	if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
-		baseCtx, err = ctxx.WithTenantID(baseCtx, tenantID)
+	baseCtx = iamauth.BindActiveScopeContext(baseCtx, claims.ActiveScopeID, "")
+	if claims.ActiveScopeID > 0 {
+		if resolver == nil {
+			return nil, errorx.New(errorx.InvalidInput, "auth context resolver is required")
+		}
+		runtime, err = resolver.ResolveAuthContext(baseCtx, claims)
+		if err != nil {
+			return nil, err
+		}
+		if runtime == nil {
+			return nil, errorx.New(errorx.InvalidInput, "resolved auth context is required")
+		}
+		baseCtx = iamauth.BindActiveScopeContext(baseCtx, runtime.ActiveScopeID, runtime.ActiveScopeKind)
+		baseCtx, err = authz.WithDataScope(baseCtx, authz.DataScope{
+			ActiveScopeID:   runtime.ActiveScopeID,
+			VisibleScopeIDs: runtime.VisibleScopeIDs,
+			Mode:            authz.ScopeModeManagedScopes,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -58,11 +73,17 @@ func InjectClaimsRequestContext(reqCtx httpx.IRequestContext, tenantID string, c
 	if err != nil {
 		return nil, err
 	}
+	if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
+		baseCtx, err = ctxx.WithTenantID(baseCtx, tenantID)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	bound := reqCtx.WithContext(baseCtx)
-	bound = iamauth.WithRoles(bound, claims.Roles)
 	bound = iamauth.WithPermissions(bound, claims.Permissions)
-	principal, _ := authz.PrincipalFromContext(baseCtx)
-	bound = iamauth.WithActiveScope(bound, principal.ActiveScopeID, principal.ActiveScopeCode, principal.ActiveScopeType)
+	if claims.ActiveScopeID > 0 {
+		bound = iamauth.WithActiveScope(bound, runtime.ActiveScopeID, runtime.ActiveScopeKind)
+	}
 	return bound, nil
 }

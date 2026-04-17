@@ -380,11 +380,11 @@ func (s *MenuService) RestoreMenuItem(ctx context.Context, id int64) (*iamentity
 	if err != nil {
 		return nil, err
 	}
-	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, "api:menu:write", item)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, "api:menu:write", item)
 	if err != nil {
 		return nil, err
 	}
-	item, err = s.menuRepo.RestoreByIDWithWriteGuard(ctx, id, guard)
+	item, err = s.menuRepo.RestoreByIDWithConstraint(ctx, id, guard)
 	if err != nil {
 		return nil, err
 	}
@@ -401,11 +401,11 @@ func (s *MenuService) PurgeMenuItem(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, "api:menu:write", item)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, "api:menu:write", item)
 	if err != nil {
 		return err
 	}
-	if err := s.menuRepo.PurgeByIDWithWriteGuard(ctx, id, guard); err != nil {
+	if err := s.menuRepo.PurgeByIDWithConstraint(ctx, id, guard); err != nil {
 		return err
 	}
 	s.logger.Info(ctx, "[MenuService] purge menu (hard)",
@@ -450,16 +450,16 @@ func (s *MenuService) CreateEntity(ctx context.Context, item *iamentity.MenuItem
 	return s.createMenu(ctx, item)
 }
 
-// CreateEntityWithWriteGuard 在显式 guard 下创建菜单实体。
-func (s *MenuService) CreateEntityWithWriteGuard(
+// CreateEntityWithConstraint 在显式 guard 下创建菜单实体。
+func (s *MenuService) CreateEntityWithConstraint(
 	ctx context.Context,
 	item *iamentity.MenuItem,
-	guard authz.WriteGuard,
+	guard svc.WriteConstraint,
 ) error {
 	if err := validateDirectMenuCreatePayload(item); err != nil {
 		return err
 	}
-	return s.createMenuWithWriteGuard(ctx, item, guard)
+	return s.createMenuWithConstraint(ctx, item, guard)
 }
 
 // UpdateEntity 更新菜单实体；用于标准 CRUD application 路径，不隐式做额外鉴权。
@@ -478,11 +478,11 @@ func (s *MenuService) UpdateEntity(ctx context.Context, item *iamentity.MenuItem
 	return s.updateMenu(ctx, item)
 }
 
-// UpdateEntityWithWriteGuard 在显式 guard 下更新菜单实体。
-func (s *MenuService) UpdateEntityWithWriteGuard(
+// UpdateEntityWithConstraint 在显式 guard 下更新菜单实体。
+func (s *MenuService) UpdateEntityWithConstraint(
 	ctx context.Context,
 	item *iamentity.MenuItem,
-	guard authz.WriteGuard,
+	guard svc.WriteConstraint,
 ) error {
 	if item == nil {
 		return errorx.New(errorx.Validation, "menu item is required")
@@ -495,7 +495,7 @@ func (s *MenuService) UpdateEntityWithWriteGuard(
 		return err
 	}
 	normalizeDirectMenuUpdate(current, item)
-	return s.updateMenuWithWriteGuard(ctx, item, guard)
+	return s.updateMenuWithConstraint(ctx, item, guard)
 }
 
 // DeleteEntity 删除菜单实体；用于标准 CRUD application 路径，不隐式做额外鉴权。
@@ -507,13 +507,13 @@ func (s *MenuService) DeleteEntity(ctx context.Context, id int64) error {
 	return s.deleteMenu(ctx, item)
 }
 
-// DeleteEntityWithWriteGuard 在显式 guard 下删除菜单实体。
-func (s *MenuService) DeleteEntityWithWriteGuard(ctx context.Context, id int64, guard authz.WriteGuard) error {
+// DeleteEntityWithConstraint 在显式 guard 下删除菜单实体。
+func (s *MenuService) DeleteEntityWithConstraint(ctx context.Context, id int64, guard svc.WriteConstraint) error {
 	item, err := s.menuRepo.Get(ctx, id)
 	if err != nil {
 		return err
 	}
-	return s.deleteMenuWithWriteGuard(ctx, item, guard)
+	return s.deleteMenuWithConstraint(ctx, item, guard)
 }
 
 func (s *MenuService) authorizePlatform(ctx context.Context, permission string, targets ...any) error {
@@ -533,22 +533,22 @@ func (s *MenuService) createMenu(ctx context.Context, item *iamentity.MenuItem) 
 	return nil
 }
 
-func (s *MenuService) createMenuWithWriteGuard(ctx context.Context, item *iamentity.MenuItem, guard authz.WriteGuard) error {
+func (s *MenuService) createMenuWithConstraint(ctx context.Context, item *iamentity.MenuItem, guard svc.WriteConstraint) error {
 	if err := s.validateMenuForCreate(ctx, item); err != nil {
 		return err
 	}
-	if err := s.menuRepo.CreateWithWriteGuard(ctx, item, guard); err != nil {
+	if err := s.menuRepo.CreateWithConstraint(ctx, item, guard); err != nil {
 		return errorx.Wrap(err, errorx.Database, "创建菜单失败")
 	}
 	return nil
 }
 
 func (s *MenuService) createMenuWithAuthorization(ctx context.Context, item *iamentity.MenuItem) error {
-	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, "api:menu:write", item)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, "api:menu:write", item)
 	if err != nil {
 		return err
 	}
-	return s.createMenuWithWriteGuard(ctx, item, guard)
+	return s.createMenuWithConstraint(ctx, item, guard)
 }
 
 func (s *MenuService) updateMenu(ctx context.Context, item *iamentity.MenuItem) error {
@@ -561,38 +561,38 @@ func (s *MenuService) updateMenu(ctx context.Context, item *iamentity.MenuItem) 
 	return nil
 }
 
-func (s *MenuService) updateMenuWithWriteGuard(ctx context.Context, item *iamentity.MenuItem, guard authz.WriteGuard) error {
+func (s *MenuService) updateMenuWithConstraint(ctx context.Context, item *iamentity.MenuItem, guard svc.WriteConstraint) error {
 	if err := s.validateMenuForUpdate(ctx, item); err != nil {
 		return err
 	}
-	if err := s.menuRepo.UpdateWithWriteGuard(ctx, item, guard); err != nil {
+	if err := s.menuRepo.UpdateWithConstraint(ctx, item, guard); err != nil {
 		return errorx.Wrap(err, errorx.Database, "更新菜单失败")
 	}
 	return nil
 }
 
 func (s *MenuService) updateMenuWithAuthorization(ctx context.Context, permission string, item *iamentity.MenuItem) error {
-	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, permission, item)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, permission, item)
 	if err != nil {
 		return err
 	}
-	return s.updateMenuWithWriteGuard(ctx, item, guard)
+	return s.updateMenuWithConstraint(ctx, item, guard)
 }
 
 func (s *MenuService) deleteMenu(ctx context.Context, item *iamentity.MenuItem) error {
 	return s.menuRepo.Delete(ctx, item.GetID())
 }
 
-func (s *MenuService) deleteMenuWithWriteGuard(ctx context.Context, item *iamentity.MenuItem, guard authz.WriteGuard) error {
-	return s.menuRepo.DeleteWithWriteGuard(ctx, item.GetID(), guard)
+func (s *MenuService) deleteMenuWithConstraint(ctx context.Context, item *iamentity.MenuItem, guard svc.WriteConstraint) error {
+	return s.menuRepo.DeleteWithConstraint(ctx, item.GetID(), guard)
 }
 
 func (s *MenuService) deleteMenuWithAuthorization(ctx context.Context, item *iamentity.MenuItem) error {
-	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, "api:menu:write", item)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, "api:menu:write", item)
 	if err != nil {
 		return err
 	}
-	return s.deleteMenuWithWriteGuard(ctx, item, guard)
+	return s.deleteMenuWithConstraint(ctx, item, guard)
 }
 
 func (s *MenuService) validateMenuForCreate(ctx context.Context, item *iamentity.MenuItem) error {

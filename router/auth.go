@@ -35,6 +35,7 @@ func (ar *AuthRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	authGroup.POST("/register", ar.register)
 	authGroup.POST("/login", ar.login)
+	authGroup.POST("/activate-scope", ar.activateScope)
 	authGroup.POST("/logout", ar.logout)
 	authGroup.POST("/refresh", ar.refreshToken)
 	authGroup.POST("/forgot-password", ar.forgotPassword)
@@ -90,6 +91,13 @@ func (ar *AuthRoutes) ensureTenantContext(ctx httpx.IContext) (httpx.IRequestCon
 	return reqCtx, tenantID, nil
 }
 
+func (ar *AuthRoutes) authContextResolver() iammw.AuthContextResolver {
+	if ar != nil && ar.authConfig != nil && ar.authConfig.ContextResolver != nil {
+		return ar.authConfig.ContextResolver
+	}
+	return iammw.ResolveInstalledAuthContextResolver()
+}
+
 // 认证处理器方法
 func (ar *AuthRoutes) register(ctx httpx.IContext) error {
 	reqCtx, tenantID, err := ar.ensureTenantContext(ctx)
@@ -128,42 +136,97 @@ func (ar *AuthRoutes) login(ctx httpx.IContext) error {
 		return err
 	}
 
-	// 基于用户信息生成 JWT，携带角色与权限声明
-	token, err := iammw.GenerateTokenWithScope(
+	availableScopeIDs := make([]int64, 0, len(authResult.AvailableScopes))
+	for _, scope := range authResult.AvailableScopes {
+		if scope.ScopeID > 0 {
+			availableScopeIDs = append(availableScopeIDs, scope.ScopeID)
+		}
+	}
+	activationToken, err := iammw.GenerateActivationToken(
 		authResult.UserID,
-		authResult.TenantID,
-		authResult.Username,
-		authResult.Roles,
-		authResult.Permissions,
-		authResult.ActiveScopeID,
-		authResult.ActiveScopeCode,
-		authResult.ActiveScopeType,
+		authResult.BindingVersion,
+		availableScopeIDs,
 		ar.authConfig.SecretKey,
-		ar.authConfig.AccessTokenTTL,
+		ar.authConfig.ActivationTTL,
 	)
 	if err != nil {
 		return err
 	}
 
-	// 注意：HTTP 层返回 token/expires_at；service 层不包含 token 语义。
 	type loginResponse struct {
-		UserID      int64     `json:"user_id"`
-		Username    string    `json:"username"`
-		Email       string    `json:"email"`
-		Token       string    `json:"token"`
-		ExpiresAt   time.Time `json:"expires_at"`
-		Permissions []string  `json:"permissions"`
+		UserID          int64                    `json:"user_id"`
+		Username        string                   `json:"username"`
+		Email           string                   `json:"email"`
+		BindingVersion  string                   `json:"binding_version"`
+		ActivationToken string                   `json:"activation_token"`
+		ExpiresAt       time.Time                `json:"expires_at"`
+		AvailableScopes []iamsvc.AuthScopeOption `json:"available_scopes"`
 	}
 	resp := &loginResponse{
-		UserID:      authResult.UserID,
-		Username:    authResult.Username,
-		Email:       authResult.Email,
-		Token:       token,
-		ExpiresAt:   time.Now().Add(ar.authConfig.AccessTokenTTL),
-		Permissions: authResult.Permissions,
+		UserID:          authResult.UserID,
+		Username:        authResult.Username,
+		Email:           authResult.Email,
+		BindingVersion:  authResult.BindingVersion,
+		ActivationToken: activationToken,
+		ExpiresAt:       time.Now().Add(ar.authConfig.ActivationTTL),
+		AvailableScopes: authResult.AvailableScopes,
 	}
 
 	return httpx.WriteSuccess(ctx, resp)
+}
+
+func (ar *AuthRoutes) activateScope(ctx httpx.IContext) error {
+	var req struct {
+		ActivationToken string `json:"activation_token" binding:"required"`
+		ScopeID         int64  `json:"scope_id" binding:"required"`
+	}
+	if err := ctx.BindJSON(&req); err != nil {
+		return err
+	}
+	claims, err := iammw.ParseActivationToken(req.ActivationToken, ar.authConfig.SecretKey)
+	if err != nil {
+		return err
+	}
+	allowed := false
+	for _, scopeID := range claims.AvailableScopes {
+		if scopeID == req.ScopeID {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return errorx.New(errorx.Forbidden, "当前认证结果不允许激活目标授权域")
+	}
+
+	session, err := ar.userService.ActivateScope(ctx.RequestContext(), claims.UserID, req.ScopeID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(claims.BindingVersion) != "" && claims.BindingVersion != session.BindingVersion {
+		return errorx.New(errorx.Forbidden, "授权绑定已变化，请重新登录")
+	}
+
+	token, err := iammw.GenerateToken(
+		session.UserID,
+		session.ActiveScopeID,
+		session.BindingVersion,
+		session.Permissions,
+		ar.authConfig.SecretKey,
+	)
+	if err != nil {
+		return err
+	}
+
+	return httpx.WriteSuccess(ctx, map[string]any{
+		"user_id":         session.UserID,
+		"username":        session.Username,
+		"email":           session.Email,
+		"active_scope_id": session.ActiveScopeID,
+		"binding_version": session.BindingVersion,
+		"permissions":     session.Permissions,
+		"token":           token,
+		"expires_at":      time.Now().Add(ar.authConfig.AccessTokenTTL),
+	})
 }
 
 // logout 处理logout。
@@ -193,37 +256,27 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 	}
 
 	reqCtx := ctx.RequestContext()
-	requestTenantID := ar.readRequestTenantID(ctx)
-	if requestTenantID == "" {
-		requestTenantID = ctxx.TenantID(reqCtx)
-	}
-	tenantID, err := tenant.ResolveRequestTenantIDWithScope(requestTenantID, strings.TrimSpace(claims.TenantID), claims.ActiveScopeType, true)
+	tenantID, err := tenant.ResolveRequestTenantID(ar.readRequestTenantID(ctx), ctxx.TenantID(reqCtx), ar.authConfig.RequireTenant)
 	if err != nil {
 		return err
 	}
-	reqCtx, err = iammw.InjectClaimsRequestContext(reqCtx, tenantID, claims)
+	reqCtx, err = iammw.InjectClaimsRequestContext(reqCtx, tenantID, claims, ar.authContextResolver())
 	if err != nil {
 		return err
 	}
 	ctx.SetContext(reqCtx)
 
-	// 2) 重新从数据源获取最新有效 RBAC（过滤软删/非激活角色，避免沿用旧 token 快照）
-	authSnapshot, err := ar.userService.AuthSnapshot(reqCtx, claims.UserID)
+	authSnapshot, err := ar.userService.AuthSnapshot(reqCtx, claims.UserID, claims.ActiveScopeID)
 	if err != nil {
 		return err
 	}
 
-	newToken, err := iammw.GenerateTokenWithScope(
+	newToken, err := iammw.GenerateToken(
 		authSnapshot.UserID,
-		authSnapshot.TenantID,
-		authSnapshot.Username,
-		authSnapshot.Roles,
-		authSnapshot.Permissions,
 		authSnapshot.ActiveScopeID,
-		authSnapshot.ActiveScopeCode,
-		authSnapshot.ActiveScopeType,
+		authSnapshot.BindingVersion,
+		authSnapshot.Permissions,
 		ar.authConfig.SecretKey,
-		ar.authConfig.AccessTokenTTL,
 	)
 	if err != nil {
 		return err

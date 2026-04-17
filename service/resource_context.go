@@ -4,18 +4,31 @@ import (
 	"context"
 	"strings"
 
+	iamauth "gochen-iam/auth"
+	"gochen/app/access"
 	"gochen/authz"
 	"gochen/domain"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 )
 
-// LoadTenantBoundResource 先解析目标资源边界，再绑定 tenant/scope runtime，最后在统一 tenantCtx 中读取实体。
-//
-// 这样 service 层不需要再先用旧 ctx 读一跳、再手工切 tenantCtx。
+// IResourceContextRepository 组合了资源边界解析与基础按 ID 读取能力。
+type IResourceContextRepository[T domain.IEntity[ID], ID comparable] interface {
+	domaincrud.IRepository[T, ID]
+	access.IResourceBoundaryRepository[T, ID]
+}
+
+// IScopedResourceContextRepository 组合了资源上下文读能力与显式写约束能力。
+type IScopedResourceContextRepository[T domain.IEntity[ID], ID comparable] interface {
+	IResourceContextRepository[T, ID]
+	domaincrud.IQueryRepository[T, ID]
+	IScopedConstraintRepository[T, ID]
+}
+
+// LoadTenantBoundResource 先解析目标资源边界，再绑定 runtime，最后在统一上下文中读取实体。
 func LoadTenantBoundResource[T domain.IEntity[ID], ID comparable](
 	ctx context.Context,
-	repo domaincrud.IResourceBoundaryRepository[T, ID],
+	repo IResourceContextRepository[T, ID],
 	id ID,
 ) (T, context.Context, error) {
 	var zero T
@@ -39,40 +52,39 @@ func LoadTenantBoundResource[T domain.IEntity[ID], ID comparable](
 	return entity, boundCtx, nil
 }
 
-// BindResourceContext 把资源解析出的 tenant/scope 边界绑定回上下文。
-//
-// 说明：
-//   - tenant 维度仍复用 BindTenantContext(...) 统一处理 principal/contextx 对齐；
-//   - scope 维度只通过显式 DataScope 回写，确保 repo/GetWith/FindOneWith 按“资源本身的边界”读取，
-//     而不是继续沿用调用方原始 scoped runtime。
-func BindResourceContext(ctx context.Context, resource authz.Resource) (context.Context, error) {
-	resource.TenantID = strings.TrimSpace(resource.TenantID)
-	resource.ScopeType = strings.TrimSpace(resource.ScopeType)
-	resource.ScopeCode = strings.TrimSpace(resource.ScopeCode)
-
+// BindResourceContext 把资源解析出的边界绑定回上下文。
+func BindResourceContext(ctx context.Context, resource access.ResourceBoundary) (context.Context, error) {
 	boundCtx := ctx
-	var err error
-	if resource.TenantID != "" {
-		boundCtx, err = BindTenantContext(ctx, resource.TenantID)
+	if tenantID := tenantIDFromBoundary(resource); tenantID != "" {
+		var err error
+		boundCtx, err = BindTenantContext(boundCtx, tenantID)
 		if err != nil {
 			return nil, err
 		}
 	}
-
-	switch {
-	case resource.TenantID == "" && resource.ScopeType == "" && resource.ScopeCode == "":
-		return boundCtx, nil
-	case resource.ScopeType != "" || resource.ScopeCode != "":
-		return authz.WithDataScope(boundCtx, authz.DataScope{
-			TenantID:  resource.TenantID,
-			ScopeType: resource.ScopeType,
-			ScopeCode: resource.ScopeCode,
-			Mode:      authz.ScopeModeScoped,
-		})
-	default:
-		return authz.WithDataScope(boundCtx, authz.DataScope{
-			TenantID: resource.TenantID,
-			Mode:     authz.ScopeModeTenant,
-		})
+	if resource.ManagedScopeID <= 0 {
+		return clearBoundScopeContext(boundCtx)
 	}
+	return BindVisibleScopeContext(boundCtx, resource.ManagedScopeID, []int64{resource.ManagedScopeID})
+}
+
+func tenantIDFromBoundary(resource access.ResourceBoundary) string {
+	ownerID := strings.TrimSpace(resource.OwnerID)
+	if strings.HasPrefix(ownerID, tenantOwnerPrefix) {
+		return strings.TrimSpace(strings.TrimPrefix(ownerID, tenantOwnerPrefix))
+	}
+	return ""
+}
+
+func clearBoundScopeContext(ctx context.Context) (context.Context, error) {
+	boundCtx := iamauth.ClearActiveScopeContext(ctx)
+	var err error
+	boundCtx, err = rebindPrincipalActiveScope(boundCtx, 0)
+	if err != nil {
+		return nil, err
+	}
+	if scope, ok := authz.DataScopeFromContext(boundCtx); ok && scope.Mode == authz.ScopeModeManagedScopes {
+		return authz.WithDataScope(boundCtx, authz.DataScope{Mode: authz.ScopeModeGlobal})
+	}
+	return boundCtx, nil
 }

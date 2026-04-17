@@ -6,11 +6,11 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
+	rolesvc "gochen-iam/service/role"
 	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
 	"gochen/authz"
 	dataquery "gochen/db/query"
-	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
 	"gochen/httpx/nethttp"
@@ -32,24 +32,30 @@ var roleQuerySchema = dataquery.MustInferQuerySchema[roleQueryFields](nil)
 type RoleRoutes struct {
 	roleService     IRoleService
 	utils           *nethttp.Utils
-	roleRepo        domaincrud.IResourceBoundaryRepository[*iamentity.Role, int64]
+	roleRepo        svc.IScopedResourceContextRepository[*iamentity.Role, int64]
 	scopeAuthorizer *svc.ScopeAuthorizer
 	authorizer      authz.IAuthorizer
+	governance      *rolesvc.Governance
 }
 
 // NewRoleRoutes 创建角色路由注册器
 func NewRoleRoutes(
 	roleService IRoleService,
-	roleRepo domaincrud.IResourceBoundaryRepository[*iamentity.Role, int64],
+	roleRepo svc.IScopedResourceContextRepository[*iamentity.Role, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
 	authorizer *authz.Authorizer,
 ) *RoleRoutes {
+	var governance *rolesvc.Governance
+	if provider, ok := roleService.(interface{ Governance() *rolesvc.Governance }); ok {
+		governance = provider.Governance()
+	}
 	return &RoleRoutes{
 		roleService:     roleService,
 		utils:           &nethttp.Utils{},
 		roleRepo:        roleRepo,
 		scopeAuthorizer: scopeAuthorizer,
 		authorizer:      authorizer,
+		governance:      governance,
 	}
 }
 
@@ -67,7 +73,7 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		iammw.ApiPermission(iammw.ResourceRole, iammw.ActionManage).Scope(iammw.ScopePlatform, iammw.ScopeTenant),
 	))
 
-	appService, err := appcrud.NewApplication(rr.roleRepo, nil, nil)
+	appService, err := svc.NewCRUDApplication[*iamentity.Role, int64](rr.roleRepo, rr.roleRepo)
 	if err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("create role crud application").WithContext("route", "iam.role")
@@ -86,7 +92,7 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 			Delete: "api:role:delete",
 		}),
 		restapi.WithHooks[*iamentity.Role, int64](func(h *appcrud.Hooks[*iamentity.Role, int64]) {
-			*h = *newScopeBackedRoleCRUDHooks(rr.roleRepo, rr.scopeAuthorizer)
+			*h = *newScopeBackedRoleCRUDHooks(rr.roleRepo, rr.scopeAuthorizer, rr.governance)
 		}),
 	)
 	if err != nil {

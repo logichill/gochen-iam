@@ -57,7 +57,22 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 	if err != nil {
 		return nil, err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:group:write", &iamentity.Group{TenantID: tenantID})
+	managedScopeID := svc.ManagedScopeIDFromContext(tenantCtx)
+	if managedScopeID == 0 && s.scopeAuthorizer != nil {
+		scope, scopeErr := s.scopeAuthorizer.ResolveTenantScope(tenantCtx, tenantID)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		managedScopeID = scope.ID
+		tenantCtx, err = svc.BindManagedScopeContext(tenantCtx, managedScopeID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if managedScopeID == 0 {
+		return nil, errorx.New(errorx.InvalidInput, "managed scope is required")
+	}
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:write", &iamentity.Group{TenantID: tenantID})
 	if err != nil {
 		return nil, err
 	}
@@ -87,18 +102,12 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 
 	// 4. 创建组织实体
 	group := &iamentity.Group{
-		TenantID:    tenantID,
-		Name:        req.Name,
-		Description: req.Description,
-		ParentID:    req.ParentID,
-	}
-	if s.scopeAuthorizer != nil {
-		scope, scopeErr := s.scopeAuthorizer.ResolveTenantScope(tenantCtx, tenantID)
-		if scopeErr != nil {
-			return nil, scopeErr
-		}
-		group.ScopeType = scope.Type
-		group.ScopeCode = scope.Key
+		TenantID:       tenantID,
+		ManagedScopeID: managedScopeID,
+		OwnerID:        svc.TenantOwnerID(tenantID),
+		Name:           req.Name,
+		Description:    req.Description,
+		ParentID:       req.ParentID,
 	}
 	group.SetUpdatedAt(time.Now())
 
@@ -110,7 +119,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 	}
 
 	// 6. 保存组织
-	if err := s.groupRepo.CreateWithWriteGuard(tenantCtx, group, guard); err != nil {
+	if err := s.groupRepo.CreateWithConstraint(tenantCtx, group, guard); err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "保存组织失败")
 	}
 
@@ -192,13 +201,13 @@ func (s *GroupService) UpdateGroup(
 		}
 		targets = appendGroupTargets(targets, descendants)
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:group:write", targets...)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:write", targets...)
 	if err != nil {
 		return nil, err
 	}
 
 	// 3. 保存更新
-	if err := s.groupRepo.UpdateWithWriteGuard(tenantCtx, group, guard); err != nil {
+	if err := s.groupRepo.UpdateWithConstraint(tenantCtx, group, guard); err != nil {
 		return nil, err
 	}
 
@@ -236,7 +245,7 @@ func (s *GroupService) DeleteGroup(ctx context.Context, tenantID string, groupID
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:group:delete", group)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:delete", group)
 	if err != nil {
 		return err
 	}
@@ -260,7 +269,7 @@ func (s *GroupService) DeleteGroup(ctx context.Context, tenantID string, groupID
 	}
 
 	// 3. 删除组织
-	return s.groupRepo.DeleteWithWriteGuard(tenantCtx, groupID, guard)
+	return s.groupRepo.DeleteWithConstraint(tenantCtx, groupID, guard)
 }
 
 // GroupTree 获取组织树
@@ -342,11 +351,11 @@ func (s *GroupService) AddUserToGroup(ctx context.Context, groupID, userID int64
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:group:write", group, user)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:write", group, user)
 	if err != nil {
 		return err
 	}
-	return s.groupRepo.AddUserToGroupWithWriteGuard(tenantCtx, groupID, userID, guard)
+	return s.groupRepo.AddUserToGroupWithConstraint(tenantCtx, groupID, userID, guard)
 }
 
 // RemoveUserFromGroup 从组织移除用户
@@ -359,11 +368,11 @@ func (s *GroupService) RemoveUserFromGroup(ctx context.Context, groupID, userID 
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:group:write", group, user)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:write", group, user)
 	if err != nil {
 		return err
 	}
-	return s.groupRepo.RemoveUserFromGroupWithWriteGuard(tenantCtx, groupID, userID, guard)
+	return s.groupRepo.RemoveUserFromGroupWithConstraint(tenantCtx, groupID, userID, guard)
 }
 
 // BatchAddUsersToGroup 批量添加用户到组织（事务包裹）
@@ -425,11 +434,11 @@ func (s *GroupService) AddGroupRole(ctx context.Context, groupID, roleID int64) 
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:group:write", group, role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:write", group, role)
 	if err != nil {
 		return err
 	}
-	return s.groupRepo.AddDefaultRoleWithWriteGuard(tenantCtx, groupID, roleID, guard)
+	return s.groupRepo.AddDefaultRoleWithConstraint(tenantCtx, groupID, roleID, guard)
 }
 
 // RemoveGroupRole 移除组织默认角色
@@ -442,11 +451,11 @@ func (s *GroupService) RemoveGroupRole(ctx context.Context, groupID, roleID int6
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:group:write", group, role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:group:write", group, role)
 	if err != nil {
 		return err
 	}
-	return s.groupRepo.RemoveDefaultRoleWithWriteGuard(tenantCtx, groupID, roleID, guard)
+	return s.groupRepo.RemoveDefaultRoleWithConstraint(tenantCtx, groupID, roleID, guard)
 }
 
 // GroupStatistics 获取组织统计信息

@@ -27,9 +27,13 @@ func newTenantGuardRequestContext(t *testing.T, tenantID string) httpx.IRequestC
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	baseCtx, err = authz.WithPrincipal(baseCtx, authz.Principal{TenantID: tenantID})
+	baseCtx, err = authz.WithPrincipal(context.Background(), authz.Principal{SubjectID: 1})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
+	}
+	baseCtx, err = ctxx.WithTenantID(baseCtx, tenantID)
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
 	}
 	return ctx.RequestContext().WithContext(baseCtx)
 }
@@ -43,19 +47,29 @@ func withPermissions(t *testing.T, reqCtx httpx.IRequestContext, permissions ...
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
+	if tenantID := ctxx.TenantID(derived); tenantID != "" {
+		updated, err = ctxx.WithTenantID(updated, tenantID)
+		if err != nil {
+			t.Fatalf("WithTenantID: %v", err)
+		}
+	}
 	return derived.WithContext(updated)
 }
 
 func withActiveScope(t *testing.T, reqCtx httpx.IRequestContext, scopeID int64, scopeCode, scopeType string) httpx.IRequestContext {
 	t.Helper()
-	derived := iamauth.WithActiveScope(reqCtx, scopeID, scopeCode, scopeType)
+	derived := iamauth.WithActiveScope(reqCtx, scopeID, scopeType)
 	principal, _ := authz.PrincipalFromContext(derived)
 	principal.ActiveScopeID = scopeID
-	principal.ActiveScopeCode = scopeCode
-	principal.ActiveScopeType = scopeType
-	updated, err := authz.WithPrincipal(derived, principal)
+	updated, err := authz.WithPrincipal(iamauth.BindActiveScopeContext(derived, scopeID, scopeType), principal)
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
+	}
+	if tenantID := ctxx.TenantID(derived); tenantID != "" {
+		updated, err = ctxx.WithTenantID(updated, tenantID)
+		if err != nil {
+			t.Fatalf("WithTenantID: %v", err)
+		}
 	}
 	return derived.WithContext(updated)
 }

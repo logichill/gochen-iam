@@ -5,10 +5,13 @@ import (
 	"strconv"
 	"strings"
 
+	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	"gochen-iam/tenant"
+	appaccess "gochen/app/access"
 	"gochen/authz"
+	ctxx "gochen/contextx"
 	"gochen/errorx"
 )
 
@@ -56,29 +59,51 @@ func NewIAMAuthorizer(scopeAuthorizer *ScopeAuthorizer) (*authz.Authorizer, erro
 	)
 }
 
-// AuthorizeWriteGuard 执行统一授权，并把 allow 决策投影成显式 WriteGuard。
-func AuthorizeWriteGuard(ctx context.Context, authorizer authz.IAuthorizer, permission string, targets ...any) (authz.WriteGuard, error) {
+// AuthorizeWriteConstraint 执行统一授权，并把 allow 决策投影成显式写约束。
+func AuthorizeWriteConstraint(ctx context.Context, authorizer authz.IAuthorizer, permission string, targets ...any) (WriteConstraint, error) {
+	permission = strings.TrimSpace(permission)
+	if permission == "" {
+		return WriteConstraint{}, errorx.New(errorx.InvalidInput, "permission is required")
+	}
 	if authorizer == nil {
-		return authz.WriteGuard{}, errorx.New(errorx.InvalidInput, "authorizer is required")
+		return WriteConstraint{}, errorx.New(errorx.InvalidInput, "authorizer is required")
 	}
 	decision, err := authorizer.Authorize(ctx, permission, targets...)
 	if err != nil {
-		return authz.WriteGuard{}, err
+		return WriteConstraint{}, err
 	}
 	if err := decision.RequireAllow(); err != nil {
-		return authz.WriteGuard{}, err
+		return WriteConstraint{}, err
 	}
-	return decision.WriteGuard(), nil
+	return iamaccess.NewWriteConstraint(schemaSafeWriteConstraint(decision), decision.ConstraintMetadata()), nil
+}
+
+// AuthorizeCreateConstraint 为 create 路径构造写入约束。
+func AuthorizeCreateConstraint(ctx context.Context, authorizer authz.IAuthorizer, permission string, targets ...any) (WriteConstraint, error) {
+	constraint, err := AuthorizeWriteConstraint(ctx, authorizer, permission, targets...)
+	if err != nil {
+		return WriteConstraint{}, err
+	}
+	for i := range constraint.Resources {
+		constraint.Resources[i].ResourceID = ""
+		constraint.Resources[i].Revision = ""
+	}
+	return constraint, nil
 }
 
 // WithSystemPrincipal 为后台/内部任务构造统一的 system principal 运行时。
 func WithSystemPrincipal(ctx context.Context, tenantID string, metadata authz.ExecutionMetadata) (context.Context, error) {
 	ctx, err := authz.WithPrincipal(ctx, authz.Principal{
 		IsSystem: true,
-		TenantID: strings.TrimSpace(tenantID),
 	})
 	if err != nil {
 		return nil, err
+	}
+	if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
+		ctx, err = BindTenantContext(ctx, tenantID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	replayCtx, _, err := authz.PrepareReplayAuthorization(ctx, metadata)
 	if err != nil {
@@ -94,14 +119,15 @@ func evaluateIAMAuthorization(
 	permission string,
 	resources []authz.Resource,
 ) (authz.AuthzDecision, error) {
+	resources = normalizeIAMAuthorizedResources(ctx, resources)
 	if !principalHasPermission(principal, permission) {
 		return authz.DenyDecision("permission_denied", resources...), nil
 	}
-	if requiresPlatformScope(resources) && !principalCanAccessPlatform(principal) {
+	if requiresPlatformScope(resources) && !principalCanAccessPlatform(principal, ctx) {
 		return authz.DenyDecision("platform_scope_denied", resources...), nil
 	}
 
-	targetTenantID, hasTenantBoundary, mixedTenantTargets := collectAuthorizedTenant(resources)
+	targetTenantID, hasTenantBoundary, mixedTenantTargets := collectAuthorizedTenant(ctx, resources)
 	if mixedTenantTargets {
 		return authz.DenyDecision("cross_tenant_resource_set", resources...), nil
 	}
@@ -120,12 +146,48 @@ func evaluateIAMAuthorization(
 	return authz.AllowDecision(resources...), nil
 }
 
+func normalizeIAMAuthorizedResources(ctx context.Context, resources []authz.Resource) []authz.Resource {
+	if len(resources) == 0 {
+		return resources
+	}
+	tenantID := strings.TrimSpace(ctxx.TenantID(ctx))
+	out := make([]authz.Resource, len(resources))
+	copy(out, resources)
+	for i := range out {
+		if requiresPlatformScope([]authz.Resource{out[i]}) {
+			out[i].ManagedScopeID = 0
+			continue
+		}
+		if tenantID != "" && out[i].OwnerID == "" {
+			out[i].OwnerID = tenantOwnerID(tenantID)
+		}
+	}
+	return out
+}
+
+func schemaSafeWriteConstraint(decision authz.AuthzDecision) appaccess.WriteConstraint {
+	constraint := decision.WriteConstraint()
+	for i := range constraint.Resources {
+		if !resourceKindUsesManagedScope(constraint.Resources[i].Kind) {
+			constraint.Resources[i].ManagedScopeID = 0
+		}
+	}
+	return constraint
+}
+
+func resourceKindUsesManagedScope(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case UserResourceKind, GroupResourceKind, RoleResourceKind:
+		return true
+	default:
+		return false
+	}
+}
+
 func requiresPlatformScope(resources []authz.Resource) bool {
 	for _, resource := range resources {
-		if strings.EqualFold(strings.TrimSpace(resource.ScopeType), string(iammw.ScopePlatform)) {
-			return true
-		}
-		if strings.EqualFold(strings.TrimSpace(resource.ScopeCode), platformScopeCode) {
+		switch strings.TrimSpace(resource.Kind) {
+		case TenantResourceKind, MenuResourceKind, ScopeResourceKind:
 			return true
 		}
 	}
@@ -193,9 +255,9 @@ func resolveTenantAccessForPrincipal(
 		}, nil
 	}
 
-	if strings.EqualFold(strings.TrimSpace(principal.ActiveScopeType), string(iammw.ScopePlatform)) {
+	if strings.EqualFold(activeScopeKindFromContext(ctx), string(iammw.ScopePlatform)) {
 		if targetTenantID == "" {
-			return tenantAccessResolution{TenantID: strings.TrimSpace(principal.TenantID)}, nil
+			return tenantAccessResolution{TenantID: strings.TrimSpace(ctxx.TenantID(ctx))}, nil
 		}
 		return tenantAccessResolution{TenantID: targetTenantID}, nil
 	}
@@ -204,15 +266,15 @@ func resolveTenantAccessForPrincipal(
 	if err != nil {
 		return tenantAccessResolution{}, err
 	}
-	if strings.TrimSpace(principal.TenantID) != tenantID {
+	if strings.TrimSpace(ctxx.TenantID(ctx)) != tenantID {
 		return tenantAccessResolution{}, errorx.New(errorx.Forbidden, "cross-tenant access denied")
 	}
 	return tenantAccessResolution{TenantID: tenantID}, nil
 }
 
-func collectAuthorizedTenant(resources []authz.Resource) (tenantID string, hasTenantBoundary bool, mixed bool) {
+func collectAuthorizedTenant(ctx context.Context, resources []authz.Resource) (tenantID string, hasTenantBoundary bool, mixed bool) {
 	for _, resource := range resources {
-		currentTenantID := strings.TrimSpace(resource.TenantID)
+		currentTenantID := tenantIDFromResource(resource)
 		if currentTenantID == "" {
 			continue
 		}
@@ -225,6 +287,12 @@ func collectAuthorizedTenant(resources []authz.Resource) (tenantID string, hasTe
 			return "", true, true
 		}
 	}
+	if !hasTenantBoundary {
+		currentTenantID := strings.TrimSpace(ctxx.TenantID(ctx))
+		if currentTenantID != "" {
+			return currentTenantID, true, false
+		}
+	}
 	return tenantID, hasTenantBoundary, false
 }
 
@@ -234,15 +302,14 @@ func resourceFromEntity(kind string, entity tenantVersionedEntity) (authz.Resour
 	}
 
 	resource := authz.Resource{
-		Kind:     strings.TrimSpace(kind),
-		TenantID: strings.TrimSpace(entity.GetTenantID()),
+		Kind:    strings.TrimSpace(kind),
+		OwnerID: tenantOwnerID(strings.TrimSpace(entity.GetTenantID())),
 	}
-	if scoped, ok := any(entity).(interface {
-		GetScopeType() string
-		GetScopeCode() string
-	}); ok {
-		resource.ScopeType = strings.TrimSpace(scoped.GetScopeType())
-		resource.ScopeCode = strings.TrimSpace(scoped.GetScopeCode())
+	if ownable, ok := any(entity).(interface{ GetOwnerID() string }); ok && strings.TrimSpace(ownable.GetOwnerID()) != "" {
+		resource.OwnerID = strings.TrimSpace(ownable.GetOwnerID())
+	}
+	if scoped, ok := any(entity).(interface{ GetManagedScopeID() int64 }); ok && scoped.GetManagedScopeID() > 0 {
+		resource.ManagedScopeID = scoped.GetManagedScopeID()
 	}
 	if entity.GetID() <= 0 {
 		return resource, true
@@ -260,9 +327,7 @@ type versionedEntity interface {
 
 func platformResourceFromEntity(kind string, entity versionedEntity) (authz.Resource, bool) {
 	resource := authz.Resource{
-		Kind:      strings.TrimSpace(kind),
-		ScopeType: string(iammw.ScopePlatform),
-		ScopeCode: platformScopeCode,
+		Kind: strings.TrimSpace(kind),
 	}
 	if entity == nil {
 		return authz.Resource{}, false
@@ -273,4 +338,12 @@ func platformResourceFromEntity(kind string, entity versionedEntity) (authz.Reso
 	resource.ID = strconv.FormatInt(entity.GetID(), 10)
 	resource.Revision = strconv.FormatUint(entity.GetVersion(), 10)
 	return resource, true
+}
+
+func tenantIDFromResource(resource authz.Resource) string {
+	ownerID := strings.TrimSpace(resource.OwnerID)
+	if strings.HasPrefix(ownerID, tenantOwnerPrefix) {
+		return strings.TrimSpace(strings.TrimPrefix(ownerID, tenantOwnerPrefix))
+	}
+	return ""
 }

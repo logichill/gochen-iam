@@ -34,14 +34,14 @@ var groupQuerySchema = dataquery.MustInferQuerySchema[groupQueryFields](nil)
 type GroupRoutes struct {
 	groupService IGroupService
 	utils        *hbasic.Utils
-	groupRepo    domaincrud.IResourceBoundaryRepository[*iamentity.Group, int64]
+	groupRepo    svc.IScopedResourceContextRepository[*iamentity.Group, int64]
 	authorizer   authz.IAuthorizer
 }
 
 // NewGroupRoutes 创建组织路由注册器
 func NewGroupRoutes(
 	groupService IGroupService,
-	groupRepo domaincrud.IResourceBoundaryRepository[*iamentity.Group, int64],
+	groupRepo svc.IScopedResourceContextRepository[*iamentity.Group, int64],
 	authorizer *authz.Authorizer,
 ) *GroupRoutes {
 	return &GroupRoutes{
@@ -65,7 +65,7 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionManage).Scope(iammw.ScopePlatform, iammw.ScopeTenant),
 	))
 
-	appService, err := appcrud.NewApplication(gr.groupRepo, nil, nil)
+	appService, err := svc.NewCRUDApplication[*iamentity.Group, int64](gr.groupRepo, gr.groupRepo)
 	if err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("create group crud application").WithContext("route", "iam.group")
@@ -399,7 +399,7 @@ func (gr *GroupRoutes) getGroupStatistics(ctx httpx.IContext) error {
 	return httpx.WriteSuccess(ctx, stats)
 }
 
-func newGroupCRUDHooks(repo domaincrud.IResourceBoundaryRepository[*iamentity.Group, int64]) *appcrud.Hooks[*iamentity.Group, int64] {
+func newGroupCRUDHooks(repo svc.IResourceContextRepository[*iamentity.Group, int64]) *appcrud.Hooks[*iamentity.Group, int64] {
 	return &appcrud.Hooks[*iamentity.Group, int64]{
 		BeforeCreate: func(ctx context.Context, group *iamentity.Group) error {
 			// 1. 租户隔离：从上下文注入 tenant_id
@@ -407,10 +407,13 @@ func newGroupCRUDHooks(repo domaincrud.IResourceBoundaryRepository[*iamentity.Gr
 			if err != nil {
 				return err
 			}
-			group.SetTenantID(tenantID)
-			if err := applyScopeFromContext(group, ctx); err != nil {
-				return err
+			managedScopeID := svc.ManagedScopeIDFromContext(ctx)
+			if managedScopeID <= 0 {
+				return errorx.New(errorx.InvalidInput, "managed scope boundary is required")
 			}
+			group.SetTenantID(tenantID)
+			group.SetManagedScopeID(managedScopeID)
+			group.SetOwnerID(svc.TenantOwnerID(tenantID))
 			// 2. 层级准备
 			return prepareGroupHierarchy(ctx, repo, nil, group)
 		},
@@ -424,11 +427,8 @@ func newGroupCRUDHooks(repo domaincrud.IResourceBoundaryRepository[*iamentity.Gr
 			}
 			// 更新时始终沿用已存在实体的租户，避免请求体伪造/遗漏 tenant_id。
 			group.SetTenantID(current.GetTenantID())
-			group.SetScopeType(current.GetScopeType())
-			group.SetScopeCode(current.GetScopeCode())
-			if err := applyScopeFromContext(group, ctx); err != nil {
-				return err
-			}
+			group.SetManagedScopeID(current.GetManagedScopeID())
+			group.SetOwnerID(current.GetOwnerID())
 			return prepareGroupHierarchy(ctx, repo, current, group)
 		},
 		BeforeDelete: func(ctx context.Context, id int64) error {
@@ -439,7 +439,7 @@ func newGroupCRUDHooks(repo domaincrud.IResourceBoundaryRepository[*iamentity.Gr
 
 func prepareGroupHierarchy(
 	ctx context.Context,
-	repo domaincrud.IResourceBoundaryRepository[*iamentity.Group, int64],
+	repo svc.IResourceContextRepository[*iamentity.Group, int64],
 	current *iamentity.Group,
 	group *iamentity.Group,
 ) error {

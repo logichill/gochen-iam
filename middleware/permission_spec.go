@@ -8,6 +8,7 @@ import (
 type Resource string
 type Action string
 type ScopeType string
+type RiskLevel string
 
 const (
 	ResourceAny    Resource = "*"
@@ -32,6 +33,11 @@ const (
 
 	ScopePlatform ScopeType = "platform"
 	ScopeTenant   ScopeType = "tenant"
+
+	RiskLevelLow      RiskLevel = "low"
+	RiskLevelMedium   RiskLevel = "medium"
+	RiskLevelHigh     RiskLevel = "high"
+	RiskLevelCritical RiskLevel = "critical"
 )
 
 type PermissionSpec struct {
@@ -111,6 +117,16 @@ func (p PermissionSpec) Scope(scopes ...ScopeType) PermissionSpec {
 		seen[scope] = struct{}{}
 		p.Scopes = append(p.Scopes, scope)
 	}
+	return p
+}
+
+func (p PermissionSpec) Builtin() PermissionSpec {
+	p.BuiltinOnly = true
+	return p
+}
+
+func (p PermissionSpec) Risk(level RiskLevel) PermissionSpec {
+	p.RiskLevel = strings.TrimSpace(string(level))
 	return p
 }
 

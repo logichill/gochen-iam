@@ -32,7 +32,7 @@ func resolveTenantAccess(ctx context.Context, targetTenantID string) (tenantAcce
 		}, nil
 	}
 
-	if strings.EqualFold(activeScopeTypeFromContext(ctx), string(iammw.ScopePlatform)) {
+	if strings.EqualFold(activeScopeKindFromContext(ctx), string(iammw.ScopePlatform)) {
 		if targetTenantID == "" {
 			tenantID, err := TenantIDFromContext(ctx)
 			if err != nil {

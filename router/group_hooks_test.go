@@ -2,14 +2,15 @@ package router
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"testing"
 
+	"gochen-iam/access"
+	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
+	svc "gochen-iam/service"
 	"gochen/authz"
 	ctxx "gochen/contextx"
-	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 )
 
@@ -23,7 +24,7 @@ type groupHookRepoStub struct {
 	updated []*iamentity.Group
 }
 
-var _ domaincrud.IResourceBoundaryRepository[*iamentity.Group, int64] = (*groupHookRepoStub)(nil)
+var _ svc.IResourceContextRepository[*iamentity.Group, int64] = (*groupHookRepoStub)(nil)
 
 func (s *groupHookRepoStub) Create(context.Context, *iamentity.Group) error { return nil }
 
@@ -45,39 +46,36 @@ func (s *groupHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Group, 
 	return &cp, nil
 }
 
-func (s *groupHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (authz.Resource, error) {
+func (s *groupHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (access.ResourceBoundary, error) {
 	g, ok := s.groups[id]
 	if !ok {
-		return authz.Resource{}, errorx.New(errorx.NotFound, "组织不存在")
+		return access.ResourceBoundary{}, errorx.New(errorx.NotFound, "组织不存在")
 	}
-	return authz.Resource{
-		Kind:     "iam.group",
-		ID:       "group",
-		TenantID: g.GetTenantID(),
+	return access.ResourceBoundary{
+		Kind:    "iam.group",
+		ID:      "group",
+		OwnerID: "tenant:" + g.GetTenantID(),
 	}, nil
 }
 
 func tenantCtx(t *testing.T, tenantID string) context.Context {
 	t.Helper()
-	ctx, err := ctxx.WithTenantID(context.Background(), tenantID)
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
-	}
-	scopeCode := fmt.Sprintf("tenant:%s", tenantID)
-	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
-		SubjectID:       1,
-		TenantID:        tenantID,
-		ActiveScopeType: iamentity.ScopeTypeTenant,
-		ActiveScopeCode: scopeCode,
+	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+		SubjectID:     1,
+		ActiveScopeID: 1,
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
+	ctx, err = ctxx.WithTenantID(ctx, tenantID)
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iamentity.ScopeTypeTenant))
 	ctx, err = authz.WithDataScope(ctx, authz.DataScope{
-		TenantID:  tenantID,
-		ScopeType: iamentity.ScopeTypeTenant,
-		ScopeCode: scopeCode,
-		Mode:      authz.ScopeModeScoped,
+		ActiveScopeID:   1,
+		VisibleScopeIDs: []int64{1},
+		Mode:            authz.ScopeModeManagedScopes,
 	})
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)

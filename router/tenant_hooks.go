@@ -2,39 +2,42 @@ package router
 
 import (
 	"context"
-	"strings"
 
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
+	rolesvc "gochen-iam/service/role"
 	appcrud "gochen/app/crud"
-	goauthz "gochen/authz"
 	"gochen/domain"
 	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 )
 
-type platformTenantFinder interface {
-	FindPlatform(ctx context.Context) (*iamentity.Tenant, error)
-}
-
 func loadTenantBoundEntity[T domain.IEntity[ID], ID comparable](
 	ctx context.Context,
-	repo domaincrud.IResourceBoundaryRepository[T, ID],
+	repo svc.IResourceContextRepository[T, ID],
 	id ID,
 ) (T, context.Context, error) {
 	return svc.LoadTenantBoundResource(ctx, repo, id)
 }
 
 // TenantHooksForUser 创建用户租户隔离钩子。
-func TenantHooksForUser(repo domaincrud.IResourceBoundaryRepository[*iamentity.User, int64]) *appcrud.Hooks[*iamentity.User, int64] {
+func TenantHooksForUser(repo svc.IResourceContextRepository[*iamentity.User, int64]) *appcrud.Hooks[*iamentity.User, int64] {
 	return &appcrud.Hooks[*iamentity.User, int64]{
 		BeforeCreate: func(ctx context.Context, entity *iamentity.User) error {
 			tenantID, err := domaincrud.ResolveTenantID(ctx)
 			if err != nil {
 				return err
 			}
+			managedScopeID := svc.ManagedScopeIDFromContext(ctx)
+			if managedScopeID <= 0 {
+				return errorx.New(errorx.InvalidInput, "managed scope boundary is required")
+			}
 			entity.SetTenantID(tenantID)
-			return applyScopeFromContext(entity, ctx)
+			entity.SetHomeTenantID(tenantID)
+			entity.SetHomeScopeID(managedScopeID)
+			entity.SetManagedScopeID(managedScopeID)
+			entity.SetOwnerID(svc.TenantOwnerID(tenantID))
+			return nil
 		},
 		BeforeUpdate: func(ctx context.Context, entity *iamentity.User) error {
 			contextTenantID, err := domaincrud.ResolveTenantID(ctx)
@@ -47,14 +50,29 @@ func TenantHooksForUser(repo domaincrud.IResourceBoundaryRepository[*iamentity.U
 					return err
 				}
 				entity.SetTenantID(current.GetTenantID())
-				entity.SetScopeType(current.GetScopeType())
-				entity.SetScopeCode(current.GetScopeCode())
+				entity.SetHomeTenantID(current.GetHomeTenantID())
+				entity.SetHomeScopeID(current.GetHomeScopeID())
+				entity.SetManagedScopeID(current.GetManagedScopeID())
+				entity.SetOwnerID(current.GetOwnerID())
 			}
 			if entity.GetTenantID() != contextTenantID {
 				return errorx.New(errorx.Forbidden, "跨租户访问被拒绝")
 			}
-			if strings.TrimSpace(entity.GetScopeType()) == "" || strings.TrimSpace(entity.GetScopeCode()) == "" {
-				return applyScopeFromContext(entity, ctx)
+			if entity.GetHomeTenantID() == "" {
+				entity.SetHomeTenantID(contextTenantID)
+			}
+			if entity.GetHomeScopeID() <= 0 {
+				if managedScopeID := svc.ManagedScopeIDFromContext(ctx); managedScopeID > 0 {
+					entity.SetHomeScopeID(managedScopeID)
+				}
+			}
+			if entity.GetManagedScopeID() <= 0 {
+				if current, _, err := loadTenantBoundEntity(ctx, repo, entity.GetID()); err == nil {
+					entity.SetManagedScopeID(current.GetManagedScopeID())
+				}
+			}
+			if entity.GetOwnerID() == "" {
+				entity.SetOwnerID(svc.TenantOwnerID(contextTenantID))
 			}
 			return nil
 		},
@@ -66,16 +84,21 @@ func TenantHooksForUser(repo domaincrud.IResourceBoundaryRepository[*iamentity.U
 
 // TenantHooksForRole 创建角色租户隔离钩子。
 func TenantHooksForRole(
-	repo domaincrud.IResourceBoundaryRepository[*iamentity.Role, int64],
+	repo svc.IResourceContextRepository[*iamentity.Role, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
+	governance *rolesvc.Governance,
 ) *appcrud.Hooks[*iamentity.Role, int64] {
 	return &appcrud.Hooks[*iamentity.Role, int64]{
 		BeforeCreate: func(ctx context.Context, entity *iamentity.Role) error {
+			if governance != nil {
+				return governance.PrepareCreate(ctx, entity)
+			}
 			tenantID, err := domaincrud.ResolveTenantID(ctx)
 			if err != nil {
 				return err
 			}
 			entity.SetTenantID(tenantID)
+			entity.SetOwnerID(svc.TenantOwnerID(tenantID))
 			if scopeAuthorizer != nil {
 				tenantCtx, bindErr := svc.BindTenantContext(ctx, tenantID)
 				if bindErr != nil {
@@ -86,16 +109,20 @@ func TenantHooksForRole(
 					return err
 				}
 				entity.NamespaceScopeID = namespaceScope.ID
-				entity.SetScopeType(namespaceScope.Type)
-				entity.SetScopeCode(namespaceScope.Key)
 			} else {
-				if err := applyScopeFromContext(entity, ctx); err != nil {
-					return err
+				if entity.NamespaceScopeID <= 0 {
+					entity.NamespaceScopeID = svc.ManagedScopeIDFromContext(ctx)
 				}
+			}
+			if entity.NamespaceScopeID <= 0 {
+				return errorx.New(errorx.InvalidInput, "namespace scope boundary is required")
 			}
 			return nil
 		},
 		BeforeUpdate: func(ctx context.Context, entity *iamentity.Role) error {
+			if governance != nil {
+				return governance.PrepareUpdate(ctx, entity)
+			}
 			contextTenantID, err := domaincrud.ResolveTenantID(ctx)
 			if err != nil {
 				return err
@@ -106,8 +133,7 @@ func TenantHooksForRole(
 					return err
 				}
 				entity.SetTenantID(current.GetTenantID())
-				entity.SetScopeType(current.GetScopeType())
-				entity.SetScopeCode(current.GetScopeCode())
+				entity.SetOwnerID(current.GetOwnerID())
 				if entity.NamespaceScopeID <= 0 {
 					entity.NamespaceScopeID = current.NamespaceScopeID
 				}
@@ -115,12 +141,15 @@ func TenantHooksForRole(
 			if entity.GetTenantID() != contextTenantID {
 				return errorx.New(errorx.Forbidden, "跨租户访问被拒绝")
 			}
-			if strings.TrimSpace(entity.GetScopeType()) == "" || strings.TrimSpace(entity.GetScopeCode()) == "" {
-				return applyScopeFromContext(entity, ctx)
+			if entity.GetOwnerID() == "" {
+				entity.SetOwnerID(svc.TenantOwnerID(contextTenantID))
 			}
 			return nil
 		},
 		BeforeDelete: func(ctx context.Context, id int64) error {
+			if governance != nil {
+				return governance.ValidateDelete(ctx, id)
+			}
 			return checkTenantOwnership(ctx, repo, id)
 		},
 	}
@@ -128,7 +157,7 @@ func TenantHooksForRole(
 
 // TenantHooksForTenant 在创建 tenant 时自动补齐 root scope。
 func TenantHooksForTenant(
-	repo domaincrud.IResourceBoundaryRepository[*iamentity.Tenant, int64],
+	repo svc.IResourceContextRepository[*iamentity.Tenant, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
 ) *appcrud.Hooks[*iamentity.Tenant, int64] {
 	return &appcrud.Hooks[*iamentity.Tenant, int64]{
@@ -137,18 +166,6 @@ func TenantHooksForTenant(
 				return nil
 			}
 			entity.RootScopeID = nil
-			entity.SyncPlatformSlot()
-			if entity.IsPlatform {
-				if finder, ok := repo.(platformTenantFinder); ok && finder != nil {
-					existing, err := finder.FindPlatform(ctx)
-					if err == nil && existing != nil {
-						return errorx.New(errorx.Validation, "平台租户已存在")
-					}
-					if err != nil && !errorx.Is(err, errorx.NotFound) {
-						return err
-					}
-				}
-			}
 			return nil
 		},
 		AfterCreate: func(ctx context.Context, entity *iamentity.Tenant) error {
@@ -167,22 +184,21 @@ func TenantHooksForTenant(
 				return err
 			}
 			entity.RootScopeID = current.RootScopeID
-			entity.IsPlatform = current.IsPlatform
-			entity.PlatformSlot = current.PlatformSlot
 			return nil
 		},
 	}
 }
 
 func newScopeBackedRoleCRUDHooks(
-	repo domaincrud.IResourceBoundaryRepository[*iamentity.Role, int64],
+	repo svc.IResourceContextRepository[*iamentity.Role, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
+	governance *rolesvc.Governance,
 ) *appcrud.Hooks[*iamentity.Role, int64] {
-	return TenantHooksForRole(repo, scopeAuthorizer)
+	return TenantHooksForRole(repo, scopeAuthorizer, governance)
 }
 
 func newTenantCRUDHooks(
-	repo domaincrud.IResourceBoundaryRepository[*iamentity.Tenant, int64],
+	repo svc.IResourceContextRepository[*iamentity.Tenant, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
 ) *appcrud.Hooks[*iamentity.Tenant, int64] {
 	return TenantHooksForTenant(repo, scopeAuthorizer)
@@ -197,7 +213,7 @@ type tenantOwner[ID comparable] interface {
 // checkTenantOwnership 通用的删除前租户校验：获取实体并比对 tenant_id。
 func checkTenantOwnership[T tenantOwner[ID], ID comparable](
 	ctx context.Context,
-	repo domaincrud.IResourceBoundaryRepository[T, ID],
+	repo svc.IResourceContextRepository[T, ID],
 	id ID,
 ) error {
 	contextTenantID, err := domaincrud.ResolveTenantID(ctx)
@@ -210,33 +226,6 @@ func checkTenantOwnership[T tenantOwner[ID], ID comparable](
 	}
 	if entity.GetTenantID() != contextTenantID {
 		return errorx.New(errorx.Forbidden, "跨租户访问被拒绝")
-	}
-	return nil
-}
-
-type scopeOwner interface {
-	SetScopeType(string)
-	SetScopeCode(string)
-	GetScopeType() string
-	GetScopeCode() string
-}
-
-func applyScopeFromContext(entity scopeOwner, ctx context.Context) error {
-	if entity == nil {
-		return nil
-	}
-	scope, err := goauthz.ResolveDataScope(ctx, goauthz.PrincipalDataScopeResolver{})
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(scope.ScopeType) == "" || strings.TrimSpace(scope.ScopeCode) == "" {
-		return errorx.New(errorx.InvalidInput, "scope boundary is required")
-	}
-	if strings.TrimSpace(entity.GetScopeType()) == "" {
-		entity.SetScopeType(scope.ScopeType)
-	}
-	if strings.TrimSpace(entity.GetScopeCode()) == "" {
-		entity.SetScopeCode(scope.ScopeCode)
 	}
 	return nil
 }

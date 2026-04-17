@@ -20,7 +20,6 @@ const (
 	EnvSingleTenantID = "IAM_SINGLE_TENANT_ID"
 
 	DefaultSingleTenantID = "default"
-	activeScopePlatform   = "platform"
 )
 
 type Policy struct {
@@ -99,38 +98,24 @@ func NormalizeTenantID(ctx context.Context, targetTenantID string) (string, erro
 	return tenantID, nil
 }
 
-func ResolveRequestTenantID(requestTenantID, tokenTenantID string, requireTenant bool) (string, error) {
-	return ResolveRequestTenantIDWithScope(requestTenantID, tokenTenantID, "", requireTenant)
-}
-
-// ResolveRequestTenantIDWithScope 按请求 tenant、token tenant 与 active scope 决定本次请求应使用的 tenant。
-func ResolveRequestTenantIDWithScope(requestTenantID, tokenTenantID, activeScopeType string, requireTenant bool) (string, error) {
+// ResolveRequestTenantID 按请求 tenant / 当前上下文 tenant 决定本次请求应使用的 tenant。
+func ResolveRequestTenantID(requestTenantID, currentTenantID string, requireTenant bool) (string, error) {
 	requestTenantID = strings.TrimSpace(requestTenantID)
-	tokenTenantID = strings.TrimSpace(tokenTenantID)
-	activeScopeType = strings.TrimSpace(strings.ToLower(activeScopeType))
+	currentTenantID = strings.TrimSpace(currentTenantID)
 
 	policy := Current()
 	if policy.IsSingle() {
 		if requestTenantID != "" && requestTenantID != policy.SingleTenantID {
 			return "", errorx.New(errorx.Forbidden, "request tenant does not match configured tenant")
 		}
-		if tokenTenantID != "" && tokenTenantID != policy.SingleTenantID {
-			return "", errorx.New(errorx.Forbidden, "token tenant does not match configured tenant")
-		}
 		return policy.SingleTenantID, nil
 	}
 
-	if activeScopeType == activeScopePlatform && requestTenantID != "" {
-		return requestTenantID, nil
-	}
-	if requestTenantID != "" && tokenTenantID != "" && requestTenantID != tokenTenantID {
-		return "", errorx.New(errorx.Forbidden, "token tenant does not match request tenant")
-	}
 	if requestTenantID != "" {
 		return requestTenantID, nil
 	}
-	if tokenTenantID != "" {
-		return tokenTenantID, nil
+	if currentTenantID != "" {
+		return currentTenantID, nil
 	}
 	if requireTenant {
 		return "", errorx.New(errorx.Validation, "tenant_id is required")

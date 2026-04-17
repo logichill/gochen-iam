@@ -4,7 +4,8 @@ import (
 	"context"
 
 	iamentity "gochen-iam/entity"
-	"gochen/authz"
+	assocguard "gochen-iam/repo/internal/guard"
+	iamaccess "gochen-iam/access"
 	"gochen/db/orm"
 	db "gochen/db/orm/repo"
 	"gochen/errorx"
@@ -31,36 +32,14 @@ func NewTenantRepository(o orm.IOrm) (*TenantRepo, error) {
 	return &TenantRepo{Repo: base}, nil
 }
 
-// Create 覆盖通用创建
-func (r *TenantRepo) Create(ctx context.Context, t *iamentity.Tenant) error {
-	if t != nil {
-		t.SyncPlatformSlot()
-	}
-	return r.Repo.Create(ctx, t)
+// CreateWithConstraint 在显式写边界下创建租户。
+func (r *TenantRepo) CreateWithConstraint(ctx context.Context, t *iamentity.Tenant, guard iamaccess.WriteConstraint) error {
+	return r.Repo.CreateWithConstraint(assocguard.BindContext(ctx, guard), t, guard.Unwrap())
 }
 
-// Update 覆盖通用更新
-func (r *TenantRepo) Update(ctx context.Context, t *iamentity.Tenant) error {
-	if t != nil {
-		t.SyncPlatformSlot()
-	}
-	return r.Repo.Update(ctx, t)
-}
-
-// CreateWithWriteGuard 在显式写边界下创建租户。
-func (r *TenantRepo) CreateWithWriteGuard(ctx context.Context, t *iamentity.Tenant, guard authz.WriteGuard) error {
-	if t != nil {
-		t.SyncPlatformSlot()
-	}
-	return r.Repo.CreateWithWriteGuard(ctx, t, guard)
-}
-
-// UpdateWithWriteGuard 在显式写边界下更新租户。
-func (r *TenantRepo) UpdateWithWriteGuard(ctx context.Context, t *iamentity.Tenant, guard authz.WriteGuard) error {
-	if t != nil {
-		t.SyncPlatformSlot()
-	}
-	return r.Repo.UpdateWithWriteGuard(ctx, t, guard)
+// UpdateWithConstraint 在显式写边界下更新租户。
+func (r *TenantRepo) UpdateWithConstraint(ctx context.Context, t *iamentity.Tenant, guard iamaccess.WriteConstraint) error {
+	return r.Repo.UpdateWithConstraint(assocguard.BindContext(ctx, guard), t, guard.Unwrap())
 }
 
 // Get 根据ID获取租户（过滤软删记录）
@@ -98,22 +77,5 @@ func (r *TenantRepo) FindByKey(ctx context.Context, key string) (*iamentity.Tena
 		return nil, errorx.Wrap(err, errorx.Database, "查询租户失败")
 	}
 
-	return &tenant, nil
-}
-
-// FindPlatform 返回当前平台租户（若存在）。
-func (r *TenantRepo) FindPlatform(ctx context.Context) (*iamentity.Tenant, error) {
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var tenant iamentity.Tenant
-	err = model.First(ctx, &tenant, orm.WithWhere("is_platform = ? AND deleted_at IS NULL", true))
-	if err != nil {
-		if errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.New(errorx.NotFound, "平台租户不存在")
-		}
-		return nil, errorx.Wrap(err, errorx.Database, "查询平台租户失败")
-	}
 	return &tenant, nil
 }

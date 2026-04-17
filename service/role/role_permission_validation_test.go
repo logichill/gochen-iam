@@ -3,7 +3,9 @@ package role
 import (
 	"testing"
 
+	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
+	svc "gochen-iam/service"
 )
 
 func TestIsValidPermission(t *testing.T) {
@@ -68,5 +70,18 @@ func TestValidatePermissions_StrictRegistry(t *testing.T) {
 	}
 	if err := s.validatePermissions([]string{"action:*:*"}); err == nil {
 		t.Fatalf("expected unknown wildcard domain to fail")
+	}
+}
+
+func TestValidatePermissionsForScope_RejectsBuiltinWildcardPermissions(t *testing.T) {
+	iammw.RegisterRequiredPermissionDefinitions(svc.AllPermissionDefinitions...)
+
+	s := &RoleService{}
+	scope := &iamentity.Scope{Type: iamentity.ScopeTypeTenant}
+
+	for _, permission := range []string{"menu:*:view", "api:*:*", "*:*:*"} {
+		if err := s.validatePermissionsForScope([]string{permission}, scope); err == nil {
+			t.Fatalf("expected builtin-only permission %q to fail for custom role", permission)
+		}
 	}
 }

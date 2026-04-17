@@ -3,8 +3,11 @@ package role
 import (
 	"context"
 
+	iamaccess "gochen-iam/access"
+	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
+	"gochen/app/access"
 	"gochen/authz"
 	"gochen/db/orm"
 	db "gochen/db/orm/repo"
@@ -25,6 +28,39 @@ const (
 	groupResourceKind = "iam.group"
 )
 
+func (r *RoleRepo) tenantScopedQuery(ctx context.Context) (*db.ScopedQuery, error) {
+	query, err := r.Repo.ScopedQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tenantID, err := crud.ResolveTenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return query.Where("tenant_id = ?", tenantID), nil
+}
+
+func (r *RoleRepo) findOne(ctx context.Context, configure func(*db.ScopedQuery)) (*iamentity.Role, error) {
+	query, err := r.tenantScopedQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if configure != nil {
+		configure(query)
+	}
+	var role *iamentity.Role
+	if err := query.First(&role); err != nil {
+		return nil, err
+	}
+	return role, nil
+}
+
+func (r *RoleRepo) getByID(ctx context.Context, id int64) (*iamentity.Role, error) {
+	return r.findOne(ctx, func(q *db.ScopedQuery) {
+		q.Where("id = ?", id)
+	})
+}
+
 // NewRoleRepository 创建角色仓储。
 func NewRoleRepository(o orm.IOrm) (*RoleRepo, error) {
 	base, err := db.NewRepo[*iamentity.Role, int64](
@@ -33,7 +69,7 @@ func NewRoleRepository(o orm.IOrm) (*RoleRepo, error) {
 		db.WithIDGenerator[*iamentity.Role, int64](ident.DefaultInt64Generator()),
 		db.WithResourceKind[*iamentity.Role, int64]("iam.role"),
 		db.WithSoftDeleteColumns[*iamentity.Role, int64]("deleted_at", ""),
-		db.WithAuthzColumns[*iamentity.Role, int64]("tenant_id", "scope_type", "scope_code", ""),
+		db.WithAccessColumns[*iamentity.Role, int64]("namespace_scope_id", "owner_id", "version"),
 	)
 	if err != nil {
 		return nil, err
@@ -42,6 +78,57 @@ func NewRoleRepository(o orm.IOrm) (*RoleRepo, error) {
 }
 
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供
+
+func (r *RoleRepo) Create(ctx context.Context, role *iamentity.Role) error {
+	tenantID, err := crud.ResolveTenantID(ctx)
+	if err == nil {
+		if role.TenantID == "" {
+			role.TenantID = tenantID
+		} else if role.TenantID != tenantID {
+			return errorx.New(errorx.Forbidden, "跨租户访问被拒绝")
+		}
+	} else if !errorx.Is(err, errorx.InvalidInput) {
+		return err
+	}
+	if role.OwnerID == "" {
+		role.OwnerID = tenantOwnerID(role.TenantID)
+	}
+	if role.NamespaceScopeID == 0 {
+		role.NamespaceScopeID = managedScopeFromContext(ctx)
+	}
+	return r.Repo.Create(ctx, role)
+}
+
+func (r *RoleRepo) Update(ctx context.Context, role *iamentity.Role) error {
+	tenantID, err := crud.ResolveTenantID(ctx)
+	if err != nil {
+		return err
+	}
+	if role.TenantID == "" {
+		role.TenantID = tenantID
+	} else if role.TenantID != tenantID {
+		return errorx.New(errorx.Forbidden, "跨租户访问被拒绝")
+	}
+	if role.OwnerID == "" {
+		role.OwnerID = tenantOwnerID(role.TenantID)
+	}
+	if role.NamespaceScopeID == 0 {
+		role.NamespaceScopeID = managedScopeFromContext(ctx)
+	}
+	return r.Repo.Update(ctx, role)
+}
+
+func (r *RoleRepo) CreateWithConstraint(ctx context.Context, role *iamentity.Role, guard iamaccess.WriteConstraint) error {
+	return r.Repo.CreateWithConstraint(assocguard.BindContext(ctx, guard), role, guard.Unwrap())
+}
+
+func (r *RoleRepo) UpdateWithConstraint(ctx context.Context, role *iamentity.Role, guard iamaccess.WriteConstraint) error {
+	return r.Repo.UpdateWithConstraint(assocguard.BindContext(ctx, guard), role, guard.Unwrap())
+}
+
+func (r *RoleRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
+	return r.Repo.DeleteWithConstraint(assocguard.BindContext(ctx, guard), id, guard.Unwrap())
+}
 
 // Query 覆盖通用查询，补齐 namespace scope 关系。
 func (r *RoleRepo) Query(ctx context.Context, opts dataquery.QueryOptions) ([]*iamentity.Role, error) {
@@ -54,7 +141,7 @@ func (r *RoleRepo) Query(ctx context.Context, opts dataquery.QueryOptions) ([]*i
 
 // Get 根据ID获取角色。
 func (r *RoleRepo) Get(ctx context.Context, id int64) (*iamentity.Role, error) {
-	role, err := r.Repo.Get(ctx, id)
+	role, err := r.getByID(ctx, id)
 	if err != nil {
 		if errorx.Is(err, errorx.NotFound) {
 			return nil, errorx.New(errorx.NotFound, "角色不存在")
@@ -70,7 +157,7 @@ func (r *RoleRepo) Get(ctx context.Context, id int64) (*iamentity.Role, error) {
 
 // FindByName 根据角色名查找角色（租户内唯一）。
 func (r *RoleRepo) FindByName(ctx context.Context, name string) (*iamentity.Role, error) {
-	role, err := r.Repo.FindOneWith(ctx, func(q *db.ScopedQuery) {
+	role, err := r.findOne(ctx, func(q *db.ScopedQuery) {
 		q.Where("name = ?", name).Preload("Users", "Groups")
 	})
 	if err != nil {
@@ -93,7 +180,7 @@ func (r *RoleRepo) FindByNames(ctx context.Context, names []string) ([]*iamentit
 		return []*iamentity.Role{}, nil
 	}
 
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +198,7 @@ func (r *RoleRepo) FindByNames(ctx context.Context, names []string) ([]*iamentit
 
 // FindByStatus 根据状态查找角色。
 func (r *RoleRepo) FindByStatus(ctx context.Context, status string) ([]*iamentity.Role, error) {
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +216,7 @@ func (r *RoleRepo) FindByStatus(ctx context.Context, status string) ([]*iamentit
 
 // FindSystemRoles 查找系统角色。
 func (r *RoleRepo) FindSystemRoles(ctx context.Context) ([]*iamentity.Role, error) {
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +231,7 @@ func (r *RoleRepo) FindSystemRoles(ctx context.Context) ([]*iamentity.Role, erro
 
 // FindUserRoles 查找非系统角色（用户自定义角色）。
 func (r *RoleRepo) FindUserRoles(ctx context.Context) ([]*iamentity.Role, error) {
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +249,7 @@ func (r *RoleRepo) FindUserRoles(ctx context.Context) ([]*iamentity.Role, error)
 
 // FindByPermission 根据权限查找角色。
 func (r *RoleRepo) FindByPermission(ctx context.Context, permission string) ([]*iamentity.Role, error) {
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -191,14 +278,15 @@ func (r *RoleRepo) FindByPermission(ctx context.Context, permission string) ([]*
 
 // FindByUserID 根据用户ID查找角色。
 func (r *RoleRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity.Role, error) {
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
 	var roles []*iamentity.Role
 	err = query.
-		Join(orm.InnerJoin("user_roles", "", orm.On("roles.id", "user_roles.role_id"))).
-		Where("user_roles.user_id = ?", userID).
+		Join(orm.InnerJoin("user_role_bindings", "", orm.On("roles.id", "user_role_bindings.role_id"))).
+		Where("user_role_bindings.user_id = ?", userID).
+		Where("user_role_bindings.status = ?", "active").
 		Find(&roles)
 	if err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "查询用户角色失败")
@@ -209,7 +297,7 @@ func (r *RoleRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity
 
 // FindByGroupID 根据组织ID查找默认角色。
 func (r *RoleRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamentity.Role, error) {
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -228,81 +316,86 @@ func (r *RoleRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamenti
 // AssignToUser 将角色分配给用户
 func (r *RoleRepo) AssignToUser(ctx context.Context, roleID, userID int64) error {
 	// 检查角色是否存在
-	role, err := r.Repo.Get(ctx, roleID)
+	role, err := r.getByID(ctx, roleID)
 	if err != nil {
 		return err
 	}
 
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return err
+	engine := r.Orm()
+	if session, ok := orm.SessionFromContext(ctx); ok && session != nil {
+		engine = session
 	}
-	err = model.Association(role, "Users").
-		Append(ctx, &iamentity.User{Entity: crud.Entity[int64]{ID: userID}})
-
+	model, err := engine.Model(&orm.ModelMeta{
+		ModelFactory: orm.NewModelFactory[iamentity.UserRoleBinding](),
+		Table:        "user_role_bindings",
+	})
 	if err != nil {
+		return errorx.Wrap(err, errorx.Database, "初始化 user_role_bindings 模型失败")
+	}
+	grantScopeID := role.NamespaceScopeID
+	if override := managedScopeFromContext(ctx); override > 0 {
+		grantScopeID = override
+	}
+	if err := model.Create(ctx, &iamentity.UserRoleBinding{
+		UserID:       userID,
+		RoleID:       roleID,
+		GrantScopeID: grantScopeID,
+		Status:       "active",
+	}); err != nil {
 		return errorx.Wrap(err, errorx.Database, "分配角色给用户失败")
 	}
 
 	return nil
 }
 
-// AssignToUserWithWriteGuard 在显式多资源写边界下给用户分配角色。
-func (r *RoleRepo) AssignToUserWithWriteGuard(ctx context.Context, roleID, userID int64, guard authz.WriteGuard) error {
-	return r.mutateRoleAssociationWithWriteGuard(
-		ctx,
-		roleID,
-		"Users",
-		userResourceKind,
-		userID,
-		&iamentity.User{Entity: crud.Entity[int64]{ID: userID}},
-		false,
-		"分配角色给用户失败",
-		guard,
-	)
+// AssignToUserWithConstraint 在显式多资源写边界下给用户分配角色。
+func (r *RoleRepo) AssignToUserWithConstraint(ctx context.Context, roleID, userID int64, guard iamaccess.WriteConstraint) error {
+	if _, _, err := assocguard.RequirePair(guard, roleResourceKind, roleID, userResourceKind, userID); err != nil {
+		return err
+	}
+	return r.AssignToUser(assocguard.BindContext(ctx, guard), roleID, userID)
 }
 
 // RemoveFromUser 从用户移除角色
 func (r *RoleRepo) RemoveFromUser(ctx context.Context, roleID, userID int64) error {
 	// 检查角色是否存在
-	role, err := r.Repo.Get(ctx, roleID)
-	if err != nil {
+	if _, err := r.getByID(ctx, roleID); err != nil {
 		return err
 	}
 
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return err
+	engine := r.Orm()
+	if session, ok := orm.SessionFromContext(ctx); ok && session != nil {
+		engine = session
 	}
-	err = model.Association(role, "Users").
-		Delete(ctx, &iamentity.User{Entity: crud.Entity[int64]{ID: userID}})
-
+	model, err := engine.Model(&orm.ModelMeta{
+		ModelFactory: orm.NewModelFactory[iamentity.UserRoleBinding](),
+		Table:        "user_role_bindings",
+	})
 	if err != nil {
+		return errorx.Wrap(err, errorx.Database, "初始化 user_role_bindings 模型失败")
+	}
+	if err := model.Delete(ctx,
+		orm.WithWhere("role_id = ?", roleID),
+		orm.WithWhere("user_id = ?", userID),
+	); err != nil {
 		return errorx.Wrap(err, errorx.Database, "从用户移除角色失败")
 	}
 
 	return nil
 }
 
-// RemoveFromUserWithWriteGuard 在显式多资源写边界下移除用户角色。
-func (r *RoleRepo) RemoveFromUserWithWriteGuard(ctx context.Context, roleID, userID int64, guard authz.WriteGuard) error {
-	return r.mutateRoleAssociationWithWriteGuard(
-		ctx,
-		roleID,
-		"Users",
-		userResourceKind,
-		userID,
-		&iamentity.User{Entity: crud.Entity[int64]{ID: userID}},
-		true,
-		"从用户移除角色失败",
-		guard,
-	)
+// RemoveFromUserWithConstraint 在显式多资源写边界下移除用户角色。
+func (r *RoleRepo) RemoveFromUserWithConstraint(ctx context.Context, roleID, userID int64, guard iamaccess.WriteConstraint) error {
+	if _, _, err := assocguard.RequirePair(guard, roleResourceKind, roleID, userResourceKind, userID); err != nil {
+		return err
+	}
+	return r.RemoveFromUser(assocguard.BindContext(ctx, guard), roleID, userID)
 }
 
 // AssignToGroup 将角色分配给组织作为默认角色
 func (r *RoleRepo) AssignToGroup(ctx context.Context, roleID, groupID int64) error {
 	// 检查角色是否存在
-	role, err := r.Repo.Get(ctx, roleID)
+	role, err := r.getByID(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -321,9 +414,9 @@ func (r *RoleRepo) AssignToGroup(ctx context.Context, roleID, groupID int64) err
 	return nil
 }
 
-// AssignToGroupWithWriteGuard 在显式多资源写边界下给组织分配默认角色。
-func (r *RoleRepo) AssignToGroupWithWriteGuard(ctx context.Context, roleID, groupID int64, guard authz.WriteGuard) error {
-	return r.mutateRoleAssociationWithWriteGuard(
+// AssignToGroupWithConstraint 在显式多资源写边界下给组织分配默认角色。
+func (r *RoleRepo) AssignToGroupWithConstraint(ctx context.Context, roleID, groupID int64, guard iamaccess.WriteConstraint) error {
+	return r.mutateRoleAssociationWithConstraint(
 		ctx,
 		roleID,
 		"Groups",
@@ -339,7 +432,7 @@ func (r *RoleRepo) AssignToGroupWithWriteGuard(ctx context.Context, roleID, grou
 // RemoveFromGroup 从组织移除默认角色
 func (r *RoleRepo) RemoveFromGroup(ctx context.Context, roleID, groupID int64) error {
 	// 检查角色是否存在
-	role, err := r.Repo.Get(ctx, roleID)
+	role, err := r.getByID(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -358,9 +451,9 @@ func (r *RoleRepo) RemoveFromGroup(ctx context.Context, roleID, groupID int64) e
 	return nil
 }
 
-// RemoveFromGroupWithWriteGuard 在显式多资源写边界下移除组织默认角色。
-func (r *RoleRepo) RemoveFromGroupWithWriteGuard(ctx context.Context, roleID, groupID int64, guard authz.WriteGuard) error {
-	return r.mutateRoleAssociationWithWriteGuard(
+// RemoveFromGroupWithConstraint 在显式多资源写边界下移除组织默认角色。
+func (r *RoleRepo) RemoveFromGroupWithConstraint(ctx context.Context, roleID, groupID int64, guard iamaccess.WriteConstraint) error {
+	return r.mutateRoleAssociationWithConstraint(
 		ctx,
 		roleID,
 		"Groups",
@@ -373,7 +466,7 @@ func (r *RoleRepo) RemoveFromGroupWithWriteGuard(ctx context.Context, roleID, gr
 	)
 }
 
-func (r *RoleRepo) mutateRoleAssociationWithWriteGuard(
+func (r *RoleRepo) mutateRoleAssociationWithConstraint(
 	ctx context.Context,
 	roleID int64,
 	association string,
@@ -382,13 +475,13 @@ func (r *RoleRepo) mutateRoleAssociationWithWriteGuard(
 	related any,
 	remove bool,
 	message string,
-	guard authz.WriteGuard,
+	guard iamaccess.WriteConstraint,
 ) error {
 	if _, _, err := assocguard.RequirePair(guard, roleResourceKind, roleID, relatedKind, relatedID); err != nil {
 		return err
 	}
 
-	role, err := r.Repo.Get(ctx, roleID)
+	role, err := r.getByID(ctx, roleID)
 	if err != nil {
 		return err
 	}
@@ -417,7 +510,7 @@ func (r *RoleRepo) CountByStatus(ctx context.Context) (map[string]int64, error) 
 	}
 
 	var results []StatusCount
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -447,7 +540,7 @@ func (r *RoleRepo) RoleUsageStats(ctx context.Context) ([]map[string]interface{}
 	}
 
 	var roles []roleBase
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -479,16 +572,17 @@ func (r *RoleRepo) RoleUsageStats(ctx context.Context) ([]map[string]interface{}
 				RoleID int64
 				UserID int64
 			}](),
-			Table: "user_roles",
+			Table: "user_role_bindings",
 		})
 		if err != nil {
-			return nil, errorx.Wrap(err, errorx.Database, "初始化 user_roles 模型失败")
+			return nil, errorx.Wrap(err, errorx.Database, "初始化 user_role_bindings 模型失败")
 		}
 
 		var rows []roleCount
 		if err := userRoleModel.Find(ctx, &rows,
 			orm.WithSelect("role_id", "COUNT(*) as count"),
 			orm.WithWhere("role_id IN ?", ids),
+			orm.WithWhere("status = ?", "active"),
 			orm.WithGroupBy("role_id"),
 		); err != nil {
 			return nil, errorx.Wrap(err, errorx.Database, "统计角色用户数量失败")
@@ -540,7 +634,7 @@ func (r *RoleRepo) RoleUsageStats(ctx context.Context) ([]map[string]interface{}
 // SearchRoles 搜索角色（支持名称、描述模糊搜索）。
 func (r *RoleRepo) SearchRoles(ctx context.Context, keyword string, limit int) ([]*iamentity.Role, error) {
 	var roles []*iamentity.Role
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -638,4 +732,37 @@ func (r *RoleRepo) hydrateRoleScopes(ctx context.Context, roles []*iamentity.Rol
 		role.NamespaceScope = &scope
 	}
 	return roles, nil
+}
+
+func managedScopeFromContext(ctx context.Context) int64 {
+	if scopeID := iamauth.ActiveScopeIDFromContext(ctx); scopeID > 0 {
+		return scopeID
+	}
+	if scope, ok := authz.DataScopeFromContext(ctx); ok {
+		if scope.ActiveScopeID > 0 {
+			return scope.ActiveScopeID
+		}
+		if len(scope.VisibleScopeIDs) == 1 {
+			return scope.VisibleScopeIDs[0]
+		}
+	}
+	if scope, ok := access.DataScopeFromContext(ctx); ok {
+		if scope.ActiveScopeID > 0 {
+			return scope.ActiveScopeID
+		}
+		if len(scope.VisibleScopeIDs) == 1 {
+			return scope.VisibleScopeIDs[0]
+		}
+	}
+	if principal, ok := authz.PrincipalFromContext(ctx); ok && principal.ActiveScopeID > 0 {
+		return principal.ActiveScopeID
+	}
+	return 0
+}
+
+func tenantOwnerID(tenantID string) string {
+	if tenantID == "" {
+		return ""
+	}
+	return "tenant:" + tenantID
 }

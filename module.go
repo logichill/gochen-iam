@@ -25,42 +25,44 @@ import (
 // NewModule 创建 IAM 领域模块
 func NewModule() (server.IModule, error) {
 	tenant.InstallTenantResolver()
-	return boot.BuildModule(boot.ModuleConfig{
-		ID:   "iam",
-		Name: "IAM",
-		Providers: []any{
-			// Repos
-			tenantrepo.NewTenantRepository,
-			userrepo.NewUserRepository,
-			grouprepo.NewGroupRepository,
-			rolerepo.NewRoleRepository,
-			scoperepo.NewScopeRepository,
-			menurepo.NewMenuItemRepository,
-			// Services
-			iamservice.NewScopeAuthorizer,
-			iamservice.NewIAMAuthorizer,
-			tenantsvc.NewTenantService,
-			usersvc.NewUserService,
-			groupsvc.NewGroupService,
-			rolesvc.NewRoleService,
-			menusvc.NewMenuService,
-		},
-		RouteRegistrars: []any{
-			iamrouter.NewAuthRoutes,
-			iamrouter.NewUserRoutes,
-			iamrouter.NewRoleRoutes,
-			iamrouter.NewGroupRoutes,
-			iamrouter.NewTenantRoutes,
-			iamrouter.NewMenuRoutes,
-			NewStrictPermissionRegistryValidator,
-			NewAuthConfigValidator,
-		},
-		// IAM 模块既包含匿名可访问的登录/注册端点，也包含需要鉴权的管理端点。
-		// 使用 OptionalAuthMiddleware 统一解析 token（若存在），供后续 PermissionMiddleware 等使用。
-		Middlewares: []httpx.Middleware{
-			iammw.OptionalAuthMiddleware(nil),
-		},
-	}), nil
+	return boot.BuildModule(
+		boot.Module("iam").
+			Name("IAM").
+			Provide(
+				// Repos
+				tenantrepo.NewTenantRepository,
+				userrepo.NewUserRepository,
+				grouprepo.NewGroupRepository,
+				rolerepo.NewRoleRepository,
+				scoperepo.NewScopeRepository,
+				menurepo.NewMenuItemRepository,
+				// Services
+				iamservice.NewScopeAuthorizer,
+				iamservice.NewAuthContextResolver,
+				iamservice.InstallAuthContextResolver,
+				iamservice.NewIAMAuthorizer,
+				tenantsvc.NewTenantService,
+				usersvc.NewUserService,
+				groupsvc.NewGroupService,
+				rolesvc.NewRoleService,
+				menusvc.NewMenuService,
+			).
+			RouteRegistrar(
+				iamrouter.NewAuthRoutes,
+				iamrouter.NewUserRoutes,
+				iamrouter.NewRoleRoutes,
+				iamrouter.NewGroupRoutes,
+				iamrouter.NewTenantRoutes,
+				iamrouter.NewMenuRoutes,
+				NewStrictPermissionRegistryValidator,
+				NewAuthConfigValidator,
+			).
+			// IAM 模块既包含匿名可访问的登录/注册端点，也包含需要鉴权的管理端点。
+			// 使用 OptionalAuthMiddleware 统一解析 token（若存在），供后续 PermissionMiddleware 等使用。
+			Middleware(
+				iammw.OptionalAuthMiddleware(nil),
+			),
+	), nil
 }
 
 type strictPermissionRegistryValidator struct{}
@@ -88,7 +90,11 @@ func (v *strictPermissionRegistryValidator) RegisterRoutes(httpx.IRouteGroup) er
 type authConfigValidator struct{}
 
 // NewAuthConfigValidator 创建鉴权配置Validator。
-func NewAuthConfigValidator() *authConfigValidator { return &authConfigValidator{} }
+//
+// 通过显式依赖 AuthContextResolver，确保 access token 运行时 resolver 在模块启动期完成安装。
+func NewAuthConfigValidator(_ *iamservice.AuthContextResolver) *authConfigValidator {
+	return &authConfigValidator{}
+}
 
 // RegisterRoutes 注册路由集合。
 func (v *authConfigValidator) RegisterRoutes(httpx.IRouteGroup) error {

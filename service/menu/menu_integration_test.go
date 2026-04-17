@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	menurepo "gochen-iam/repo/menu"
@@ -49,14 +50,15 @@ func setupMenuServiceTest(t *testing.T) *menuServiceTestEnv {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
-		SubjectID:       1,
-		Permissions:     []string{"*:*:*"},
-		IsSystem:        true,
-		ActiveScopeType: string(iammw.ScopePlatform),
+		SubjectID:     1,
+		Permissions:   []string{"*:*:*"},
+		IsSystem:      true,
+		ActiveScopeID: 1,
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
+	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iammw.ScopePlatform))
 	return &menuServiceTestEnv{
 		db:            db,
 		menuRepo:      menuRepo,

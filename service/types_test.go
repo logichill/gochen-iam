@@ -2,6 +2,8 @@ package service
 
 import (
 	"testing"
+
+	iammw "gochen-iam/middleware"
 )
 
 func TestFieldPatchApply(t *testing.T) {
@@ -63,6 +65,46 @@ func TestAllPermissionDefinitions_IncludeActionAndMenuVisibilityPatterns(t *test
 
 	assertContainsDefinition("action:mcp:invoke")
 	assertContainsDefinition("menu:*:view")
+}
+
+func TestAllPermissionDefinitions_IncludeRiskLevelsForHighRiskPermissions(t *testing.T) {
+	assertRiskLevel := func(code string, expected string) {
+		t.Helper()
+		for _, def := range AllPermissionDefinitions {
+			if def.Code != code {
+				continue
+			}
+			if def.RiskLevel != expected {
+				t.Fatalf("expected %s risk %q, got %q", code, expected, def.RiskLevel)
+			}
+			return
+		}
+		t.Fatalf("expected permission definition %q to be registered", code)
+	}
+
+	assertRiskLevel("api:plan:write", string(iammw.RiskLevelHigh))
+	assertRiskLevel("api:tenant:write", string(iammw.RiskLevelCritical))
+	assertRiskLevel("action:mcp:invoke", string(iammw.RiskLevelCritical))
+}
+
+func TestAllPermissionDefinitions_IncludeBuiltinOnlyWildcardPermissions(t *testing.T) {
+	assertBuiltinOnly := func(code string) {
+		t.Helper()
+		for _, def := range AllPermissionDefinitions {
+			if def.Code != code {
+				continue
+			}
+			if !def.BuiltinOnly {
+				t.Fatalf("expected %s to be builtin-only", code)
+			}
+			return
+		}
+		t.Fatalf("expected permission definition %q to be registered", code)
+	}
+
+	assertBuiltinOnly("menu:*:view")
+	assertBuiltinOnly("api:*:*")
+	assertBuiltinOnly("*:*:*")
 }
 
 func int64Ptr(v int64) *int64 {

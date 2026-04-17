@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
+	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
-	iammw "gochen-iam/middleware"
 	"gochen/authz"
+	ctxx "gochen/contextx"
 )
 
 func TestIAMAuthorizerCreateResourceUsesContextTenant(t *testing.T) {
@@ -18,15 +19,14 @@ func TestIAMAuthorizerCreateResourceUsesContextTenant(t *testing.T) {
 
 	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
 		SubjectID:   1,
-		TenantID:    "tenant-a",
 		Permissions: []string{"*:*:*"},
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = authz.WithDataScope(ctx, authz.DataScope{TenantID: "tenant-a"})
+	ctx, err = ctxx.WithTenantID(ctx, "tenant-a")
 	if err != nil {
-		t.Fatalf("WithDataScope: %v", err)
+		t.Fatalf("WithTenantID: %v", err)
 	}
 
 	decision, err := authorizer.Authorize(ctx, "api:user:write", &iamentity.User{})
@@ -39,7 +39,7 @@ func TestIAMAuthorizerCreateResourceUsesContextTenant(t *testing.T) {
 	if len(decision.AuthorizedResources) != 1 {
 		t.Fatalf("expected 1 authorized resource, got %d", len(decision.AuthorizedResources))
 	}
-	if got := decision.AuthorizedResources[0].TenantID; got != "tenant-a" {
+	if got := decision.AuthorizedResources[0].OwnerID; got != tenantOwnerID("tenant-a") {
 		t.Fatalf("expected tenant-a, got %q", got)
 	}
 }
@@ -53,11 +53,14 @@ func TestIAMAuthorizerDeniesMixedTenantResources(t *testing.T) {
 
 	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
 		SubjectID:   1,
-		TenantID:    "tenant-a",
 		Permissions: []string{"*:*:*"},
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
+	}
+	ctx, err = ctxx.WithTenantID(ctx, "tenant-a")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
 	}
 
 	user := &iamentity.User{TenantID: "tenant-a"}
@@ -86,17 +89,22 @@ func TestIAMAuthorizerDeniesCreateResourceWithForeignTenantBoundary(t *testing.T
 
 	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
 		SubjectID:   1,
-		TenantID:    "tenant-a",
 		Permissions: []string{"*:*:*"},
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
+	ctx, err = ctxx.WithTenantID(ctx, "tenant-a")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
 
 	user := &iamentity.User{
-		TenantID:  "tenant-b",
-		ScopeType: string(iammw.ScopeTenant),
-		ScopeCode: "tenant:tenant-b",
+		TenantID:       "tenant-b",
+		HomeTenantID:   "tenant-b",
+		HomeScopeID:    11,
+		ManagedScopeID: 11,
+		OwnerID:        TenantOwnerID("tenant-b"),
 	}
 	decision, err := authorizer.Authorize(ctx, "api:user:write", user)
 	if err != nil {
@@ -118,14 +126,14 @@ func TestIAMAuthorizerAllowsPlatformScopeCrossTenant(t *testing.T) {
 	}
 
 	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
-		SubjectID:       1,
-		TenantID:        "tenant-a",
-		Permissions:     []string{"*:*:*"},
-		ActiveScopeType: string(iammw.ScopePlatform),
+		SubjectID:     1,
+		Permissions:   []string{"*:*:*"},
+		ActiveScopeID: 101,
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
+	ctx = iamauth.BindActiveScopeContext(ctx, 101, "platform")
 
 	role := &iamentity.Role{TenantID: "tenant-b"}
 	role.SetID(7)
@@ -146,14 +154,14 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 	}
 
 	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
-		SubjectID:       1,
-		TenantID:        "tenant-a",
-		Permissions:     []string{"api:tenant:write"},
-		ActiveScopeType: string(iammw.ScopeTenant),
+		SubjectID:     1,
+		Permissions:   []string{"api:tenant:write"},
+		ActiveScopeID: 7,
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
+	ctx = iamauth.BindActiveScopeContext(ctx, 7, "tenant")
 
 	decision, err := authorizer.Authorize(ctx, "api:tenant:write", &iamentity.Tenant{})
 	if err != nil {
@@ -174,13 +182,14 @@ func TestIAMAuthorizerAllowsPlatformScopedMenuWrite(t *testing.T) {
 	}
 
 	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
-		SubjectID:       1,
-		Permissions:     []string{"api:menu:write"},
-		ActiveScopeType: string(iammw.ScopePlatform),
+		SubjectID:     1,
+		Permissions:   []string{"api:menu:write"},
+		ActiveScopeID: 1,
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
+	ctx = iamauth.BindActiveScopeContext(ctx, 1, "platform")
 
 	decision, err := authorizer.Authorize(ctx, "api:menu:write", &iamentity.MenuItem{})
 	if err != nil {
@@ -192,18 +201,21 @@ func TestIAMAuthorizerAllowsPlatformScopedMenuWrite(t *testing.T) {
 	if len(decision.AuthorizedResources) != 1 {
 		t.Fatalf("expected 1 authorized resource, got %d", len(decision.AuthorizedResources))
 	}
-	if got := decision.AuthorizedResources[0].ScopeType; got != string(iammw.ScopePlatform) {
-		t.Fatalf("expected platform scope type, got %q", got)
+	if got := decision.AuthorizedResources[0].Kind; got != MenuResourceKind {
+		t.Fatalf("expected %q resource kind, got %q", MenuResourceKind, got)
 	}
 }
 
 func TestWithSystemPrincipal_ReplaysAuthorizationRuntime(t *testing.T) {
 	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
 		SubjectID: 3,
-		TenantID:  "tenant-a",
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
+	}
+	ctx, err = ctxx.WithTenantID(ctx, "tenant-a")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
 	}
 	ctx, err = authz.WithExecutionMetadata(ctx, authz.ExecutionMetadata{
 		RequestID:  "req-iam",
@@ -229,8 +241,8 @@ func TestWithSystemPrincipal_ReplaysAuthorizationRuntime(t *testing.T) {
 	if !eval.Principal.IsSystem {
 		t.Fatalf("expected system principal")
 	}
-	if eval.Principal.TenantID != "tenant-b" {
-		t.Fatalf("expected tenant-b, got %q", eval.Principal.TenantID)
+	if got := ctxx.TenantID(ctx); got != "tenant-b" {
+		t.Fatalf("expected tenant-b, got %q", got)
 	}
 	if eval.Consistency != authz.ConsistencyModeStrong {
 		t.Fatalf("expected strong consistency, got %q", eval.Consistency)

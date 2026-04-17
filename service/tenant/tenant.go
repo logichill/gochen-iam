@@ -51,33 +51,23 @@ func (s *TenantService) CreateTenant(ctx context.Context, req *svc.CreateTenantR
 	} else if !errorx.Is(err, errorx.NotFound) {
 		return nil, errorx.Wrap(err, errorx.Database, "检查租户编码失败")
 	}
-	if req.IsPlatform {
-		if existing, err := s.tenantRepo.FindPlatform(ctx); err == nil && existing != nil {
-			return nil, errorx.New(errorx.Validation, "平台租户已存在")
-		} else if err != nil && !errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.Wrap(err, errorx.Database, "检查平台租户失败")
-		}
-	}
-
 	tenant := &iamentity.Tenant{
 		Key:         req.Key,
 		Name:        req.Name,
 		Description: req.Description,
 		Status:      svc.TenantStatusInactive,
-		IsPlatform:  req.IsPlatform,
 	}
-	tenant.SyncPlatformSlot()
 	tenant.SetUpdatedAt(time.Now())
 
 	if err := tenant.Validate(); err != nil {
 		return nil, err
 	}
 
-	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, "api:tenant:write", tenant)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, "api:tenant:write", tenant)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.tenantRepo.CreateWithWriteGuard(ctx, tenant, guard); err != nil {
+	if err := s.tenantRepo.CreateWithConstraint(ctx, tenant, guard); err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "保存租户失败")
 	}
 	if s.scopeAuthorizer != nil {
@@ -111,11 +101,11 @@ func (s *TenantService) UpdateTenant(ctx context.Context, tenantID int64, req *s
 		return nil, err
 	}
 
-	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, "api:tenant:write", tenant)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, "api:tenant:write", tenant)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.tenantRepo.UpdateWithWriteGuard(ctx, tenant, guard); err != nil {
+	if err := s.tenantRepo.UpdateWithConstraint(ctx, tenant, guard); err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "更新租户失败")
 	}
 
@@ -133,11 +123,11 @@ func (s *TenantService) ActivateTenant(ctx context.Context, tenantID int64) erro
 	}
 
 	tenant.Activate()
-	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, "api:tenant:activate", tenant)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, "api:tenant:activate", tenant)
 	if err != nil {
 		return err
 	}
-	if err := s.tenantRepo.UpdateWithWriteGuard(ctx, tenant, guard); err != nil {
+	if err := s.tenantRepo.UpdateWithConstraint(ctx, tenant, guard); err != nil {
 		return errorx.Wrap(err, errorx.Database, "启用租户失败")
 	}
 	return nil
@@ -154,11 +144,11 @@ func (s *TenantService) DeactivateTenant(ctx context.Context, tenantID int64) er
 	}
 
 	tenant.Deactivate()
-	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, "api:tenant:activate", tenant)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, "api:tenant:activate", tenant)
 	if err != nil {
 		return err
 	}
-	if err := s.tenantRepo.UpdateWithWriteGuard(ctx, tenant, guard); err != nil {
+	if err := s.tenantRepo.UpdateWithConstraint(ctx, tenant, guard); err != nil {
 		return errorx.Wrap(err, errorx.Database, "禁用租户失败")
 	}
 	return nil

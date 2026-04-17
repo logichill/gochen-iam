@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"os"
 	"strings"
 	"sync"
@@ -21,8 +22,21 @@ const (
 	envAllowTenantQuery    = "AUTH_ALLOW_TENANT_QUERY"
 	envTenantHeader        = "AUTH_TENANT_HEADER"
 	defaultAccessTokenTTL  = 24 * time.Hour
+	defaultActivationTTL   = 10 * time.Minute
 	defaultTenantHeaderKey = httpx.HeaderTenantID
 )
+
+// ResolvedAuthContext 表达把 access token 还原成运行时请求边界所需的最小元数据。
+type ResolvedAuthContext struct {
+	ActiveScopeID   int64
+	ActiveScopeKind string
+	VisibleScopeIDs []int64
+}
+
+// AuthContextResolver 负责把 access token 中的最小 claims 还原成运行时可消费的授权边界。
+type AuthContextResolver interface {
+	ResolveAuthContext(ctx context.Context, claims *JWTClaims) (*ResolvedAuthContext, error)
+}
 
 // AuthConfig 认证配置
 type AuthConfig struct {
@@ -33,10 +47,31 @@ type AuthConfig struct {
 	RequiredRole string   `json:"required_role" yaml:"required_role"`
 
 	AccessTokenTTL   time.Duration `json:"-" yaml:"-"`
+	ActivationTTL    time.Duration `json:"-" yaml:"-"`
 	AllowQueryToken  bool          `json:"-" yaml:"-"`
 	RequireTenant    bool          `json:"-" yaml:"-"`
 	AllowTenantQuery bool          `json:"-" yaml:"-"`
 	TenantHeader     string        `json:"-" yaml:"-"`
+	ContextResolver  AuthContextResolver `json:"-" yaml:"-"`
+}
+
+var installedAuthContextResolver AuthContextResolver
+
+// InstallAuthContextResolver 注册 access token 运行时上下文还原器。
+func InstallAuthContextResolver(resolver AuthContextResolver) {
+	installedAuthContextResolver = resolver
+}
+
+func resolveAuthContextResolver(config *AuthConfig) AuthContextResolver {
+	if config != nil && config.ContextResolver != nil {
+		return config.ContextResolver
+	}
+	return installedAuthContextResolver
+}
+
+// ResolveInstalledAuthContextResolver 返回当前安装的 access token 上下文还原器。
+func ResolveInstalledAuthContextResolver() AuthContextResolver {
+	return installedAuthContextResolver
 }
 
 // DefaultAuthConfig 默认认证配置
@@ -61,12 +96,14 @@ func DefaultAuthConfig() *AuthConfig {
 		TokenHeader:      "Authorization",
 		TokenPrefix:      "Bearer ",
 		AccessTokenTTL:   ttl,
+		ActivationTTL:    defaultActivationTTL,
 		AllowQueryToken:  (os.Getenv(envAllowQueryToken) == "true" || os.Getenv(envAllowQueryToken) == "1") && isDevEnv(),
 		RequireTenant:    os.Getenv(envRequireTenant) == "true" || os.Getenv(envRequireTenant) == "1",
 		AllowTenantQuery: os.Getenv(envAllowTenantQuery) == "true" || os.Getenv(envAllowTenantQuery) == "1",
 		TenantHeader:     tenantHeader,
 		SkipPaths: []string{
 			"/api/v1/auth/login",
+			"/api/v1/auth/activate-scope",
 			"/api/v1/auth/register",
 			"/api/v1/health",
 			"/api/v1/ping",
@@ -168,7 +205,7 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 
 		reqCtx := ctx.RequestContext()
 
-		tenantID, err := tenant.ResolveRequestTenantIDWithScope(readRequestTenantID(ctx, config), claims.TenantID, claims.ActiveScopeType, config.RequireTenant)
+		tenantID, err := tenant.ResolveRequestTenantID(readRequestTenantID(ctx, config), "", config.RequireTenant)
 		if err != nil {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision: "deny",
@@ -176,7 +213,7 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 			})
 			return err
 		}
-		reqCtx, err = InjectClaimsRequestContext(reqCtx, tenantID, claims)
+		reqCtx, err = InjectClaimsRequestContext(reqCtx, tenantID, claims, resolveAuthContextResolver(config))
 		if err != nil {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision: "deny",
@@ -274,7 +311,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return err
 		}
 
-		tenantID, err = tenant.ResolveRequestTenantIDWithScope(requestTenantID, claims.TenantID, claims.ActiveScopeType, config.RequireTenant)
+		tenantID, err = tenant.ResolveRequestTenantID(requestTenantID, tenantID, config.RequireTenant)
 		if err != nil {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision: "deny",
@@ -282,7 +319,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			})
 			return err
 		}
-		reqCtx, err = InjectClaimsRequestContext(reqCtx, tenantID, claims)
+		reqCtx, err = InjectClaimsRequestContext(reqCtx, tenantID, claims, resolveAuthContextResolver(config))
 		if err != nil {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision: "deny",
@@ -347,51 +384,42 @@ func validateToken(token, secretKey string) (*JWTClaims, error) {
 	return claims, nil
 }
 
-// JWTClaims JWT声明结构
+// JWTClaims 表达最终 access token 的最小授权语义。
 type JWTClaims struct {
-	UserID          int64    `json:"user_id"`
-	TenantID        string   `json:"tenant_id"`
-	Username        string   `json:"username"`
-	Roles           []string `json:"roles"`
-	Permissions     []string `json:"permissions"`
-	ActiveScopeID   int64    `json:"active_scope_id,omitempty"`
-	ActiveScopeCode string   `json:"active_scope_code,omitempty"`
-	ActiveScopeType string   `json:"active_scope_type,omitempty"`
+	UserID         int64    `json:"user_id"`
+	ActiveScopeID  int64    `json:"active_scope_id"`
+	BindingVersion string   `json:"binding_version,omitempty"`
+	Permissions    []string `json:"permissions,omitempty"`
 	jwt.RegisteredClaims
 }
 
-// GenerateToken 生成 JWT 访问令牌
-func GenerateToken(userID int64, tenantID, username string, roles, permissions []string, secretKey string) (string, error) {
-	return GenerateTokenWithTTL(userID, tenantID, username, roles, permissions, secretKey, defaultAccessTokenTTL)
+// ActivationClaims 表达认证成功后的短期 scope 激活票据。
+type ActivationClaims struct {
+	UserID          int64    `json:"user_id"`
+	BindingVersion  string   `json:"binding_version,omitempty"`
+	AvailableScopes []int64  `json:"available_scope_ids,omitempty"`
+	jwt.RegisteredClaims
 }
 
-// GenerateTokenWithScope 生成带 active scope 语义的 JWT。
-func GenerateTokenWithScope(
-	userID int64,
-	tenantID, username string,
-	roles, permissions []string,
-	activeScopeID int64,
-	activeScopeCode, activeScopeType string,
-	secretKey string,
-	ttl time.Duration,
-) (string, error) {
+// GenerateToken 生成 access token。
+func GenerateToken(userID, activeScopeID int64, bindingVersion string, permissions []string, secretKey string) (string, error) {
+	return GenerateTokenWithTTL(userID, activeScopeID, bindingVersion, permissions, secretKey, defaultAccessTokenTTL)
+}
+
+// GenerateTokenWithTTL 生成 access token（可配置 TTL）。
+func GenerateTokenWithTTL(userID, activeScopeID int64, bindingVersion string, permissions []string, secretKey string, ttl time.Duration) (string, error) {
 	if secretKey == "" {
 		return "", errorx.New(errorx.Internal, "JWT 密钥未配置")
 	}
 	if ttl <= 0 {
 		ttl = defaultAccessTokenTTL
 	}
-
 	now := time.Now()
 	claims := &JWTClaims{
-		UserID:          userID,
-		TenantID:        tenantID,
-		Username:        username,
-		Roles:           roles,
-		Permissions:     permissions,
-		ActiveScopeID:   activeScopeID,
-		ActiveScopeCode: activeScopeCode,
-		ActiveScopeType: activeScopeType,
+		UserID:         userID,
+		ActiveScopeID:  activeScopeID,
+		BindingVersion: strings.TrimSpace(bindingVersion),
+		Permissions:    permissions,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -406,9 +434,30 @@ func GenerateTokenWithScope(
 	return signed, nil
 }
 
-// GenerateTokenWithTTL 生成 JWT 访问令牌（可配置 TTL）
-func GenerateTokenWithTTL(userID int64, tenantID, username string, roles, permissions []string, secretKey string, ttl time.Duration) (string, error) {
-	return GenerateTokenWithScope(userID, tenantID, username, roles, permissions, 0, "", "", secretKey, ttl)
+// GenerateActivationToken 生成认证成功后的短期 scope 激活票据。
+func GenerateActivationToken(userID int64, bindingVersion string, availableScopeIDs []int64, secretKey string, ttl time.Duration) (string, error) {
+	if secretKey == "" {
+		return "", errorx.New(errorx.Internal, "JWT 密钥未配置")
+	}
+	if ttl <= 0 {
+		ttl = defaultActivationTTL
+	}
+	now := time.Now()
+	claims := &ActivationClaims{
+		UserID:          userID,
+		BindingVersion:  strings.TrimSpace(bindingVersion),
+		AvailableScopes: append([]int64(nil), availableScopeIDs...),
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := token.SignedString([]byte(secretKey))
+	if err != nil {
+		return "", errorx.New(errorx.Internal, "生成激活票据失败")
+	}
+	return signed, nil
 }
 
 // ParseToken 解析并验证 JWT 令牌
@@ -435,24 +484,40 @@ func ParseToken(tokenStr, secretKey string) (*JWTClaims, error) {
 	return claims, nil
 }
 
-// RefreshToken 刷新token
+// ParseActivationToken 解析并验证激活票据。
+func ParseActivationToken(tokenStr, secretKey string) (*ActivationClaims, error) {
+	if secretKey == "" {
+		return nil, errorx.New(errorx.Unauthorized, "认证配置错误")
+	}
+
+	token, err := jwt.ParseWithClaims(tokenStr, &ActivationClaims{}, func(token *jwt.Token) (any, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errorx.New(errorx.Unauthorized, "不支持的签名方法")
+		}
+		return []byte(secretKey), nil
+	})
+	if err != nil {
+		return nil, errorx.New(errorx.Unauthorized, "activation token 解析失败")
+	}
+
+	claims, ok := token.Claims.(*ActivationClaims)
+	if !ok || !token.Valid || claims.UserID <= 0 {
+		return nil, errorx.New(errorx.Unauthorized, "无效的 activation token")
+	}
+	return claims, nil
+}
+
+// RefreshToken 刷新 access token。
 func RefreshToken(token, secretKey string) (string, error) {
-	// 解析旧token
 	claims, err := ParseToken(token, secretKey)
 	if err != nil {
 		return "", err
 	}
-
-	// 生成新token
-	return GenerateTokenWithScope(
+	return GenerateTokenWithTTL(
 		claims.UserID,
-		claims.TenantID,
-		claims.Username,
-		claims.Roles,
-		claims.Permissions,
 		claims.ActiveScopeID,
-		claims.ActiveScopeCode,
-		claims.ActiveScopeType,
+		claims.BindingVersion,
+		claims.Permissions,
 		secretKey,
 		defaultAccessTokenTTL,
 	)

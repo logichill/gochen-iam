@@ -53,16 +53,19 @@ func (a *ScopeAuthorizer) EnsurePlatformScope(ctx context.Context) (*iamentity.S
 	if err := scope.Validate(); err != nil {
 		return nil, err
 	}
-	guard, err := NewPlatformCreateWriteGuard(ctx, ScopeResourceKind)
+	guard, err := NewPlatformCreateConstraint(ctx, ScopeResourceKind)
 	if err != nil {
 		return nil, err
 	}
-	if err := a.scopeRepo.CreateWithWriteGuard(ctx, scope, guard); err != nil {
+	if err := a.scopeRepo.CreateWithConstraint(ctx, scope, guard); err != nil {
 		// 并发 create 时回读即可。
 		if reloaded, reloadErr := a.scopeRepo.FindByKey(ctx, platformScopeCode); reloadErr == nil {
 			return reloaded, nil
 		}
 		return nil, errorx.Wrap(err, errorx.Database, "创建 platform scope 失败")
+	}
+	if err := a.scopeRepo.RebuildVisibilityMap(ctx); err != nil {
+		return nil, err
 	}
 	return scope, nil
 }
@@ -74,19 +77,6 @@ func (a *ScopeAuthorizer) EnsureTenantRootScope(ctx context.Context, tenant *iam
 	platformScope, err := a.EnsurePlatformScope(ctx)
 	if err != nil {
 		return nil, err
-	}
-	if tenant.IsPlatform {
-		tenant.RootScopeID = &platformScope.ID
-		if tenant.GetID() > 0 {
-			guard, err := NewPlatformEntityWriteGuard(ctx, TenantResourceKind, tenant)
-			if err != nil {
-				return nil, err
-			}
-			if err := a.tenantRepo.UpdateWithWriteGuard(ctx, tenant, guard); err != nil {
-				return nil, err
-			}
-		}
-		return platformScope, nil
 	}
 
 	scopeKey := fmt.Sprintf("tenant:%s", strings.TrimSpace(tenant.Key))
@@ -104,11 +94,11 @@ func (a *ScopeAuthorizer) EnsureTenantRootScope(ctx context.Context, tenant *iam
 	if err == nil {
 		tenant.RootScopeID = &scope.ID
 		if tenant.GetID() > 0 {
-			guard, guardErr := NewPlatformEntityWriteGuard(ctx, TenantResourceKind, tenant)
+			guard, guardErr := NewPlatformEntityConstraint(ctx, TenantResourceKind, tenant)
 			if guardErr != nil {
 				return nil, guardErr
 			}
-			if updateErr := a.tenantRepo.UpdateWithWriteGuard(ctx, tenant, guard); updateErr != nil {
+			if updateErr := a.tenantRepo.UpdateWithConstraint(ctx, tenant, guard); updateErr != nil {
 				return nil, updateErr
 			}
 		}
@@ -132,25 +122,28 @@ func (a *ScopeAuthorizer) EnsureTenantRootScope(ctx context.Context, tenant *iam
 	if err := scope.Validate(); err != nil {
 		return nil, err
 	}
-	guard, err := NewPlatformCreateWriteGuard(ctx, ScopeResourceKind)
+	guard, err := NewPlatformCreateConstraint(ctx, ScopeResourceKind)
 	if err != nil {
 		return nil, err
 	}
-	if err := a.scopeRepo.CreateWithWriteGuard(ctx, scope, guard); err != nil {
+	if err := a.scopeRepo.CreateWithConstraint(ctx, scope, guard); err != nil {
 		if reloaded, reloadErr := a.scopeRepo.FindByKey(ctx, scopeKey); reloadErr == nil {
 			scope = reloaded
 		} else {
 			return nil, errorx.Wrap(err, errorx.Database, "创建 tenant scope 失败")
 		}
 	}
+	if err := a.scopeRepo.RebuildVisibilityMap(ctx); err != nil {
+		return nil, err
+	}
 
 	tenant.RootScopeID = &scope.ID
 	if tenant.GetID() > 0 {
-		guard, err := NewPlatformEntityWriteGuard(ctx, TenantResourceKind, tenant)
+		guard, err := NewPlatformEntityConstraint(ctx, TenantResourceKind, tenant)
 		if err != nil {
 			return nil, err
 		}
-		if err := a.tenantRepo.UpdateWithWriteGuard(ctx, tenant, guard); err != nil {
+		if err := a.tenantRepo.UpdateWithConstraint(ctx, tenant, guard); err != nil {
 			return nil, err
 		}
 	}
@@ -166,27 +159,52 @@ func (a *ScopeAuthorizer) ResolveTenantScope(ctx context.Context, tenantID strin
 	if err != nil {
 		return nil, err
 	}
-	return a.EnsureTenantRootScope(ctx, tenant)
+	return a.lookupTenantRootScope(ctx, tenant)
+}
+
+func (a *ScopeAuthorizer) lookupTenantRootScope(ctx context.Context, tenant *iamentity.Tenant) (*iamentity.Scope, error) {
+	if tenant == nil {
+		return nil, errorx.New(errorx.InvalidInput, "tenant is required")
+	}
+
+	scopeKey := fmt.Sprintf("tenant:%s", strings.TrimSpace(tenant.Key))
+	if tenant.RootScopeID == nil || *tenant.RootScopeID <= 0 {
+		return nil, errorx.New(errorx.Internal, "tenant root scope is missing")
+	}
+
+	scope, err := a.scopeRepo.Get(ctx, *tenant.RootScopeID)
+	if err != nil {
+		if errorx.Is(err, errorx.NotFound) {
+			return nil, errorx.New(errorx.Internal, "tenant root scope is missing")
+		}
+		return nil, err
+	}
+	if scope == nil {
+		return nil, errorx.New(errorx.Internal, "tenant root scope is missing")
+	}
+	if scope.Key != scopeKey || scope.Type != iamentity.ScopeTypeTenant {
+		return nil, errorx.New(errorx.Internal, "tenant root scope is inconsistent")
+	}
+	return scope, nil
 }
 
 func (a *ScopeAuthorizer) ResolveActiveScope(ctx context.Context) (*iamentity.Scope, error) {
 	if ctx == nil {
 		return nil, errorx.New(errorx.Unauthorized, "用户未认证")
 	}
-
-	if scopeID := activeScopeIDFromContext(ctx); scopeID > 0 {
-		return a.scopeRepo.Get(ctx, scopeID)
+	scopeID := activeScopeIDFromContext(ctx)
+	if scopeID <= 0 {
+		return nil, errorx.New(errorx.Unauthorized, "active scope is required")
 	}
-
-	activeTenantID, err := TenantIDFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return a.ResolveTenantScope(ctx, activeTenantID)
+	return a.scopeRepo.Get(ctx, scopeID)
 }
 
 func (a *ScopeAuthorizer) ScopeCovers(ctx context.Context, ancestorScopeID, descendantScopeID int64) (bool, error) {
 	return a.scopeRepo.ScopeCovers(ctx, ancestorScopeID, descendantScopeID)
+}
+
+func (a *ScopeAuthorizer) VisibleScopeIDs(ctx context.Context, scopeID int64) ([]int64, error) {
+	return a.scopeRepo.VisibleScopeIDs(ctx, scopeID)
 }
 
 func (a *ScopeAuthorizer) Scope(ctx context.Context, scopeID int64) (*iamentity.Scope, error) {
@@ -232,7 +250,9 @@ func (a *ScopeAuthorizer) RequirePermissionInTenant(ctx context.Context, permiss
 	if err != nil {
 		return err
 	}
-	return a.RequirePermissionInScope(tenantCtx, permission, targetScope.ID)
+	// 覆盖判定必须继续使用调用方原始 active scope；tenant rebound 只用于
+	// 解析目标租户 root scope，不能把平台操作员当前生效的 scope 清空。
+	return a.RequirePermissionInScope(ctx, permission, targetScope.ID)
 }
 
 func (a *ScopeAuthorizer) RequirePlatformPermission(ctx context.Context, permission string) error {

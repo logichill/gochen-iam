@@ -45,9 +45,8 @@ type Role struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	TenantID         string          `json:"tenant_id" gorm:"size:64;not null;index;index:idx_role_scope,priority:1;uniqueIndex:idx_role_name_tenant"`
-	ScopeType        string          `json:"scope_type,omitempty" gorm:"size:32;not null;default:'';index:idx_role_scope,priority:2"`
-	ScopeCode        string          `json:"scope_code,omitempty" gorm:"size:128;not null;default:'';index:idx_role_scope,priority:3"`
+	TenantID         string          `json:"tenant_id" gorm:"size:64;not null;index;uniqueIndex:idx_role_name_tenant"`
+	OwnerID          string          `json:"owner_id" gorm:"size:128;not null;index"`
 	NamespaceScopeID int64           `json:"namespace_scope_id" gorm:"not null;index"`
 	Code             string          `json:"code" gorm:"size:50;index"` // 稳定标识，默认与 Name 相同
 	Name             string          `json:"name" gorm:"size:50;not null;uniqueIndex:idx_role_name_tenant"`
@@ -58,7 +57,7 @@ type Role struct {
 
 	// 关联关系
 	NamespaceScope *Scope  `json:"namespace_scope,omitempty" gorm:"foreignKey:NamespaceScopeID"`
-	Users          []User  `json:"users,omitempty" gorm:"many2many:user_roles;"`
+	Users          []User  `json:"users,omitempty" gorm:"many2many:user_role_bindings;"`
 	Groups         []Group `json:"groups,omitempty" gorm:"many2many:group_roles;"`
 }
 
@@ -71,6 +70,9 @@ func (Role) TableName() string {
 func (r *Role) Validate() error {
 	if r.TenantID == "" {
 		return errorx.New(errorx.Validation, "租户ID不能为空")
+	}
+	if r.OwnerID == "" {
+		return errorx.New(errorx.Validation, "owner_id 不能为空")
 	}
 	if r.NamespaceScopeID <= 0 {
 		return errorx.New(errorx.Validation, "namespace_scope_id 不能为空")
@@ -128,17 +130,17 @@ func (r *Role) GetTenantID() string { return r.TenantID }
 // SetTenantID 设置租户ID。
 func (r *Role) SetTenantID(tenantID string) { r.TenantID = tenantID }
 
-// GetScopeType 返回授权域类型。
-func (r *Role) GetScopeType() string { return r.ScopeType }
+// GetOwnerID 返回资源 owner 标识。
+func (r *Role) GetOwnerID() string { return r.OwnerID }
 
-// SetScopeType 设置授权域类型。
-func (r *Role) SetScopeType(scopeType string) { r.ScopeType = scopeType }
+// SetOwnerID 设置资源 owner 标识。
+func (r *Role) SetOwnerID(ownerID string) { r.OwnerID = ownerID }
 
-// GetScopeCode 返回授权域编码。
-func (r *Role) GetScopeCode() string { return r.ScopeCode }
+// GetManagedScopeID 返回资源归属的管理 scope。
+func (r *Role) GetManagedScopeID() int64 { return r.NamespaceScopeID }
 
-// SetScopeCode 设置授权域编码。
-func (r *Role) SetScopeCode(scopeCode string) { r.ScopeCode = scopeCode }
+// SetManagedScopeID 设置资源归属的管理 scope。
+func (r *Role) SetManagedScopeID(scopeID int64) { r.NamespaceScopeID = scopeID }
 
 // IsActive 检查角色是否激活
 func (r *Role) IsActive() bool {
@@ -199,8 +201,7 @@ func (r *Role) PermissionCount() int {
 func (r *Role) Clone(newName string) *Role {
 	clone := &Role{
 		TenantID:         r.TenantID,
-		ScopeType:        r.ScopeType,
-		ScopeCode:        r.ScopeCode,
+		OwnerID:          r.OwnerID,
 		NamespaceScopeID: r.NamespaceScopeID,
 		Name:             newName,
 		Description:      r.Description + " (克隆)",

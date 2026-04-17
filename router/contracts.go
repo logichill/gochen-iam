@@ -13,7 +13,8 @@ import (
 type IUserService interface {
 	Register(ctx context.Context, tenantID string, req *svc.RegisterRequest) (*iamentity.User, error)
 	Authenticate(ctx context.Context, tenantID string, req *svc.AuthenticateRequest) (*svc.AuthenticateResult, error)
-	AuthSnapshot(ctx context.Context, userID int64) (*svc.AuthenticateResult, error)
+	ActivateScope(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error)
+	AuthSnapshot(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error)
 	ChangePassword(ctx context.Context, userID int64, req *svc.ChangePasswordRequest) error
 	UpdateProfile(ctx context.Context, userID int64, req *svc.UpdateUserRequest) (*iamentity.User, error)
 	ActivateUser(ctx context.Context, userID int64) error

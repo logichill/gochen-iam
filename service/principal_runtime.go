@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	iamauth "gochen-iam/auth"
 	iammw "gochen-iam/middleware"
 	"gochen/authz"
 	"gochen/errorx"
@@ -17,17 +18,17 @@ func principalFromContext(ctx context.Context) (authz.Principal, bool) {
 }
 
 func activeScopeIDFromContext(ctx context.Context) int64 {
+	if scopeID := iamauth.ActiveScopeIDFromContext(ctx); scopeID > 0 {
+		return scopeID
+	}
 	if principal, ok := principalFromContext(ctx); ok && principal.ActiveScopeID > 0 {
 		return principal.ActiveScopeID
 	}
 	return 0
 }
 
-func activeScopeTypeFromContext(ctx context.Context) string {
-	if principal, ok := principalFromContext(ctx); ok {
-		return strings.TrimSpace(principal.ActiveScopeType)
-	}
-	return ""
+func activeScopeKindFromContext(ctx context.Context) string {
+	return iamauth.ActiveScopeKindFromContext(ctx)
 }
 
 func requirePrincipalPermission(ctx context.Context, permission string) error {
@@ -49,9 +50,9 @@ func principalHasPermission(principal authz.Principal, permission string) bool {
 	return principal.AllowsPermission(strings.TrimSpace(permission))
 }
 
-func principalCanAccessPlatform(principal authz.Principal) bool {
+func principalCanAccessPlatform(principal authz.Principal, ctx context.Context) bool {
 	if principal.IsSystem {
 		return true
 	}
-	return strings.EqualFold(strings.TrimSpace(principal.ActiveScopeType), string(iammw.ScopePlatform))
+	return strings.EqualFold(strings.TrimSpace(activeScopeKindFromContext(ctx)), string(iammw.ScopePlatform))
 }

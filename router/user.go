@@ -10,7 +10,6 @@ import (
 	appcrud "gochen/app/crud"
 	"gochen/authz"
 	dataquery "gochen/db/query"
-	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
@@ -32,14 +31,14 @@ var userQuerySchema = dataquery.MustInferQuerySchema[userQueryFields](nil)
 type UserRoutes struct {
 	userService IUserService
 	utils       *hbasic.Utils
-	userRepo    domaincrud.IResourceBoundaryRepository[*iamentity.User, int64]
+	userRepo    iamsvc.IScopedResourceContextRepository[*iamentity.User, int64]
 	authorizer  authz.IAuthorizer
 }
 
 // NewUserRoutes 创建用户路由注册器
 func NewUserRoutes(
 	userService IUserService,
-	userRepo domaincrud.IResourceBoundaryRepository[*iamentity.User, int64],
+	userRepo iamsvc.IScopedResourceContextRepository[*iamentity.User, int64],
 	authorizer *authz.Authorizer,
 ) *UserRoutes {
 	return &UserRoutes{
@@ -65,7 +64,7 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	))
 
 	// 直接使用原生 shared 仓储接口（UserRepo 已实现 ICRUDRepository）
-	appService, err := appcrud.NewApplication(ur.userRepo, nil, nil)
+	appService, err := iamsvc.NewCRUDApplication[*iamentity.User, int64](ur.userRepo, ur.userRepo)
 	if err != nil {
 		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
 			return appErr.Wrap("create user crud application").WithContext("route", "iam.user")

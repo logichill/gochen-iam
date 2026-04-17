@@ -2,6 +2,8 @@ package user
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -70,6 +72,21 @@ func (s *UserService) Register(ctx context.Context, tenantID string, req *svc.Re
 	if err != nil {
 		return nil, err
 	}
+	managedScopeID := svc.ManagedScopeIDFromContext(tenantCtx)
+	if managedScopeID == 0 && s.scopeAuthorizer != nil {
+		scope, scopeErr := s.scopeAuthorizer.ResolveTenantScope(tenantCtx, tenantID)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		managedScopeID = scope.ID
+		tenantCtx, err = svc.BindManagedScopeContext(tenantCtx, managedScopeID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if managedScopeID == 0 {
+		return nil, errorx.New(errorx.InvalidInput, "managed scope is required")
+	}
 
 	// 3. 检查用户名是否已存在
 	existingUser, err := s.userRepo.FindByUsername(tenantCtx, req.Username)
@@ -96,28 +113,24 @@ func (s *UserService) Register(ctx context.Context, tenantID string, req *svc.Re
 	}
 
 	user := &iamentity.User{
-		TenantID: tenantID,
-		Username: req.Username,
-		Email:    req.Email,
-		Password: hashedPassword,
-		Status:   svc.UserStatusActive,
-	}
-	if s.scopeAuthorizer != nil {
-		scope, scopeErr := s.scopeAuthorizer.ResolveTenantScope(tenantCtx, tenantID)
-		if scopeErr != nil {
-			return nil, scopeErr
-		}
-		user.ScopeType = scope.Type
-		user.ScopeCode = scope.Key
+		TenantID:       tenantID,
+		HomeTenantID:   tenantID,
+		HomeScopeID:    managedScopeID,
+		ManagedScopeID: managedScopeID,
+		OwnerID:        svc.TenantOwnerID(tenantID),
+		Username:       req.Username,
+		Email:          req.Email,
+		Password:       hashedPassword,
+		Status:         svc.UserStatusActive,
 	}
 	user.SetUpdatedAt(time.Now())
 
 	// 5. 保存用户
-	guard, err := svc.NewCreateWriteGuard(tenantCtx, svc.UserResourceKind, tenantID)
+	guard, err := svc.NewCreateWriteConstraint(tenantCtx, svc.UserResourceKind, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.userRepo.CreateWithWriteGuard(tenantCtx, user, guard); err != nil {
+	if err := s.userRepo.CreateWithConstraint(tenantCtx, user, guard); err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "保存用户失败")
 	}
 
@@ -134,9 +147,8 @@ func (s *UserService) Register(ctx context.Context, tenantID string, req *svc.Re
 	return user, nil
 }
 
-// Authenticate 用户认证（不包含 token；token 由协议层按配置生成）。
+// Authenticate 用户认证第一阶段：校验用户名/密码，返回可进入的 scope 集合。
 func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *svc.AuthenticateRequest) (*svc.AuthenticateResult, error) {
-	// 1. 验证请求数据
 	if req == nil {
 		return nil, errorx.New(errorx.Validation, "请求不能为空")
 	}
@@ -152,7 +164,6 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 		return nil, err
 	}
 
-	// 2. 查找用户
 	user, err := s.userRepo.FindByUsername(tenantCtx, req.Username)
 	if err != nil {
 		if errorx.Is(err, errorx.NotFound) {
@@ -160,21 +171,15 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 		}
 		return nil, errorx.Wrap(err, errorx.Database, "查询用户失败")
 	}
-
-	// 3. 验证密码
 	if !s.verifyPassword(req.Password, user.Password) {
 		return nil, errorx.New(errorx.Validation, "用户名或密码错误")
 	}
-
-	// 4. 检查用户状态
 	if !user.IsActive() {
 		return nil, errorx.New(errorx.Forbidden, "用户账户已被禁用")
 	}
 
-	// 5. 更新最后登录时间
 	user.UpdateLastLogin()
 	if err := s.updateUserWithGuard(tenantCtx, user); err != nil {
-		// 记录错误但不影响登录流程
 		s.logger.Warn(ctx, "[UserService] 更新最后登录时间失败",
 			logging.Error(err),
 			logging.Int64("user_id", user.GetID()),
@@ -182,66 +187,59 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 		)
 	}
 
-	// 6. 返回认证结果（不包含 token）
-	roles, permissions, err := s.resolveEffectiveRolesAndPermissions(tenantCtx, user.GetID())
+	availableScopes, bindingVersion, err := s.resolveAvailableScopes(tenantCtx, user)
 	if err != nil {
 		return nil, err
 	}
-	activeScopeID, activeScopeCode, activeScopeType, err := s.resolveActiveScopeMeta(tenantCtx, user.TenantID)
-	if err != nil {
-		return nil, err
+	if len(availableScopes) == 0 {
+		return nil, errorx.New(errorx.Forbidden, "当前用户没有可激活的授权域")
 	}
 
 	return &svc.AuthenticateResult{
 		UserID:          user.GetID(),
-		TenantID:        user.TenantID,
 		Username:        user.Username,
 		Email:           user.Email,
-		Roles:           roles,
-		Permissions:     permissions,
-		ActiveScopeID:   activeScopeID,
-		ActiveScopeCode: activeScopeCode,
-		ActiveScopeType: activeScopeType,
+		BindingVersion:  bindingVersion,
+		AvailableScopes: availableScopes,
 	}, nil
 }
 
-// AuthSnapshot 返回用于签发/刷新 token 的最新身份快照（角色 + 权限）。
-//
-// 说明：
-// - 仅返回“有效角色”：已软删除角色与非 active 角色会被过滤；
-// - 若用户不存在或已禁用，返回错误，由调用方决定如何映射为 HTTP 错误码。
-func (s *UserService) AuthSnapshot(ctx context.Context, userID int64) (*svc.AuthenticateResult, error) {
-	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
-	if err != nil {
-		return nil, err
+// ActivateScope 用户认证第二阶段：显式选择 active scope，返回可签发 access token 的最小快照。
+func (s *UserService) ActivateScope(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error) {
+	if activeScopeID <= 0 {
+		return nil, errorx.New(errorx.Validation, "active scope is required")
 	}
-	if _, err := svc.PreflightTenant(ctx, s.scopeAuthorizer, user.TenantID, ""); err != nil {
+	user, _, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
+	if err != nil {
 		return nil, err
 	}
 	if !user.IsActive() {
 		return nil, errorx.New(errorx.Forbidden, "用户账户已被禁用")
 	}
-
-	roles, permissions, err := s.resolveEffectiveRolesAndPermissions(tenantCtx, userID)
+	authCtx, err := svc.BindTenantContext(ctx, user.TenantID)
 	if err != nil {
 		return nil, err
 	}
-	activeScopeID, activeScopeCode, activeScopeType, err := s.resolveActiveScopeMeta(tenantCtx, user.TenantID)
+	return s.buildScopeSession(authCtx, user, activeScopeID)
+}
+
+// AuthSnapshot 返回当前 active scope 下的最新权限快照，用于 refresh token。
+func (s *UserService) AuthSnapshot(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error) {
+	if activeScopeID <= 0 {
+		return nil, errorx.New(errorx.Validation, "active scope is required")
+	}
+	user, _, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return nil, err
 	}
-
-	return &svc.AuthenticateResult{
-		UserID:          user.GetID(),
-		TenantID:        user.TenantID,
-		Username:        user.Username,
-		Email:           user.Email,
-		Roles:           roles,
-		Permissions:     permissions,
-		ActiveScopeID:   activeScopeID,
-		ActiveScopeCode: activeScopeCode,
-		ActiveScopeType: activeScopeType,
-	}, nil
+	if !user.IsActive() {
+		return nil, errorx.New(errorx.Forbidden, "用户账户已被禁用")
+	}
+	authCtx, err := svc.BindTenantContext(ctx, user.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	return s.buildScopeSession(authCtx, user, activeScopeID)
 }
 
 // resolveEffectiveRolesAndPermissions 解析当前生效的角色与权限。
@@ -317,15 +315,187 @@ func (s *UserService) resolveEffectiveRolesAndPermissions(ctx context.Context, u
 	return roleNames, permissions, nil
 }
 
-func (s *UserService) resolveActiveScopeMeta(ctx context.Context, tenantID string) (int64, string, string, error) {
-	if s.scopeAuthorizer == nil {
-		return 0, "", "", nil
+type authScopeAggregate struct {
+	ScopeID       int64
+	BindingIDs    []int64
+	RoleNames     []string
+	Permissions   []string
+	roleSet       map[string]struct{}
+	permissionSet map[string]struct{}
+	bindingIDSet  map[int64]struct{}
+}
+
+func (s *UserService) buildScopeSession(
+	ctx context.Context,
+	user *iamentity.User,
+	activeScopeID int64,
+) (*svc.ActiveScopeSession, error) {
+	if user == nil {
+		return nil, errorx.New(errorx.InvalidInput, "user is required")
 	}
-	scope, err := s.scopeAuthorizer.ResolveTenantScope(ctx, tenantID)
+	availableScopes, bindingVersion, err := s.resolveAvailableScopes(ctx, user)
 	if err != nil {
-		return 0, "", "", err
+		return nil, err
 	}
-	return scope.ID, scope.Key, scope.Type, nil
+	for _, scope := range availableScopes {
+		if scope.ScopeID != activeScopeID {
+			continue
+		}
+		return &svc.ActiveScopeSession{
+			UserID:         user.GetID(),
+			Username:       user.Username,
+			Email:          user.Email,
+			ActiveScopeID:  activeScopeID,
+			BindingVersion: bindingVersion,
+			RoleNames:      append([]string(nil), scope.RoleNames...),
+			Permissions:    append([]string(nil), scope.Permissions...),
+		}, nil
+	}
+	return nil, errorx.New(errorx.Forbidden, "当前用户不能激活目标授权域")
+}
+
+func (s *UserService) resolveAvailableScopes(ctx context.Context, user *iamentity.User) ([]svc.AuthScopeOption, string, error) {
+	if user == nil {
+		return nil, "", errorx.New(errorx.InvalidInput, "user is required")
+	}
+
+	aggregates := map[int64]*authScopeAggregate{}
+	addRole := func(scopeID, bindingID int64, role *iamentity.Role) {
+		if scopeID <= 0 || role == nil || !role.IsActive() {
+			return
+		}
+		scope := aggregates[scopeID]
+		if scope == nil {
+			scope = &authScopeAggregate{
+				ScopeID:       scopeID,
+				roleSet:       map[string]struct{}{},
+				permissionSet: map[string]struct{}{},
+				bindingIDSet:  map[int64]struct{}{},
+			}
+			aggregates[scopeID] = scope
+		}
+		if bindingID > 0 {
+			if _, ok := scope.bindingIDSet[bindingID]; !ok {
+				scope.bindingIDSet[bindingID] = struct{}{}
+				scope.BindingIDs = append(scope.BindingIDs, bindingID)
+			}
+		}
+		if role.Name != "" {
+			if _, ok := scope.roleSet[role.Name]; !ok {
+				scope.roleSet[role.Name] = struct{}{}
+				scope.RoleNames = append(scope.RoleNames, role.Name)
+			}
+		}
+		for _, permission := range role.Permissions {
+			permission = strings.TrimSpace(permission)
+			if permission == "" {
+				continue
+			}
+			if _, ok := scope.permissionSet[permission]; ok {
+				continue
+			}
+			scope.permissionSet[permission] = struct{}{}
+			scope.Permissions = append(scope.Permissions, permission)
+		}
+	}
+
+	bindings, err := s.userRepo.ListRoleBindings(ctx, user.GetID())
+	if err != nil {
+		return nil, "", err
+	}
+	for _, binding := range bindings {
+		role, err := s.roleRepo.Get(ctx, binding.RoleID)
+		if err != nil {
+			if errorx.Is(err, errorx.NotFound) {
+				continue
+			}
+			return nil, "", err
+		}
+		addRole(binding.GrantScopeID, binding.BindingID, role)
+	}
+
+	groups, err := s.groupRepo.FindByUserID(ctx, user.GetID())
+	if err != nil {
+		return nil, "", err
+	}
+	for _, group := range groups {
+		if group == nil {
+			continue
+		}
+		roles, err := s.roleRepo.FindByGroupID(ctx, group.GetID())
+		if err != nil {
+			return nil, "", err
+		}
+		for _, role := range roles {
+			addRole(role.NamespaceScopeID, 0, role)
+		}
+	}
+
+	if len(aggregates) == 0 && user.HomeScopeID > 0 {
+		aggregates[user.HomeScopeID] = &authScopeAggregate{
+			ScopeID:       user.HomeScopeID,
+			roleSet:       map[string]struct{}{},
+			permissionSet: map[string]struct{}{},
+			bindingIDSet:  map[int64]struct{}{},
+		}
+	}
+
+	scopeIDs := make([]int64, 0, len(aggregates))
+	for scopeID := range aggregates {
+		scopeIDs = append(scopeIDs, scopeID)
+	}
+	sort.Slice(scopeIDs, func(i, j int) bool { return scopeIDs[i] < scopeIDs[j] })
+
+	options := make([]svc.AuthScopeOption, 0, len(scopeIDs))
+	for _, scopeID := range scopeIDs {
+		aggregate := aggregates[scopeID]
+		if aggregate == nil {
+			continue
+		}
+		sort.Slice(aggregate.BindingIDs, func(i, j int) bool { return aggregate.BindingIDs[i] < aggregate.BindingIDs[j] })
+		sort.Strings(aggregate.RoleNames)
+		sort.Strings(aggregate.Permissions)
+
+		option := svc.AuthScopeOption{
+			ScopeID:     scopeID,
+			BindingIDs:  append([]int64(nil), aggregate.BindingIDs...),
+			RoleNames:   append([]string(nil), aggregate.RoleNames...),
+			Permissions: append([]string(nil), aggregate.Permissions...),
+		}
+		if s.scopeAuthorizer != nil {
+			scope, err := s.scopeAuthorizer.Scope(ctx, scopeID)
+			if err != nil {
+				if errorx.Is(err, errorx.NotFound) {
+					continue
+				}
+				return nil, "", err
+			}
+			option.ScopeKey = scope.Key
+			option.ScopeKind = scope.Type
+		}
+		options = append(options, option)
+	}
+	if len(options) == 0 {
+		return nil, "", nil
+	}
+	return options, computeBindingVersion(options), nil
+}
+
+func computeBindingVersion(options []svc.AuthScopeOption) string {
+	hasher := sha256.New()
+	for _, option := range options {
+		_, _ = hasher.Write([]byte(fmt.Sprintf("%d|%s|%s|", option.ScopeID, option.ScopeKey, option.ScopeKind)))
+		for _, bindingID := range option.BindingIDs {
+			_, _ = hasher.Write([]byte(fmt.Sprintf("b:%d|", bindingID)))
+		}
+		for _, roleName := range option.RoleNames {
+			_, _ = hasher.Write([]byte("r:" + roleName + "|"))
+		}
+		for _, permission := range option.Permissions {
+			_, _ = hasher.Write([]byte("p:" + permission + "|"))
+		}
+	}
+	return hex.EncodeToString(hasher.Sum(nil))
 }
 
 // ChangePassword 修改密码
@@ -456,11 +626,11 @@ func (s *UserService) AssignRole(ctx context.Context, userID, roleID int64) erro
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:user:write", user, role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:user:write", user, role)
 	if err != nil {
 		return err
 	}
-	return s.userRepo.AssignRoleWithWriteGuard(tenantCtx, userID, roleID, guard)
+	return s.userRepo.AssignRoleWithConstraint(tenantCtx, userID, roleID, guard)
 }
 
 // RemoveRole 移除用户角色
@@ -473,11 +643,11 @@ func (s *UserService) RemoveRole(ctx context.Context, userID, roleID int64) erro
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:user:write", user, role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:user:write", user, role)
 	if err != nil {
 		return err
 	}
-	return s.userRepo.RemoveRoleWithWriteGuard(tenantCtx, userID, roleID, guard)
+	return s.userRepo.RemoveRoleWithConstraint(tenantCtx, userID, roleID, guard)
 }
 
 // AssignToGroup 将用户分配到组织
@@ -490,11 +660,11 @@ func (s *UserService) AssignToGroup(ctx context.Context, userID, groupID int64) 
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:user:write", user, group)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:user:write", user, group)
 	if err != nil {
 		return err
 	}
-	return s.userRepo.AssignToGroupWithWriteGuard(tenantCtx, userID, groupID, guard)
+	return s.userRepo.AssignToGroupWithConstraint(tenantCtx, userID, groupID, guard)
 }
 
 // RemoveFromGroup 从组织中移除用户
@@ -507,11 +677,11 @@ func (s *UserService) RemoveFromGroup(ctx context.Context, userID, groupID int64
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:user:write", user, group)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:user:write", user, group)
 	if err != nil {
 		return err
 	}
-	return s.userRepo.RemoveFromGroupWithWriteGuard(tenantCtx, userID, groupID, guard)
+	return s.userRepo.RemoveFromGroupWithConstraint(tenantCtx, userID, groupID, guard)
 }
 
 // UserPermissions 获取用户权限。
@@ -678,11 +848,11 @@ func (s *UserService) verifyPassword(password, hashedPassword string) bool {
 }
 
 func (s *UserService) updateUserWithGuard(ctx context.Context, user *iamentity.User) error {
-	guard, err := svc.NewEntityWriteGuard(ctx, svc.UserResourceKind, user)
+	guard, err := svc.NewEntityWriteConstraint(ctx, svc.UserResourceKind, user)
 	if err != nil {
 		return err
 	}
-	return s.userRepo.UpdateWithWriteGuard(ctx, user, guard)
+	return s.userRepo.UpdateWithConstraint(ctx, user, guard)
 }
 
 func (s *UserService) updateUserWithAuthorization(
@@ -691,12 +861,12 @@ func (s *UserService) updateUserWithAuthorization(
 	user *iamentity.User,
 	mutate func(),
 ) error {
-	guard, err := svc.AuthorizeWriteGuard(ctx, s.authorizer, permission, user)
+	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, permission, user)
 	if err != nil {
 		return err
 	}
 	mutate()
-	return s.userRepo.UpdateWithWriteGuard(ctx, user, guard)
+	return s.userRepo.UpdateWithConstraint(ctx, user, guard)
 }
 
 // assignDefaultRole 分配默认角色

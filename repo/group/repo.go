@@ -3,8 +3,11 @@ package group
 import (
 	"context"
 
+	iamaccess "gochen-iam/access"
+	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
+	"gochen/app/access"
 	"gochen/authz"
 	"gochen/db/orm"
 	db "gochen/db/orm/repo"
@@ -24,6 +27,39 @@ const (
 	roleResourceKind  = "iam.role"
 )
 
+func (r *GroupRepo) tenantScopedQuery(ctx context.Context) (*db.ScopedQuery, error) {
+	query, err := r.Repo.ScopedQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tenantID, err := crud.ResolveTenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return query.Where("tenant_id = ?", tenantID), nil
+}
+
+func (r *GroupRepo) findOne(ctx context.Context, configure func(*db.ScopedQuery)) (*iamentity.Group, error) {
+	query, err := r.tenantScopedQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if configure != nil {
+		configure(query)
+	}
+	var group *iamentity.Group
+	if err := query.First(&group); err != nil {
+		return nil, err
+	}
+	return group, nil
+}
+
+func (r *GroupRepo) getByID(ctx context.Context, id int64) (*iamentity.Group, error) {
+	return r.findOne(ctx, func(q *db.ScopedQuery) {
+		q.Where("id = ?", id)
+	})
+}
+
 // NewGroupRepository 创建分组仓储。
 func NewGroupRepository(o orm.IOrm) (*GroupRepo, error) {
 	base, err := db.NewRepo(
@@ -32,7 +68,7 @@ func NewGroupRepository(o orm.IOrm) (*GroupRepo, error) {
 		db.WithIDGenerator[*iamentity.Group](ident.DefaultInt64Generator()),
 		db.WithResourceKind[*iamentity.Group, int64]("iam.group"),
 		db.WithSoftDeleteColumns[*iamentity.Group, int64]("deleted_at", ""),
-		db.WithAuthzColumns[*iamentity.Group, int64]("tenant_id", "scope_type", "scope_code", ""),
+		db.WithAccessColumns[*iamentity.Group, int64]("managed_scope_id", "owner_id", "version"),
 	)
 	if err != nil {
 		return nil, err
@@ -46,6 +82,12 @@ func NewGroupRepository(o orm.IOrm) (*GroupRepo, error) {
 func (r *GroupRepo) Create(ctx context.Context, group *iamentity.Group) (err error) {
 	if group == nil {
 		return errorx.New(errorx.InvalidInput, "group cannot be nil")
+	}
+	if group.ManagedScopeID == 0 {
+		group.ManagedScopeID = managedScopeFromContext(ctx)
+	}
+	if group.OwnerID == "" {
+		group.OwnerID = tenantOwnerID(group.TenantID)
 	}
 	txCtx, err := r.BeginTx(ctx)
 	if err != nil {
@@ -82,6 +124,12 @@ func (r *GroupRepo) Create(ctx context.Context, group *iamentity.Group) (err err
 func (r *GroupRepo) Update(ctx context.Context, group *iamentity.Group) (err error) {
 	if group == nil {
 		return errorx.New(errorx.InvalidInput, "group cannot be nil")
+	}
+	if group.ManagedScopeID == 0 {
+		group.ManagedScopeID = managedScopeFromContext(ctx)
+	}
+	if group.OwnerID == "" {
+		group.OwnerID = tenantOwnerID(group.TenantID)
 	}
 	txCtx, err := r.BeginTx(ctx)
 	if err != nil {
@@ -121,8 +169,41 @@ func (r *GroupRepo) Update(ctx context.Context, group *iamentity.Group) (err err
 	return nil
 }
 
-// CreateWithWriteGuard 在显式写边界下创建组织，并在同一事务内修复派生层级字段。
-func (r *GroupRepo) CreateWithWriteGuard(ctx context.Context, group *iamentity.Group, guard authz.WriteGuard) (err error) {
+func managedScopeFromContext(ctx context.Context) int64 {
+	if scopeID := iamauth.ActiveScopeIDFromContext(ctx); scopeID > 0 {
+		return scopeID
+	}
+	if scope, ok := authz.DataScopeFromContext(ctx); ok {
+		if scope.ActiveScopeID > 0 {
+			return scope.ActiveScopeID
+		}
+		if len(scope.VisibleScopeIDs) == 1 {
+			return scope.VisibleScopeIDs[0]
+		}
+	}
+	if scope, ok := access.DataScopeFromContext(ctx); ok {
+		if scope.ActiveScopeID > 0 {
+			return scope.ActiveScopeID
+		}
+		if len(scope.VisibleScopeIDs) == 1 {
+			return scope.VisibleScopeIDs[0]
+		}
+	}
+	if principal, ok := authz.PrincipalFromContext(ctx); ok && principal.ActiveScopeID > 0 {
+		return principal.ActiveScopeID
+	}
+	return 0
+}
+
+func tenantOwnerID(tenantID string) string {
+	if tenantID == "" {
+		return ""
+	}
+	return "tenant:" + tenantID
+}
+
+// CreateWithConstraint 在显式写边界下创建组织，并在同一事务内修复派生层级字段。
+func (r *GroupRepo) CreateWithConstraint(ctx context.Context, group *iamentity.Group, guard iamaccess.WriteConstraint) (err error) {
 	if group == nil {
 		return errorx.New(errorx.InvalidInput, "group cannot be nil")
 	}
@@ -144,7 +225,7 @@ func (r *GroupRepo) CreateWithWriteGuard(ctx context.Context, group *iamentity.G
 	if err := r.syncGroupHierarchy(txContext, group); err != nil {
 		return err
 	}
-	if err := r.Repo.CreateWithWriteGuard(txContext, group, guard); err != nil {
+	if err := r.Repo.CreateWithConstraint(assocguard.BindContext(txContext, guard), group, guard.Unwrap()); err != nil {
 		return err
 	}
 	if err := r.Commit(txCtx); err != nil {
@@ -154,8 +235,8 @@ func (r *GroupRepo) CreateWithWriteGuard(ctx context.Context, group *iamentity.G
 	return nil
 }
 
-// UpdateWithWriteGuard 在显式写边界下更新组织，并在父链变化时同步修复子树。
-func (r *GroupRepo) UpdateWithWriteGuard(ctx context.Context, group *iamentity.Group, guard authz.WriteGuard) (err error) {
+// UpdateWithConstraint 在显式写边界下更新组织，并在父链变化时同步修复子树。
+func (r *GroupRepo) UpdateWithConstraint(ctx context.Context, group *iamentity.Group, guard iamaccess.WriteConstraint) (err error) {
 	if group == nil {
 		return errorx.New(errorx.InvalidInput, "group cannot be nil")
 	}
@@ -180,12 +261,12 @@ func (r *GroupRepo) UpdateWithWriteGuard(ctx context.Context, group *iamentity.G
 	}
 	pathChanged := current.Path != group.Path || current.Level != group.Level || int64PtrValue(current.ParentID) != int64PtrValue(group.ParentID)
 
-	if err := r.Repo.UpdateWithWriteGuard(txContext, group, guard); err != nil {
+	if err := r.Repo.UpdateWithConstraint(assocguard.BindContext(txContext, guard), group, guard.Unwrap()); err != nil {
 		return err
 	}
 	if pathChanged {
 		if err := r.repairDescendantHierarchy(txContext, group, func(child *iamentity.Group) error {
-			return r.Repo.UpdateWithWriteGuard(txContext, child, guard)
+			return r.Repo.UpdateWithConstraint(assocguard.BindContext(txContext, guard), child, guard.Unwrap())
 		}); err != nil {
 			return err
 		}
@@ -195,6 +276,10 @@ func (r *GroupRepo) UpdateWithWriteGuard(ctx context.Context, group *iamentity.G
 	}
 	committed = true
 	return nil
+}
+
+func (r *GroupRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
+	return r.Repo.DeleteWithConstraint(assocguard.BindContext(ctx, guard), id, guard.Unwrap())
 }
 
 func (r *GroupRepo) syncGroupHierarchy(ctx context.Context, group *iamentity.Group) error {
@@ -220,7 +305,7 @@ func (r *GroupRepo) syncGroupHierarchy(ctx context.Context, group *iamentity.Gro
 
 // Get 根据ID获取组织。
 func (r *GroupRepo) Get(ctx context.Context, id int64) (*iamentity.Group, error) {
-	group, err := r.Repo.Get(ctx, id)
+	group, err := r.getByID(ctx, id)
 	if err != nil {
 		if errorx.Is(err, errorx.NotFound) {
 			return nil, errorx.New(errorx.NotFound, "组织不存在")
@@ -233,7 +318,7 @@ func (r *GroupRepo) Get(ctx context.Context, id int64) (*iamentity.Group, error)
 // FindByUserID 根据用户ID查找所属组织。
 func (r *GroupRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity.Group, error) {
 	var groups []*iamentity.Group
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +337,7 @@ func (r *GroupRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentit
 // FindChildren 查找子组织。
 func (r *GroupRepo) FindChildren(ctx context.Context, parentID int64) ([]*iamentity.Group, error) {
 	var groups []*iamentity.Group
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +355,7 @@ func (r *GroupRepo) FindChildren(ctx context.Context, parentID int64) ([]*iament
 // FindRootGroups 查找根组织（没有父组织的组织）。
 func (r *GroupRepo) FindRootGroups(ctx context.Context) ([]*iamentity.Group, error) {
 	var groups []*iamentity.Group
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +373,7 @@ func (r *GroupRepo) FindRootGroups(ctx context.Context) ([]*iamentity.Group, err
 // FindByLevel 根据层级查找组织。
 func (r *GroupRepo) FindByLevel(ctx context.Context, level int) ([]*iamentity.Group, error) {
 	var groups []*iamentity.Group
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +390,7 @@ func (r *GroupRepo) FindByLevel(ctx context.Context, level int) ([]*iamentity.Gr
 
 // FindByPath 根据路径查找组织
 func (r *GroupRepo) FindByPath(ctx context.Context, path string) (*iamentity.Group, error) {
-	group, err := r.Repo.FindOneWith(ctx, func(q *db.ScopedQuery) {
+	group, err := r.findOne(ctx, func(q *db.ScopedQuery) {
 		q.Where("path = ?", path).
 			Preload("Parent", "Children", "Users", "DefaultRoles")
 	})
@@ -321,7 +406,7 @@ func (r *GroupRepo) FindByPath(ctx context.Context, path string) (*iamentity.Gro
 // FindAncestors 查找祖先组织
 func (r *GroupRepo) FindAncestors(ctx context.Context, groupID int64) ([]*iamentity.Group, error) {
 	// 首先获取当前组织
-	group, err := r.Repo.Get(ctx, groupID)
+	group, err := r.getByID(ctx, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +416,7 @@ func (r *GroupRepo) FindAncestors(ctx context.Context, groupID int64) ([]*iament
 
 	// 向上遍历找到所有祖先
 	for currentGroup.ParentID != nil {
-		parent, err := r.Repo.Get(ctx, *currentGroup.ParentID)
+		parent, err := r.getByID(ctx, *currentGroup.ParentID)
 		if err != nil {
 			break // 如果找不到父组织，停止查找
 		}
@@ -405,7 +490,7 @@ func int64PtrValue(v *int64) int64 {
 // AddUserToGroup 将用户添加到组织
 func (r *GroupRepo) AddUserToGroup(ctx context.Context, groupID, userID int64) error {
 	// 检查组织是否存在
-	group, err := r.Repo.Get(ctx, groupID)
+	group, err := r.getByID(ctx, groupID)
 	if err != nil {
 		return err
 	}
@@ -424,9 +509,9 @@ func (r *GroupRepo) AddUserToGroup(ctx context.Context, groupID, userID int64) e
 	return nil
 }
 
-// AddUserToGroupWithWriteGuard 在显式多资源写边界下把用户加入组织。
-func (r *GroupRepo) AddUserToGroupWithWriteGuard(ctx context.Context, groupID, userID int64, guard authz.WriteGuard) error {
-	return r.mutateGroupAssociationWithWriteGuard(
+// AddUserToGroupWithConstraint 在显式多资源写边界下把用户加入组织。
+func (r *GroupRepo) AddUserToGroupWithConstraint(ctx context.Context, groupID, userID int64, guard iamaccess.WriteConstraint) error {
+	return r.mutateGroupAssociationWithConstraint(
 		ctx,
 		groupID,
 		"Users",
@@ -442,7 +527,7 @@ func (r *GroupRepo) AddUserToGroupWithWriteGuard(ctx context.Context, groupID, u
 // RemoveUserFromGroup 从组织中移除用户
 func (r *GroupRepo) RemoveUserFromGroup(ctx context.Context, groupID, userID int64) error {
 	// 检查组织是否存在
-	group, err := r.Repo.Get(ctx, groupID)
+	group, err := r.getByID(ctx, groupID)
 	if err != nil {
 		return err
 	}
@@ -461,9 +546,9 @@ func (r *GroupRepo) RemoveUserFromGroup(ctx context.Context, groupID, userID int
 	return nil
 }
 
-// RemoveUserFromGroupWithWriteGuard 在显式多资源写边界下把用户移出组织。
-func (r *GroupRepo) RemoveUserFromGroupWithWriteGuard(ctx context.Context, groupID, userID int64, guard authz.WriteGuard) error {
-	return r.mutateGroupAssociationWithWriteGuard(
+// RemoveUserFromGroupWithConstraint 在显式多资源写边界下把用户移出组织。
+func (r *GroupRepo) RemoveUserFromGroupWithConstraint(ctx context.Context, groupID, userID int64, guard iamaccess.WriteConstraint) error {
+	return r.mutateGroupAssociationWithConstraint(
 		ctx,
 		groupID,
 		"Users",
@@ -479,7 +564,7 @@ func (r *GroupRepo) RemoveUserFromGroupWithWriteGuard(ctx context.Context, group
 // AddDefaultRole 为组织添加默认角色
 func (r *GroupRepo) AddDefaultRole(ctx context.Context, groupID, roleID int64) error {
 	// 检查组织是否存在
-	group, err := r.Repo.Get(ctx, groupID)
+	group, err := r.getByID(ctx, groupID)
 	if err != nil {
 		return err
 	}
@@ -498,9 +583,9 @@ func (r *GroupRepo) AddDefaultRole(ctx context.Context, groupID, roleID int64) e
 	return nil
 }
 
-// AddDefaultRoleWithWriteGuard 在显式多资源写边界下给组织添加默认角色。
-func (r *GroupRepo) AddDefaultRoleWithWriteGuard(ctx context.Context, groupID, roleID int64, guard authz.WriteGuard) error {
-	return r.mutateGroupAssociationWithWriteGuard(
+// AddDefaultRoleWithConstraint 在显式多资源写边界下给组织添加默认角色。
+func (r *GroupRepo) AddDefaultRoleWithConstraint(ctx context.Context, groupID, roleID int64, guard iamaccess.WriteConstraint) error {
+	return r.mutateGroupAssociationWithConstraint(
 		ctx,
 		groupID,
 		"DefaultRoles",
@@ -516,7 +601,7 @@ func (r *GroupRepo) AddDefaultRoleWithWriteGuard(ctx context.Context, groupID, r
 // RemoveDefaultRole 移除组织的默认角色
 func (r *GroupRepo) RemoveDefaultRole(ctx context.Context, groupID, roleID int64) error {
 	// 检查组织是否存在
-	group, err := r.Repo.Get(ctx, groupID)
+	group, err := r.getByID(ctx, groupID)
 	if err != nil {
 		return err
 	}
@@ -535,9 +620,9 @@ func (r *GroupRepo) RemoveDefaultRole(ctx context.Context, groupID, roleID int64
 	return nil
 }
 
-// RemoveDefaultRoleWithWriteGuard 在显式多资源写边界下移除组织默认角色。
-func (r *GroupRepo) RemoveDefaultRoleWithWriteGuard(ctx context.Context, groupID, roleID int64, guard authz.WriteGuard) error {
-	return r.mutateGroupAssociationWithWriteGuard(
+// RemoveDefaultRoleWithConstraint 在显式多资源写边界下移除组织默认角色。
+func (r *GroupRepo) RemoveDefaultRoleWithConstraint(ctx context.Context, groupID, roleID int64, guard iamaccess.WriteConstraint) error {
+	return r.mutateGroupAssociationWithConstraint(
 		ctx,
 		groupID,
 		"DefaultRoles",
@@ -550,7 +635,7 @@ func (r *GroupRepo) RemoveDefaultRoleWithWriteGuard(ctx context.Context, groupID
 	)
 }
 
-func (r *GroupRepo) mutateGroupAssociationWithWriteGuard(
+func (r *GroupRepo) mutateGroupAssociationWithConstraint(
 	ctx context.Context,
 	groupID int64,
 	association string,
@@ -559,13 +644,13 @@ func (r *GroupRepo) mutateGroupAssociationWithWriteGuard(
 	related any,
 	remove bool,
 	message string,
-	guard authz.WriteGuard,
+	guard iamaccess.WriteConstraint,
 ) error {
 	if _, _, err := assocguard.RequirePair(guard, groupResourceKind, groupID, relatedKind, relatedID); err != nil {
 		return err
 	}
 
-	group, err := r.Repo.Get(ctx, groupID)
+	group, err := r.getByID(ctx, groupID)
 	if err != nil {
 		return err
 	}
@@ -589,7 +674,7 @@ func (r *GroupRepo) mutateGroupAssociationWithWriteGuard(
 // GroupTree 获取组织树结构。
 func (r *GroupRepo) GroupTree(ctx context.Context) ([]*iamentity.Group, error) {
 	var allGroups []*iamentity.Group
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -634,7 +719,7 @@ func (r *GroupRepo) CountByLevel(ctx context.Context) (map[int]int64, error) {
 	}
 
 	var results []LevelCount
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -657,7 +742,7 @@ func (r *GroupRepo) CountByLevel(ctx context.Context) (map[int]int64, error) {
 // SearchGroups 搜索组织（支持名称模糊搜索）。
 func (r *GroupRepo) SearchGroups(ctx context.Context, keyword string, limit int) ([]*iamentity.Group, error) {
 	var groups []*iamentity.Group
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -679,7 +764,7 @@ func (r *GroupRepo) SearchGroups(ctx context.Context, keyword string, limit int)
 // FindByDefaultRoleID 根据默认角色ID查找组织。
 func (r *GroupRepo) FindByDefaultRoleID(ctx context.Context, roleID int64) ([]*iamentity.Group, error) {
 	var groups []*iamentity.Group
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}

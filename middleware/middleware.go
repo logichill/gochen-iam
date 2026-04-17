@@ -1,10 +1,13 @@
 package middleware
 
 import (
+	"context"
 	"gochen-iam/auth"
+	"gochen/authz"
 	ctxx "gochen/contextx"
 	"gochen/errorx"
 	"gochen/httpx"
+	"strings"
 )
 
 type permissionChecker struct{}
@@ -114,6 +117,9 @@ func PermissionMiddleware(required any) httpx.Middleware {
 	}
 
 	registerRequiredPermission(requiredPermission)
+	if enriched, ok := requiredPermissionDefinition(requiredPermission.Code); ok {
+		requiredPermission = mergePermissionDefinition(requiredPermission, enriched)
+	}
 
 	base := httpx.PermissionMiddleware(permissionChecker{}, requiredPermission.Code)
 	return func(ctx httpx.IContext, next func() error) error {
@@ -130,6 +136,9 @@ func PermissionMiddleware(required any) httpx.Middleware {
 		called := false
 		err := base(ctx, func() error {
 			called = true
+			if err := bindPermissionRuntime(ctx, requiredPermission); err != nil {
+				return err
+			}
 			return next()
 		})
 		if err != nil && !called {
@@ -143,12 +152,53 @@ func PermissionMiddleware(required any) httpx.Middleware {
 	}
 }
 
+func bindPermissionRuntime(ctx httpx.IContext, requiredPermission PermissionDefinition) error {
+	if ctx == nil {
+		return errorx.New(errorx.InvalidInput, "http context cannot be nil")
+	}
+	reqCtx := ctx.RequestContext()
+	if reqCtx == nil {
+		return errorx.New(errorx.InvalidInput, "request context cannot be nil")
+	}
+
+	var runtimeCtx context.Context = reqCtx
+	if permissionRequiresHighRiskRuntime(requiredPermission) {
+		derived, err := authz.WithHighRiskAuthorization(runtimeCtx)
+		if err != nil {
+			return err
+		}
+		runtimeCtx = derived
+	}
+
+	derived, _, err := authz.BindAuthzEvalContextOrEmpty(runtimeCtx)
+	if err != nil {
+		return err
+	}
+	ctx.SetContext(reqCtx.WithContext(derived))
+	return nil
+}
+
+func permissionRequiresHighRiskRuntime(requiredPermission PermissionDefinition) bool {
+	switch strings.ToLower(strings.TrimSpace(requiredPermission.RiskLevel)) {
+	case string(RiskLevelHigh), string(RiskLevelCritical):
+		return true
+	default:
+		return false
+	}
+}
+
 // AdminOnlyMiddleware 要求当前 active scope 具备管理员级全量权限。
 //
 // 这里不再依赖 `system_admin` 角色名，而是依赖角色真正授予出的权限集合；
 // 平台管理员与租户管理员都可以通过各自 scope 内的 `*:*:*` 进入对应后台。
 func AdminOnlyMiddleware() httpx.Middleware {
-	return PermissionMiddleware(PermissionCode("*:*:*").Desc("管理员入口").Scope(ScopePlatform, ScopeTenant))
+	return PermissionMiddleware(
+		PermissionCode("*:*:*").
+			Desc("管理员入口").
+			Scope(ScopePlatform, ScopeTenant).
+			Builtin().
+			Risk(RiskLevelCritical),
+	)
 }
 
 // PlatformScopeMiddleware 要求当前 token 的 active scope 是 platform。
@@ -158,7 +208,7 @@ func PlatformScopeMiddleware() httpx.Middleware {
 		if reqCtx == nil || GetUserID(reqCtx) == 0 {
 			return errorx.New(errorx.Unauthorized, "用户未认证")
 		}
-		if auth.ActiveScopeType(reqCtx) != string(ScopePlatform) {
+		if auth.ActiveScopeKind(reqCtx) != string(ScopePlatform) {
 			return errorx.New(errorx.Forbidden, "当前授权域不是 platform")
 		}
 		return next()

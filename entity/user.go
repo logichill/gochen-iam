@@ -15,19 +15,21 @@ type User struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	TenantID    string     `json:"tenant_id" gorm:"size:64;not null;index;index:idx_user_scope,priority:1;uniqueIndex:idx_user_username_tenant;uniqueIndex:idx_user_email_tenant"`
-	ScopeType   string     `json:"scope_type,omitempty" gorm:"size:32;not null;default:'';index:idx_user_scope,priority:2"`
-	ScopeCode   string     `json:"scope_code,omitempty" gorm:"size:128;not null;default:'';index:idx_user_scope,priority:3"`
-	Username    string     `json:"username" gorm:"size:50;not null;uniqueIndex:idx_user_username_tenant"`
-	Email       string     `json:"email" gorm:"size:100;not null;uniqueIndex:idx_user_email_tenant"`
-	Password    string     `json:"password" gorm:"column:password_hash;size:255;not null"`
-	Status      string     `json:"status" gorm:"size:20;default:active"`
-	Avatar      string     `json:"avatar" gorm:"size:500"`
-	LastLoginAt *time.Time `json:"last_login_at"`
+	TenantID       string     `json:"tenant_id" gorm:"size:64;not null;index;uniqueIndex:idx_user_username_tenant;uniqueIndex:idx_user_email_tenant"`
+	HomeTenantID   string     `json:"home_tenant_id" gorm:"size:64;not null;index"`
+	HomeScopeID    int64      `json:"home_scope_id" gorm:"not null;index"`
+	ManagedScopeID int64      `json:"managed_scope_id" gorm:"not null;index"`
+	OwnerID        string     `json:"owner_id" gorm:"size:128;not null;index"`
+	Username       string     `json:"username" gorm:"size:50;not null;uniqueIndex:idx_user_username_tenant"`
+	Email          string     `json:"email" gorm:"size:100;not null;uniqueIndex:idx_user_email_tenant"`
+	Password       string     `json:"password" gorm:"column:password_hash;size:255;not null"`
+	Status         string     `json:"status" gorm:"size:20;default:active"`
+	Avatar         string     `json:"avatar" gorm:"size:500"`
+	LastLoginAt    *time.Time `json:"last_login_at"`
 
 	// 关联关系
 	Groups []Group `json:"groups" gorm:"many2many:user_groups;"`
-	Roles  []Role  `json:"roles" gorm:"many2many:user_roles;"`
+	Roles  []Role  `json:"roles" gorm:"many2many:user_role_bindings;"`
 }
 
 // TableName 指定表名
@@ -39,6 +41,18 @@ func (*User) TableName() string {
 func (u *User) Validate() error {
 	if err := validation.ValidateRequired(u.TenantID, "tenant_id"); err != nil {
 		return errorx.New(errorx.Validation, "租户ID不能为空")
+	}
+	if err := validation.ValidateRequired(u.HomeTenantID, "home_tenant_id"); err != nil {
+		return errorx.New(errorx.Validation, "home_tenant_id 不能为空")
+	}
+	if u.HomeScopeID <= 0 {
+		return errorx.New(errorx.Validation, "home_scope_id 不能为空")
+	}
+	if u.ManagedScopeID <= 0 {
+		return errorx.New(errorx.Validation, "managed_scope_id 不能为空")
+	}
+	if err := validation.ValidateRequired(u.OwnerID, "owner_id"); err != nil {
+		return errorx.New(errorx.Validation, "owner_id 不能为空")
 	}
 	if err := validation.ValidateRequired(u.Username, "username"); err != nil {
 		return errorx.New(errorx.Validation, "用户名不能为空")
@@ -106,17 +120,29 @@ func (u *User) GetTenantID() string { return u.TenantID }
 // SetTenantID 设置租户ID。
 func (u *User) SetTenantID(tenantID string) { u.TenantID = tenantID }
 
-// GetScopeType 返回授权域类型。
-func (u *User) GetScopeType() string { return u.ScopeType }
+// GetHomeTenantID 返回主体归属租户。
+func (u *User) GetHomeTenantID() string { return u.HomeTenantID }
 
-// SetScopeType 设置授权域类型。
-func (u *User) SetScopeType(scopeType string) { u.ScopeType = scopeType }
+// SetHomeTenantID 设置主体归属租户。
+func (u *User) SetHomeTenantID(tenantID string) { u.HomeTenantID = tenantID }
 
-// GetScopeCode 返回授权域编码。
-func (u *User) GetScopeCode() string { return u.ScopeCode }
+// GetHomeScopeID 返回主体默认归属 scope。
+func (u *User) GetHomeScopeID() int64 { return u.HomeScopeID }
 
-// SetScopeCode 设置授权域编码。
-func (u *User) SetScopeCode(scopeCode string) { u.ScopeCode = scopeCode }
+// SetHomeScopeID 设置主体默认归属 scope。
+func (u *User) SetHomeScopeID(scopeID int64) { u.HomeScopeID = scopeID }
+
+// GetManagedScopeID 返回资源归属的管理 scope。
+func (u *User) GetManagedScopeID() int64 { return u.ManagedScopeID }
+
+// SetManagedScopeID 设置资源归属的管理 scope。
+func (u *User) SetManagedScopeID(scopeID int64) { u.ManagedScopeID = scopeID }
+
+// GetOwnerID 返回资源 owner 标识。
+func (u *User) GetOwnerID() string { return u.OwnerID }
+
+// SetOwnerID 设置资源 owner 标识。
+func (u *User) SetOwnerID(ownerID string) { u.OwnerID = ownerID }
 
 // IsActive 检查用户是否激活
 func (u *User) IsActive() bool {

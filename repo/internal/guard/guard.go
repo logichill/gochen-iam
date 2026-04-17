@@ -1,47 +1,46 @@
 package guard
 
 import (
+	"context"
 	"strconv"
-	"strings"
 
-	"gochen/authz"
+	iamaccess "gochen-iam/access"
+	"gochen/app/access"
 	"gochen/errorx"
 )
 
 func RequirePair(
-	writeGuard authz.WriteGuard,
+	constraint iamaccess.WriteConstraint,
 	ownerKind string,
 	ownerID int64,
 	relatedKind string,
 	relatedID int64,
-) (authz.ResourceWriteGuard, authz.ResourceWriteGuard, error) {
-	owner, err := writeGuard.RequireResource(strings.TrimSpace(ownerKind), FormatInt64(ownerID))
+) (iamaccess.ResourceConstraint, iamaccess.ResourceConstraint, error) {
+	owner, err := constraint.RequireResource(ownerKind, FormatInt64(ownerID))
 	if err != nil {
-		return authz.ResourceWriteGuard{}, authz.ResourceWriteGuard{}, err
+		return iamaccess.ResourceConstraint{}, iamaccess.ResourceConstraint{}, err
 	}
-	related, err := writeGuard.RequireResource(strings.TrimSpace(relatedKind), FormatInt64(relatedID))
+	related, err := constraint.RequireResource(relatedKind, FormatInt64(relatedID))
 	if err != nil {
-		return authz.ResourceWriteGuard{}, authz.ResourceWriteGuard{}, err
+		return iamaccess.ResourceConstraint{}, iamaccess.ResourceConstraint{}, err
 	}
 	if err := RequireSameTenant(owner, related); err != nil {
-		return authz.ResourceWriteGuard{}, authz.ResourceWriteGuard{}, err
+		return iamaccess.ResourceConstraint{}, iamaccess.ResourceConstraint{}, err
 	}
 	return owner, related, nil
 }
 
-func RequireSameTenant(resources ...authz.ResourceWriteGuard) error {
-	var tenantID string
-	for _, resource := range resources {
-		currentTenantID := strings.TrimSpace(resource.DataScope.TenantID)
-		if currentTenantID == "" {
-			continue
-		}
-		if tenantID == "" {
-			tenantID = currentTenantID
-			continue
-		}
-		if tenantID != currentTenantID {
-			return errorx.New(errorx.Forbidden, "write guard resources must belong to the same tenant")
+func RequireSameTenant(resources ...iamaccess.ResourceConstraint) error {
+	if len(resources) <= 1 {
+		return nil
+	}
+	first := resources[0].ManagedScopeID
+	if first == 0 {
+		return nil
+	}
+	for _, resource := range resources[1:] {
+		if resource.ManagedScopeID != 0 && resource.ManagedScopeID != first {
+			return errorx.New(errorx.Forbidden, "write constraint resources must belong to the same tenant scope")
 		}
 	}
 	return nil
@@ -49,4 +48,25 @@ func RequireSameTenant(resources ...authz.ResourceWriteGuard) error {
 
 func FormatInt64(id int64) string {
 	return strconv.FormatInt(id, 10)
+}
+
+// BindContext 将 write constraint 中的元数据与单资源 scope 边界绑定回上下文。
+func BindContext(ctx context.Context, constraint iamaccess.WriteConstraint) context.Context {
+	ctx = access.WithConstraintMetadata(ctx, access.ConstraintMetadata{
+		DecisionID:      constraint.Metadata.DecisionID,
+		SnapshotVersion: constraint.Metadata.SnapshotVersion,
+		Consistency:     constraint.Metadata.Consistency,
+	})
+	if len(constraint.Resources) != 1 {
+		return ctx
+	}
+	resource := constraint.Resources[0]
+	if resource.ManagedScopeID == 0 {
+		return ctx
+	}
+	return access.WithDataScope(ctx, access.DataScope{
+		ActiveScopeID:   resource.ManagedScopeID,
+		VisibleScopeIDs: []int64{resource.ManagedScopeID},
+		Mode:            access.DataScopeModeManagedScopes,
+	})
 }

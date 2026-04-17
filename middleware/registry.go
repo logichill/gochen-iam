@@ -71,7 +71,7 @@ func normalizePermissionDefinition(def PermissionDefinition) PermissionDefinitio
 	def.Action = segments[2]
 	def.Name = strings.TrimSpace(def.Name)
 	def.Description = strings.TrimSpace(def.Description)
-	def.RiskLevel = strings.TrimSpace(def.RiskLevel)
+	def.RiskLevel = strings.ToLower(strings.TrimSpace(def.RiskLevel))
 	if len(def.Scopes) > 0 {
 		scopes := make([]string, 0, len(def.Scopes))
 		seen := make(map[string]struct{}, len(def.Scopes))
@@ -275,6 +275,20 @@ func RequiredPermissionDefinitions() []PermissionDefinition {
 		return out[i].Code < out[j].Code
 	})
 	return out
+}
+
+func requiredPermissionDefinition(code string) (PermissionDefinition, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(code))
+	if normalized == "" {
+		return PermissionDefinition{}, false
+	}
+	requiredPermissionsRegistry.mu.RLock()
+	defer requiredPermissionsRegistry.mu.RUnlock()
+	entry, ok := requiredPermissionsRegistry.perms[normalized]
+	if !ok {
+		return PermissionDefinition{}, false
+	}
+	return entry.definition, true
 }
 
 // HasRequiredPermission 判断权限是否已在启动期注册到 required permissions registry。

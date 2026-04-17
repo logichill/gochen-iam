@@ -7,7 +7,6 @@ import (
 	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
 	"gochen/authz"
-	domaincrud "gochen/domain/crud"
 	"gochen/errorx"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
@@ -17,7 +16,7 @@ import (
 type TenantRoutes struct {
 	tenantService   ITenantService
 	utils           *hbasic.Utils
-	tenantRepo      domaincrud.IResourceBoundaryRepository[*iamentity.Tenant, int64]
+	tenantRepo      svc.IResourceContextRepository[*iamentity.Tenant, int64]
 	scopeAuthorizer *svc.ScopeAuthorizer
 	authorizer      authz.IAuthorizer
 }
@@ -25,7 +24,7 @@ type TenantRoutes struct {
 // NewTenantRoutes 创建租户路由注册器
 func NewTenantRoutes(
 	tenantService ITenantService,
-	tenantRepo domaincrud.IResourceBoundaryRepository[*iamentity.Tenant, int64],
+	tenantRepo svc.IResourceContextRepository[*iamentity.Tenant, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
 	authorizer *authz.Authorizer,
 ) *TenantRoutes {

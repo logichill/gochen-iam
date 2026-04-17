@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"gochen/authz"
+	ctxx "gochen/contextx"
 	"gochen/db"
 	"gochen/db/orm"
 )
@@ -26,6 +27,7 @@ type capturingModel struct {
 	meta *orm.ModelMeta
 
 	firstCalls       int
+	createCalls      int
 	associationCalls int
 	lastFirstOpts    orm.QueryOptions
 
@@ -43,7 +45,10 @@ func (m *capturingModel) Find(context.Context, any, ...orm.QueryOption) error { 
 func (m *capturingModel) Count(context.Context, ...orm.QueryOption) (int64, error) {
 	return 0, nil
 }
-func (m *capturingModel) Create(context.Context, ...any) error                { return nil }
+func (m *capturingModel) Create(context.Context, ...any) error {
+	m.createCalls++
+	return nil
+}
 func (m *capturingModel) Save(context.Context, any, ...orm.QueryOption) error { return nil }
 func (m *capturingModel) UpdateValues(context.Context, map[string]any, ...orm.QueryOption) error {
 	return nil
@@ -97,9 +102,13 @@ func (s *fakeSession) Rollback() error        { return nil }
 
 func withTenantPrincipal(t *testing.T, ctx context.Context, tenantID string) context.Context {
 	t.Helper()
-	derived, err := authz.WithPrincipal(ctx, authz.Principal{SubjectID: 1, TenantID: tenantID})
+	derived, err := authz.WithPrincipal(ctx, authz.Principal{SubjectID: 1, ActiveScopeID: 1})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
+	}
+	derived, err = ctxx.WithTenantID(derived, tenantID)
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
 	}
 	return derived
 }
@@ -131,7 +140,7 @@ func TestUserRepo_Get_UsesTxSessionModel(t *testing.T) {
 	}
 }
 
-func TestUserRepo_AssignRole_UsesTxSessionAssociation(t *testing.T) {
+func TestUserRepo_AssignRole_UsesTxSessionBindingModel(t *testing.T) {
 	o := &fakeOrm{
 		baseModel:    &capturingModel{},
 		sessionModel: &capturingModel{},
@@ -150,14 +159,14 @@ func TestUserRepo_AssignRole_UsesTxSessionAssociation(t *testing.T) {
 		t.Fatalf("AssignRole: %v", err)
 	}
 
-	if o.baseModel.associationCalls != 0 {
-		t.Fatalf("expected base model association not used, got associationCalls=%d", o.baseModel.associationCalls)
+	if o.baseModel.createCalls != 0 {
+		t.Fatalf("expected base model create not used, got createCalls=%d", o.baseModel.createCalls)
 	}
-	if o.sessionModel.associationCalls != 1 {
-		t.Fatalf("expected session model association used once, got associationCalls=%d", o.sessionModel.associationCalls)
+	if o.sessionModel.firstCalls != 2 {
+		t.Fatalf("expected session model first used for user+role lookup, got firstCalls=%d", o.sessionModel.firstCalls)
 	}
-	if o.sessionModel.lastAssociation == nil || o.sessionModel.lastAssociation.appendCalls != 1 {
-		t.Fatalf("expected association Append called once")
+	if o.sessionModel.createCalls != 1 {
+		t.Fatalf("expected session binding model create used once, got createCalls=%d", o.sessionModel.createCalls)
 	}
 }
 

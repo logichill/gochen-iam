@@ -2,12 +2,10 @@ package role
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	iamentity "gochen-iam/entity"
 	iamevent "gochen-iam/event"
-	iammw "gochen-iam/middleware"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
@@ -29,6 +27,7 @@ type RoleService struct {
 	authorizer      authz.IAuthorizer
 	eventBus        bus.IEventBus
 	logger          logging.ILogger
+	governance      *Governance
 }
 
 // NewRoleService 创建角色服务实例
@@ -48,7 +47,16 @@ func NewRoleService(
 		authorizer:      authorizer,
 		eventBus:        eventBus,
 		logger:          logging.ComponentLogger("iam.service.role"),
+		governance:      NewGovernance(roleRepo, userRepo, scopeAuthorizer),
 	}
+}
+
+// Governance 返回角色治理规则聚合器。
+func (s *RoleService) Governance() *Governance {
+	if s == nil {
+		return nil
+	}
+	return s.governance
 }
 
 // CreateRole 创建角色。
@@ -65,34 +73,25 @@ func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest
 	if err != nil {
 		return nil, err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:role:write", &iamentity.Role{TenantID: tenantID})
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. 检查角色名称是否已存在
-	existingRole, err := s.roleRepo.FindByName(tenantCtx, req.Name)
-	if err != nil && !errorx.Is(err, errorx.NotFound) {
-		return nil, errorx.Wrap(err, errorx.Database, "检查角色名称失败")
-	}
-	if existingRole != nil {
-		return nil, errorx.New(errorx.Validation, "角色名称已存在")
-	}
-
-	// 3. 验证权限
 	namespaceScope, err := s.resolveTenantScope(tenantCtx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.validatePermissionsForScope(req.Permissions, namespaceScope); err != nil {
+	if namespaceScope != nil {
+		tenantCtx, err = svc.BindManagedScopeContext(tenantCtx, namespaceScope.ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", &iamentity.Role{TenantID: tenantID})
+	if err != nil {
 		return nil, err
 	}
 
-	// 4. 创建角色实体
+	// 2. 创建角色实体
 	role := &iamentity.Role{
 		TenantID:         tenantID,
-		ScopeType:        namespaceScope.Type,
-		ScopeCode:        namespaceScope.Key,
+		OwnerID:          svc.TenantOwnerID(tenantID),
 		NamespaceScopeID: namespaceScope.ID,
 		Code:             req.Name, // 当前阶段默认使用名称作为稳定编码
 		Name:             req.Name,
@@ -101,10 +100,13 @@ func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest
 		IsSystem:         false,
 		Status:           svc.RoleStatusActive,
 	}
-	role.SetUpdatedAt(time.Now())
 
-	// 5. 保存角色
-	if err := s.roleRepo.CreateWithWriteGuard(tenantCtx, role, guard); err != nil {
+	if err := s.governance.PrepareCreate(tenantCtx, role); err != nil {
+		return nil, err
+	}
+
+	// 3. 保存角色
+	if err := s.roleRepo.CreateWithConstraint(tenantCtx, role, guard); err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "保存角色失败")
 	}
 
@@ -118,26 +120,14 @@ func (s *RoleService) UpdateRole(ctx context.Context, roleID int64, req *svc.Upd
 	if err != nil {
 		return nil, err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:role:write", role)
+	current := currentRoleSnapshot(role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role)
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. 检查是否为系统角色
-	if role.IsSystem {
-		return nil, errorx.New(errorx.Validation, "系统角色不能被修改")
-	}
-
-	// 3. 更新字段
+	// 2. 更新字段
 	if req.Name != "" && req.Name != role.Name {
-		// 检查名称是否重复
-		existingRole, err := s.roleRepo.FindByName(tenantCtx, req.Name)
-		if err != nil && !errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.Wrap(err, errorx.Database, "检查角色名称失败")
-		}
-		if existingRole != nil && existingRole.GetID() != roleID {
-			return nil, errorx.New(errorx.Validation, "角色名称已存在")
-		}
 		role.Name = req.Name
 	}
 
@@ -146,20 +136,15 @@ func (s *RoleService) UpdateRole(ctx context.Context, roleID int64, req *svc.Upd
 	}
 
 	if len(req.Permissions) > 0 {
-		namespaceScope, err := s.resolveRoleNamespaceScope(tenantCtx, role)
-		if err != nil {
-			return nil, err
-		}
-		if err := s.validatePermissionsForScope(req.Permissions, namespaceScope); err != nil {
-			return nil, err
-		}
 		role.SetPermissions(req.Permissions)
 	}
 
-	role.SetUpdatedAt(time.Now())
+	if err := s.governance.PrepareUpdateWithCurrent(tenantCtx, current, role); err != nil {
+		return nil, err
+	}
 
-	// 4. 保存更新
-	if err := s.roleRepo.UpdateWithWriteGuard(tenantCtx, role, guard); err != nil {
+	// 3. 保存更新
+	if err := s.roleRepo.UpdateWithConstraint(tenantCtx, role, guard); err != nil {
 		return nil, err
 	}
 
@@ -173,35 +158,17 @@ func (s *RoleService) DeleteRole(ctx context.Context, roleID int64) error {
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:role:delete", role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:delete", role)
 	if err != nil {
 		return err
 	}
 
-	// 2. 检查是否为系统角色
-	if role.IsSystem {
-		return errorx.New(errorx.Validation, "系统角色不能被删除")
-	}
-
-	// 3. 检查是否正在使用中（通过 repo 查询关联数量，不依赖 preload）
-	userCount, err := s.userRepo.CountByRoleID(tenantCtx, roleID)
-	if err != nil {
+	if err := s.governance.ValidateDeleteWithRole(tenantCtx, role); err != nil {
 		return err
 	}
-	if userCount > 0 {
-		return errorx.New(errorx.Validation, "角色正在被用户使用，不能删除")
-	}
 
-	groupCount, err := s.roleRepo.CountGroupsByRoleID(tenantCtx, roleID)
-	if err != nil {
-		return err
-	}
-	if groupCount > 0 {
-		return errorx.New(errorx.Validation, "角色正在被组织使用，不能删除")
-	}
-
-	// 4. 删除角色
-	return s.roleRepo.DeleteWithWriteGuard(tenantCtx, roleID, guard)
+	// 3. 删除角色
+	return s.roleRepo.DeleteWithConstraint(tenantCtx, roleID, guard)
 }
 
 // AssignRoleToUser 将角色分配给用户
@@ -215,7 +182,7 @@ func (s *RoleService) AssignRoleToUser(ctx context.Context, roleID, userID int64
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:role:write", role, user)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role, user)
 	if err != nil {
 		return err
 	}
@@ -226,7 +193,7 @@ func (s *RoleService) AssignRoleToUser(ctx context.Context, roleID, userID int64
 	}
 
 	// 4. 分配角色
-	if err := s.roleRepo.AssignToUserWithWriteGuard(tenantCtx, roleID, userID, guard); err != nil {
+	if err := s.roleRepo.AssignToUserWithConstraint(tenantCtx, roleID, userID, guard); err != nil {
 		return err
 	}
 
@@ -245,11 +212,11 @@ func (s *RoleService) RemoveRoleFromUser(ctx context.Context, roleID, userID int
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:role:write", role, user)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role, user)
 	if err != nil {
 		return err
 	}
-	if err := s.roleRepo.RemoveFromUserWithWriteGuard(tenantCtx, roleID, userID, guard); err != nil {
+	if err := s.roleRepo.RemoveFromUserWithConstraint(tenantCtx, roleID, userID, guard); err != nil {
 		return err
 	}
 
@@ -269,7 +236,7 @@ func (s *RoleService) AssignRoleToGroup(ctx context.Context, roleID, groupID int
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:role:write", role, group)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role, group)
 	if err != nil {
 		return err
 	}
@@ -280,7 +247,7 @@ func (s *RoleService) AssignRoleToGroup(ctx context.Context, roleID, groupID int
 	}
 
 	// 4. 分配角色给组织
-	return s.roleRepo.AssignToGroupWithWriteGuard(tenantCtx, roleID, groupID, guard)
+	return s.roleRepo.AssignToGroupWithConstraint(tenantCtx, roleID, groupID, guard)
 }
 
 // RemoveRoleFromGroup 从组织移除默认角色
@@ -293,11 +260,11 @@ func (s *RoleService) RemoveRoleFromGroup(ctx context.Context, roleID, groupID i
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:role:write", role, group)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role, group)
 	if err != nil {
 		return err
 	}
-	return s.roleRepo.RemoveFromGroupWithWriteGuard(tenantCtx, roleID, groupID, guard)
+	return s.roleRepo.RemoveFromGroupWithConstraint(tenantCtx, roleID, groupID, guard)
 }
 
 // AddPermission 为角色添加权限
@@ -307,7 +274,7 @@ func (s *RoleService) AddPermission(ctx context.Context, roleID int64, permissio
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:role:write", role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role)
 	if err != nil {
 		return err
 	}
@@ -327,7 +294,7 @@ func (s *RoleService) AddPermission(ctx context.Context, roleID int64, permissio
 	}
 	// 4. 添加权限
 	role.AddPermission(permission)
-	return s.roleRepo.UpdateWithWriteGuard(tenantCtx, role, guard)
+	return s.roleRepo.UpdateWithConstraint(tenantCtx, role, guard)
 }
 
 // RemovePermission 从角色移除权限
@@ -337,7 +304,7 @@ func (s *RoleService) RemovePermission(ctx context.Context, roleID int64, permis
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:role:write", role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role)
 	if err != nil {
 		return err
 	}
@@ -349,7 +316,7 @@ func (s *RoleService) RemovePermission(ctx context.Context, roleID int64, permis
 
 	// 3. 移除权限
 	role.RemovePermission(permission)
-	return s.roleRepo.UpdateWithWriteGuard(tenantCtx, role, guard)
+	return s.roleRepo.UpdateWithConstraint(tenantCtx, role, guard)
 }
 
 // ActivateRole 激活角色
@@ -358,13 +325,13 @@ func (s *RoleService) ActivateRole(ctx context.Context, roleID int64) error {
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:role:write", role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role)
 	if err != nil {
 		return err
 	}
 
 	role.Activate()
-	return s.roleRepo.UpdateWithWriteGuard(tenantCtx, role, guard)
+	return s.roleRepo.UpdateWithConstraint(tenantCtx, role, guard)
 }
 
 // DeactivateRole 停用角色
@@ -377,13 +344,13 @@ func (s *RoleService) DeactivateRole(ctx context.Context, roleID int64) error {
 	if role.IsSystem {
 		return errorx.New(errorx.Validation, "系统角色不能被停用")
 	}
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:role:write", role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", role)
 	if err != nil {
 		return err
 	}
 
 	role.Deactivate()
-	return s.roleRepo.UpdateWithWriteGuard(tenantCtx, role, guard)
+	return s.roleRepo.UpdateWithConstraint(tenantCtx, role, guard)
 }
 
 // CloneRole 克隆角色
@@ -407,16 +374,16 @@ func (s *RoleService) CloneRole(ctx context.Context, roleID int64, newName strin
 	clonedRole := originalRole.Clone(newName)
 	clonedRole.TenantID = originalRole.TenantID
 	clonedRole.NamespaceScopeID = originalRole.NamespaceScopeID
-	if clonedRole.Code == "" {
-		clonedRole.Code = newName
+	if err := s.governance.PrepareCreate(tenantCtx, clonedRole); err != nil {
+		return nil, err
 	}
 
 	// 4. 保存克隆的角色
-	guard, err := svc.AuthorizeWriteGuard(tenantCtx, s.authorizer, "api:role:write", clonedRole)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, "api:role:write", clonedRole)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.roleRepo.CreateWithWriteGuard(tenantCtx, clonedRole, guard); err != nil {
+	if err := s.roleRepo.CreateWithConstraint(tenantCtx, clonedRole, guard); err != nil {
 		return nil, errorx.Wrap(err, errorx.Database, "保存克隆角色失败")
 	}
 
@@ -646,56 +613,19 @@ func (s *RoleService) validateCreateRoleRequest(req *svc.CreateRoleRequest) erro
 
 // validatePermissions 验证权限列表
 func (s *RoleService) validatePermissions(permissions []string) error {
-	for _, permission := range permissions {
-		if !iammw.IsValidPermissionCode(permission) {
-			return errorx.New(errorx.Validation, "无效的权限: "+permission)
-		}
-	}
-
-	// 严格权限字典：仅允许“系统已声明的权限”（由 PermissionMiddleware 自动收集）。
-	if err := iammw.EnsureStrictPermissionRegistryLoaded(); err != nil {
-		return err
-	}
-	for _, p := range permissions {
-		if !iammw.HasRequiredPermission(p) {
-			return errorx.New(errorx.Validation, "未知权限: "+p)
-		}
-	}
-	return nil
+	return validatePermissions(permissions)
 }
 
 func (s *RoleService) validatePermissionsForScope(permissions []string, namespaceScope *iamentity.Scope) error {
-	if err := s.validatePermissions(permissions); err != nil {
-		return err
-	}
-	if namespaceScope == nil {
+	return validatePermissionsForScope(permissions, namespaceScope)
+}
+
+func currentRoleSnapshot(role *iamentity.Role) *iamentity.Role {
+	if role == nil {
 		return nil
 	}
-	namespaceType := strings.TrimSpace(namespaceScope.Type)
-	for _, permission := range permissions {
-		definition := iammw.PermissionCode(permission).Definition()
-		registered := iammw.RequiredPermissionDefinitions()
-		for _, current := range registered {
-			if strings.EqualFold(current.Code, definition.Code) {
-				definition = current
-				break
-			}
-		}
-		if len(definition.Scopes) == 0 {
-			continue
-		}
-		allowed := false
-		for _, scopeType := range definition.Scopes {
-			if strings.EqualFold(scopeType, namespaceType) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return errorx.New(errorx.Validation, "权限不允许在当前作用域定义: "+permission)
-		}
-	}
-	return nil
+	snapshot := *role
+	return &snapshot
 }
 
 func (s *RoleService) resolveTenantScope(ctx context.Context, tenantID string) (*iamentity.Scope, error) {
