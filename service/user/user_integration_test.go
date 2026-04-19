@@ -19,7 +19,7 @@ import (
 	usersvc "gochen-iam/service/user"
 
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/errors"
 
 	"gorm.io/driver/sqlite"
@@ -109,7 +109,7 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, "test-tenant")
+	ctx, err = contextx.WithTenantID(ctx, "test-tenant")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
@@ -145,7 +145,7 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	if err != nil {
 		t.Fatalf("rebind principal with active scope: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, tenant.Key)
+	ctx, err = contextx.WithTenantID(ctx, tenant.Key)
 	if err != nil {
 		t.Fatalf("rebind tenant context: %v", err)
 	}

@@ -11,7 +11,7 @@ import (
 	"gochen-iam/auth"
 	"gochen-iam/tenant"
 	"gochen/errors"
-	hbasic "gochen/httpx/nethttp"
+	"gochen/httpx/nethttp"
 )
 
 func TestParseToken_ValidJWT(t *testing.T) {
@@ -301,7 +301,7 @@ func TestDefaultAuthConfig_WithEnvSecret(t *testing.T) {
 }
 
 func TestHasAnyRole(t *testing.T) {
-	ctx, err := hbasic.NewRequestContext(context.Background())
+	ctx, err := nethttp.NewRequestContext(context.Background())
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestHasAnyRole(t *testing.T) {
 }
 
 func TestRequireAnyRole(t *testing.T) {
-	ctx, err := hbasic.NewRequestContext(context.Background())
+	ctx, err := nethttp.NewRequestContext(context.Background())
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestRequireAnyRole(t *testing.T) {
 }
 
 func TestHasPermission_WildcardPermissions(t *testing.T) {
-	ctx, err := hbasic.NewRequestContext(context.Background())
+	ctx, err := nethttp.NewRequestContext(context.Background())
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}

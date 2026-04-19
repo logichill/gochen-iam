@@ -4,7 +4,7 @@ import (
 	"context"
 	iamauth "gochen-iam/auth"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"
 	"strings"
@@ -218,7 +218,7 @@ func UserOnlyMiddleware() httpx.Middleware {
 
 // InjectAuthContext 处理Inject鉴权上下文。
 func InjectAuthContext(reqCtx httpx.IRequestContext, userID int64, roles, permissions []string) httpx.IRequestContext {
-	derived, err := ctxx.WithUserID(reqCtx, userID)
+	derived, err := contextx.WithUserID(reqCtx, userID)
 	if err == nil {
 		reqCtx = reqCtx.WithContext(derived)
 	}

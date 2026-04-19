@@ -9,7 +9,7 @@ import (
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 	"gochen/httpx"
-	hbasic "gochen/httpx/nethttp"
+	"gochen/httpx/nethttp"
 )
 
 // MenuRoutes 菜单路由注册器。
@@ -21,7 +21,7 @@ type MenuRoutes struct {
 	menuService *menusvc.MenuService
 	menuRepo    domaincrud.IRepository[*iamentity.MenuItem, int64]
 	authorizer  auth.IAuthorizer
-	utils       *hbasic.Utils
+	utils       *nethttp.Utils
 }
 
 // NewMenuRoutes 创建菜单路由注册器。
@@ -34,7 +34,7 @@ func NewMenuRoutes(
 		menuService: menuService,
 		menuRepo:    menuRepo,
 		authorizer:  authorizer,
-		utils:       &hbasic.Utils{},
+		utils:       &nethttp.Utils{},
 	}
 }
 

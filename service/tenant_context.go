@@ -6,7 +6,7 @@ import (
 
 	iamauth "gochen-iam/auth"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/errors"
 )
 
@@ -16,9 +16,9 @@ func BindTenantContext(ctx context.Context, tenantID string) (context.Context, e
 	if tenantID == "" {
 		return nil, errors.NewCode(errors.Validation, "tenant_id is required")
 	}
-	currentTenantID := strings.TrimSpace(ctxx.TenantID(ctx))
+	currentTenantID := strings.TrimSpace(contextx.TenantID(ctx))
 	if currentTenantID == "" || currentTenantID == tenantID {
-		derived, err := ctxx.WithTenantID(ctx, tenantID)
+		derived, err := contextx.WithTenantID(ctx, tenantID)
 		if err != nil {
 			return nil, err
 		}
@@ -41,7 +41,7 @@ func BindTenantContext(ctx context.Context, tenantID string) (context.Context, e
 			return nil, err
 		}
 	}
-	derived, err = ctxx.WithTenantID(derived, tenantID)
+	derived, err = contextx.WithTenantID(derived, tenantID)
 	if err != nil {
 		return nil, err
 	}

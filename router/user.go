@@ -12,7 +12,7 @@ import (
 	"gochen/db/query"
 	"gochen/errors"
 	"gochen/httpx"
-	hbasic "gochen/httpx/nethttp"
+	"gochen/httpx/nethttp"
 )
 
 type userQueryFields struct {
@@ -30,7 +30,7 @@ var userQuerySchema = query.MustInferQuerySchema[userQueryFields](nil)
 // UserRoutes 用户路由注册器
 type UserRoutes struct {
 	userService IUserService
-	utils       *hbasic.Utils
+	utils       *nethttp.Utils
 	userRepo    iamsvc.IScopedResourceContextRepository[*iamentity.User, int64]
 	authorizer  auth.IAuthorizer
 }
@@ -43,7 +43,7 @@ func NewUserRoutes(
 ) *UserRoutes {
 	return &UserRoutes{
 		userService: userService,
-		utils:       &hbasic.Utils{},
+		utils:       &nethttp.Utils{},
 		userRepo:    userRepo,
 		authorizer:  authorizer,
 	}

@@ -15,7 +15,7 @@ import (
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 	"gochen/httpx"
-	hbasic "gochen/httpx/nethttp"
+	"gochen/httpx/nethttp"
 )
 
 type groupQueryFields struct {
@@ -33,7 +33,7 @@ var groupQuerySchema = query.MustInferQuerySchema[groupQueryFields](nil)
 // GroupRoutes 组织路由注册器
 type GroupRoutes struct {
 	groupService IGroupService
-	utils        *hbasic.Utils
+	utils        *nethttp.Utils
 	groupRepo    svc.IScopedResourceContextRepository[*iamentity.Group, int64]
 	authorizer   auth.IAuthorizer
 }
@@ -46,7 +46,7 @@ func NewGroupRoutes(
 ) *GroupRoutes {
 	return &GroupRoutes{
 		groupService: groupService,
-		utils:        &hbasic.Utils{},
+		utils:        &nethttp.Utils{},
 		groupRepo:    groupRepo,
 		authorizer:   authorizer,
 	}

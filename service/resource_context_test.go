@@ -8,7 +8,7 @@ import (
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 )
 
 type tenantBoundUserRepoStub struct {
@@ -40,7 +40,7 @@ func bindTenantScopedContext(t *testing.T, tenantID string, activeScopeID int64,
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, tenantID)
+	ctx, err = contextx.WithTenantID(ctx, tenantID)
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
@@ -73,10 +73,10 @@ func TestLoadTenantBoundResource_BindsResolvedTenantContext(t *testing.T) {
 	if entity.GetID() != 7 {
 		t.Fatalf("expected entity id 7, got %d", entity.GetID())
 	}
-	if got := ctxx.TenantID(repo.getCtx); got != "tenant-b" {
+	if got := contextx.TenantID(repo.getCtx); got != "tenant-b" {
 		t.Fatalf("expected repo get tenant-b, got %q", got)
 	}
-	if got := ctxx.TenantID(tenantCtx); got != "tenant-b" {
+	if got := contextx.TenantID(tenantCtx); got != "tenant-b" {
 		t.Fatalf("expected returned ctx tenant-b, got %q", got)
 	}
 	principal, ok := auth.PrincipalFromContext(tenantCtx)
@@ -100,10 +100,10 @@ func TestLoadTenantBoundResource_WithoutTenantBoundaryKeepsOriginalContext(t *te
 	if err != nil {
 		t.Fatalf("LoadTenantBoundResource: %v", err)
 	}
-	if got := ctxx.TenantID(repo.getCtx); got != "tenant-a" {
+	if got := contextx.TenantID(repo.getCtx); got != "tenant-a" {
 		t.Fatalf("expected original tenant tenant-a, got %q", got)
 	}
-	if got := ctxx.TenantID(tenantCtx); got != "tenant-a" {
+	if got := contextx.TenantID(tenantCtx); got != "tenant-a" {
 		t.Fatalf("expected returned ctx tenant-a, got %q", got)
 	}
 }
@@ -221,7 +221,7 @@ func TestLoadTenantBoundResource_ClearsPlatformScopeWhenRebindingTenant(t *testi
 	if got := iamauth.ActiveScopeKindFromContext(tenantCtx); got != "" {
 		t.Fatalf("expected active scope type cleared, got %q", got)
 	}
-	if got := ctxx.TenantID(tenantCtx); got != "tenant-b" {
+	if got := contextx.TenantID(tenantCtx); got != "tenant-b" {
 		t.Fatalf("expected tenant-b, got %q", got)
 	}
 
@@ -263,7 +263,7 @@ func TestBindTenantContext_PreservesSameTenantScopedContext(t *testing.T) {
 }
 
 func TestBindTenantContext_DefaultsToGlobalScopeWhenTenantIsUnscoped(t *testing.T) {
-	ctx, err := ctxx.WithTenantID(context.Background(), "tenant-a")
+	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}

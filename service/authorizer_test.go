@@ -7,7 +7,7 @@ import (
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 )
 
 func TestIAMAuthorizerCreateResourceUsesContextTenant(t *testing.T) {
@@ -28,7 +28,7 @@ func TestIAMAuthorizerCreateResourceUsesContextTenant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, "tenant-a")
+	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestIAMAuthorizerDeniesMixedTenantResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, "tenant-a")
+	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestIAMAuthorizerDeniesCreateResourceWithForeignTenantBoundary(t *testing.T
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, "tenant-a")
+	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestWithSystemPrincipal_ReplaysAuthorizationRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, "tenant-a")
+	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
@@ -265,7 +265,7 @@ func TestWithSystemPrincipal_ReplaysAuthorizationRuntime(t *testing.T) {
 	if !eval.Principal.IsSystem {
 		t.Fatalf("expected system principal")
 	}
-	if got := ctxx.TenantID(ctx); got != "tenant-b" {
+	if got := contextx.TenantID(ctx); got != "tenant-b" {
 		t.Fatalf("expected tenant-b, got %q", got)
 	}
 	if eval.Consistency != auth.ConsistencyModeStrong {

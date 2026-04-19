@@ -15,7 +15,7 @@ import (
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -78,7 +78,7 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, "tenant-a")
+	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, "tenant-a")
+	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}

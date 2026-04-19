@@ -6,7 +6,7 @@ import (
 
 	iamauth "gochen-iam/auth"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"
 )
@@ -42,7 +42,7 @@ func InjectClaimsRequestContext(
 	var err error
 	var runtime *ResolvedAuthContext
 	if claims.UserID > 0 {
-		baseCtx, err = ctxx.WithUserID(baseCtx, claims.UserID)
+		baseCtx, err = contextx.WithUserID(baseCtx, claims.UserID)
 		if err != nil {
 			return nil, err
 		}
@@ -74,7 +74,7 @@ func InjectClaimsRequestContext(
 		return nil, err
 	}
 	if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
-		baseCtx, err = ctxx.WithTenantID(baseCtx, tenantID)
+		baseCtx, err = contextx.WithTenantID(baseCtx, tenantID)
 		if err != nil {
 			return nil, err
 		}

@@ -8,14 +8,14 @@ import (
 
 	iamauth "gochen-iam/auth"
 	"gochen/auth"
-	ctxx "gochen/contextx"
-	hbasic "gochen/httpx/nethttp"
+	"gochen/contextx"
+	"gochen/httpx/nethttp"
 )
 
 func TestInjectClaimsRequestContext_BindsPrincipalAndLegacyHelpers(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
 
-	reqCtx, err := hbasic.NewRequestContext(context.Background())
+	reqCtx, err := nethttp.NewRequestContext(context.Background())
 	require.NoError(t, err)
 
 	bound, err := InjectClaimsRequestContext(reqCtx, "tenant-b", &JWTClaims{
@@ -30,7 +30,7 @@ func TestInjectClaimsRequestContext_BindsPrincipalAndLegacyHelpers(t *testing.T)
 	require.Equal(t, int64(7), principal.SubjectID)
 	require.Equal(t, int64(100), principal.ActiveScopeID)
 	require.True(t, principal.HasPermission("api:user:manage"))
-	require.Equal(t, "tenant-b", ctxx.TenantID(bound))
+	require.Equal(t, "tenant-b", contextx.TenantID(bound))
 	require.Equal(t, "platform", iamauth.ActiveScopeKind(bound))
 	require.NotNil(t, iamauth.PermissionSet(bound))
 	require.True(t, HasPermission(bound, "api:user:manage"))

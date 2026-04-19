@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/db"
 	"gochen/db/orm"
 )
@@ -109,7 +109,7 @@ func withTenantPrincipal(t *testing.T, ctx context.Context, tenantID string) con
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	derived, err = ctxx.WithTenantID(derived, tenantID)
+	derived, err = contextx.WithTenantID(derived, tenantID)
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}

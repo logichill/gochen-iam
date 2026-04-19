@@ -11,7 +11,7 @@ import (
 	tenantrepo "gochen-iam/repo/tenant"
 	"gochen-iam/tenant"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/domain/crud"
 	"gochen/errors"
 
@@ -105,7 +105,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, "tenant-a")
+	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_DoesNotHealMissingTenantRootSc
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, "tenant-a")
+	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}

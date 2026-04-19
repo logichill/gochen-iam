@@ -10,7 +10,7 @@ import (
 	"gochen-iam/tenant"
 	appaccess "gochen/app/access"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/errors"
 )
 
@@ -131,7 +131,7 @@ func normalizeIAMAuthorizedResources(ctx context.Context, resources []auth.Resou
 	if len(resources) == 0 {
 		return resources
 	}
-	tenantID := strings.TrimSpace(ctxx.TenantID(ctx))
+	tenantID := strings.TrimSpace(contextx.TenantID(ctx))
 	out := make([]auth.Resource, len(resources))
 	copy(out, resources)
 	for i := range out {
@@ -248,7 +248,7 @@ func resolveTenantAccessForPrincipal(
 
 	if strings.EqualFold(activeScopeKindFromContext(ctx), string(iammw.ScopePlatform)) {
 		if targetTenantID == "" {
-			return tenantAccessResolution{TenantID: strings.TrimSpace(ctxx.TenantID(ctx))}, nil
+			return tenantAccessResolution{TenantID: strings.TrimSpace(contextx.TenantID(ctx))}, nil
 		}
 		return tenantAccessResolution{TenantID: targetTenantID}, nil
 	}
@@ -257,7 +257,7 @@ func resolveTenantAccessForPrincipal(
 	if err != nil {
 		return tenantAccessResolution{}, err
 	}
-	if strings.TrimSpace(ctxx.TenantID(ctx)) != tenantID {
+	if strings.TrimSpace(contextx.TenantID(ctx)) != tenantID {
 		return tenantAccessResolution{}, errors.NewCode(errors.Forbidden, "cross-tenant access denied")
 	}
 	return tenantAccessResolution{TenantID: tenantID}, nil
@@ -279,7 +279,7 @@ func collectAuthorizedTenant(ctx context.Context, resources []auth.Resource) (te
 		}
 	}
 	if !hasTenantBoundary {
-		currentTenantID := strings.TrimSpace(ctxx.TenantID(ctx))
+		currentTenantID := strings.TrimSpace(contextx.TenantID(ctx))
 		if currentTenantID != "" {
 			return currentTenantID, true, false
 		}

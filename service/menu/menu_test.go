@@ -6,9 +6,9 @@ import (
 
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/domain/crud"
-	hbasic "gochen/httpx/nethttp"
+	"gochen/httpx/nethttp"
 )
 
 func TestBuildMenuTree_NoContext_ShowsOnlyUnrestricted(t *testing.T) {
@@ -51,11 +51,11 @@ func TestBuildMenuTree_WithPermissions_AnyAllAndParentRetention(t *testing.T) {
 		},
 	}
 
-	reqCtx, err := hbasic.NewRequestContext(context.Background())
+	reqCtx, err := nethttp.NewRequestContext(context.Background())
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
-	derived, err := ctxx.WithUserID(reqCtx, 1)
+	derived, err := contextx.WithUserID(reqCtx, 1)
 	if err != nil {
 		t.Fatalf("WithUserID: %v", err)
 	}
@@ -80,11 +80,11 @@ func TestBuildMenuTree_TenantOverride_AppliesAndFilters(t *testing.T) {
 		{Entity: crud.Entity[int64]{ID: 1}, Code: "root", Title: "Root", Published: true},
 	}
 
-	reqCtx, err := hbasic.NewRequestContext(context.Background())
+	reqCtx, err := nethttp.NewRequestContext(context.Background())
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
-	derived, err := ctxx.WithUserID(reqCtx, 1)
+	derived, err := contextx.WithUserID(reqCtx, 1)
 	if err != nil {
 		t.Fatalf("WithUserID: %v", err)
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 
 	"gochen-iam/tenant"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"
 )
@@ -266,7 +266,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			}
 		}
 		if tenantID != "" {
-			derived, err := ctxx.WithTenantID(reqCtx, tenantID)
+			derived, err := contextx.WithTenantID(reqCtx, tenantID)
 			if err != nil {
 				recordAuthzDenied(ctx, AuditRecord{
 					Decision: "deny",

@@ -9,7 +9,7 @@ import (
 	iammw "gochen-iam/middleware"
 	"gochen-iam/tenant"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	httpx "gochen/httpx"
 	nethttp "gochen/httpx/nethttp"
 )
@@ -23,7 +23,7 @@ func newTenantGuardRequestContext(t *testing.T, tenantID string) httpx.IRequestC
 	if err != nil {
 		t.Fatalf("NewBaseContext: %v", err)
 	}
-	baseCtx, err := ctxx.WithTenantID(context.Background(), tenantID)
+	baseCtx, err := contextx.WithTenantID(context.Background(), tenantID)
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
@@ -31,7 +31,7 @@ func newTenantGuardRequestContext(t *testing.T, tenantID string) httpx.IRequestC
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	baseCtx, err = ctxx.WithTenantID(baseCtx, tenantID)
+	baseCtx, err = contextx.WithTenantID(baseCtx, tenantID)
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
@@ -47,8 +47,8 @@ func withPermissions(t *testing.T, reqCtx httpx.IRequestContext, permissions ...
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	if tenantID := ctxx.TenantID(derived); tenantID != "" {
-		updated, err = ctxx.WithTenantID(updated, tenantID)
+	if tenantID := contextx.TenantID(derived); tenantID != "" {
+		updated, err = contextx.WithTenantID(updated, tenantID)
 		if err != nil {
 			t.Fatalf("WithTenantID: %v", err)
 		}
@@ -65,8 +65,8 @@ func withActiveScope(t *testing.T, reqCtx httpx.IRequestContext, scopeID int64, 
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	if tenantID := ctxx.TenantID(derived); tenantID != "" {
-		updated, err = ctxx.WithTenantID(updated, tenantID)
+	if tenantID := contextx.TenantID(derived); tenantID != "" {
+		updated, err = contextx.WithTenantID(updated, tenantID)
 		if err != nil {
 			t.Fatalf("WithTenantID: %v", err)
 		}

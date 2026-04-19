@@ -16,13 +16,13 @@ import (
 	"gochen/db/query"
 	"gochen/errors"
 	"gochen/httpx"
-	hbasic "gochen/httpx/nethttp"
+	"gochen/httpx/nethttp"
 )
 
 // TenantRoutes 租户路由注册器
 type TenantRoutes struct {
 	tenantService    ITenantService
-	utils            *hbasic.Utils
+	utils            *nethttp.Utils
 	tenantRepo       svc.IResourceContextRepository[*iamentity.Tenant, int64]
 	scopeAuthorizer  *svc.ScopeAuthorizer
 	userRepo         *userrepo.UserRepo
@@ -47,7 +47,7 @@ func NewTenantRoutes(
 	deleteGovernance := newTenantDeleteGovernance(userRepo, groupRepo, roleRepo, scopeRepo)
 	return &TenantRoutes{
 		tenantService:    tenantService,
-		utils:            &hbasic.Utils{},
+		utils:            &nethttp.Utils{},
 		tenantRepo:       tenantRepo,
 		scopeAuthorizer:  scopeAuthorizer,
 		userRepo:         userRepo,

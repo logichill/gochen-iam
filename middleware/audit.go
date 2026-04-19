@@ -3,8 +3,7 @@ package middleware
 import (
 	"context"
 	"os"
-
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/httpx"
 	"gochen/logging"
 )
@@ -56,7 +55,7 @@ func recordAuthzDenied(ctx httpx.IContext, rec AuditRecord) {
 		return
 	}
 	req := ctx.Request()
-	stdCtx := ctxx.Background()
+	stdCtx := contextx.Background()
 	if req != nil {
 		rec.Method = req.Method
 		stdCtx = req.Context()

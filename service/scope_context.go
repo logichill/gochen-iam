@@ -5,7 +5,7 @@ import (
 
 	iamauth "gochen-iam/auth"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 )
 
 // BindManagedScopeContext 将单一 managed scope 绑定回上下文，供 repo 查询/写入统一消费。
@@ -42,15 +42,15 @@ func rebindPrincipalActiveScope(ctx context.Context, activeScopeID int64) (conte
 		return ctx, nil
 	}
 
-	tenantID := ctxx.TenantID(ctx)
+	tenantID := contextx.TenantID(ctx)
 	principal.ActiveScopeID = activeScopeID
 
 	boundCtx, err := auth.WithPrincipal(ctx, principal)
 	if err != nil {
 		return nil, err
 	}
-	if tenantID == "" || ctxx.TenantID(boundCtx) == tenantID {
+	if tenantID == "" || contextx.TenantID(boundCtx) == tenantID {
 		return boundCtx, nil
 	}
-	return ctxx.WithTenantID(boundCtx, tenantID)
+	return contextx.WithTenantID(boundCtx, tenantID)
 }

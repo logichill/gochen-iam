@@ -7,7 +7,7 @@ import (
 
 	iamauth "gochen-iam/auth"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/errors"
 	nethttp "gochen/httpx/nethttp"
 )
@@ -63,7 +63,7 @@ func TestOptionalAuthMiddleware_FixedModeInjectsTenantWithoutHeaderOrToken(t *te
 	called := false
 	err := mw(ctx, func() error {
 		called = true
-		if got := ctxx.TenantID(ctx.RequestContext()); got != "single-tenant" {
+		if got := contextx.TenantID(ctx.RequestContext()); got != "single-tenant" {
 			t.Fatalf("expected single-tenant, got %s", got)
 		}
 		return nil
@@ -130,7 +130,7 @@ func TestOptionalAuthMiddleware_BindsTenantAndPrincipalFromToken(t *testing.T) {
 	called := false
 	err = mw(ctx, func() error {
 		called = true
-		if got := ctxx.TenantID(ctx.RequestContext()); got != "tenant-b" {
+		if got := contextx.TenantID(ctx.RequestContext()); got != "tenant-b" {
 			t.Fatalf("expected tenant-b in context, got %s", got)
 		}
 		principal, ok := auth.PrincipalFromContext(ctx.RequestContext())
@@ -191,7 +191,7 @@ func TestAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
 	called := false
 	err = mw(ctx, func() error {
 		called = true
-		if got := ctxx.TenantID(ctx.RequestContext()); got != "tenant-b" {
+		if got := contextx.TenantID(ctx.RequestContext()); got != "tenant-b" {
 			t.Fatalf("expected tenant-b in context, got %s", got)
 		}
 		principal, ok := auth.PrincipalFromContext(ctx.RequestContext())
@@ -258,12 +258,12 @@ func TestReadRequestTenantID_AllowsTenantQuery(t *testing.T) {
 
 func TestNewTestHTTPContextCarriesBaseContext(t *testing.T) {
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
-	derived, err := ctxx.WithTenantID(context.Background(), "tenant-a")
+	derived, err := contextx.WithTenantID(context.Background(), "tenant-a")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
 	ctx.SetContext(ctx.RequestContext().WithContext(derived))
-	if got := ctxx.TenantID(ctx.RequestContext()); got != "tenant-a" {
+	if got := contextx.TenantID(ctx.RequestContext()); got != "tenant-a" {
 		t.Fatalf("expected tenant-a, got %s", got)
 	}
 }

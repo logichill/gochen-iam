@@ -4,8 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
-
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 )
@@ -64,7 +63,7 @@ func ResolveTenantID(ctx context.Context) (string, error) {
 	if policy.IsSingle() {
 		return policy.SingleTenantID, nil
 	}
-	tenantID := strings.TrimSpace(ctxx.TenantID(ctx))
+	tenantID := strings.TrimSpace(contextx.TenantID(ctx))
 	if tenantID == "" {
 		return "", errors.NewCode(errors.Validation, "tenant_id is required")
 	}
@@ -76,7 +75,7 @@ func ResolveTenantIDForFramework(ctx context.Context) (string, error) {
 	if policy.IsSingle() {
 		return policy.SingleTenantID, nil
 	}
-	tenantID := strings.TrimSpace(ctxx.TenantID(ctx))
+	tenantID := strings.TrimSpace(contextx.TenantID(ctx))
 	if tenantID == "" {
 		return "", errors.NewCode(errors.InvalidInput, "tenant ID is required in context")
 	}

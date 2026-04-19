@@ -10,7 +10,7 @@ import (
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/errors"
 )
 
@@ -67,7 +67,7 @@ func tenantCtx(t *testing.T, tenantID string) context.Context {
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, tenantID)
+	ctx, err = contextx.WithTenantID(ctx, tenantID)
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}

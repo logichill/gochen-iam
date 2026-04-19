@@ -15,7 +15,7 @@ import (
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/errors"
 
 	"gorm.io/driver/sqlite"
@@ -106,7 +106,7 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx, err = ctxx.WithTenantID(ctx, "test-tenant")
+	ctx, err = contextx.WithTenantID(ctx, "test-tenant")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}

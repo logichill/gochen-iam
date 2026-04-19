@@ -7,16 +7,16 @@ import (
 	iammw "gochen-iam/middleware"
 	iamsvc "gochen-iam/service"
 	"gochen-iam/tenant"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"
-	hbasic "gochen/httpx/nethttp"
+	"gochen/httpx/nethttp"
 )
 
 // AuthRoutes 认证路由注册器
 type AuthRoutes struct {
 	userService IUserService
-	utils       *hbasic.Utils
+	utils       *nethttp.Utils
 	authConfig  *iammw.AuthConfig
 }
 
@@ -24,7 +24,7 @@ type AuthRoutes struct {
 func NewAuthRoutes(userService IUserService) *AuthRoutes {
 	return &AuthRoutes{
 		userService: userService,
-		utils:       &hbasic.Utils{},
+		utils:       &nethttp.Utils{},
 		authConfig:  iammw.DefaultAuthConfig(),
 	}
 }
@@ -70,7 +70,7 @@ func (ar *AuthRoutes) readRequestTenantID(ctx httpx.IContext) string {
 
 func (ar *AuthRoutes) ensureTenantContext(ctx httpx.IContext) (httpx.IRequestContext, string, error) {
 	reqCtx := ctx.RequestContext()
-	currentTenantID := ctxx.TenantID(reqCtx)
+	currentTenantID := contextx.TenantID(reqCtx)
 	cfg := ar.authConfig
 	if cfg == nil {
 		cfg = iammw.DefaultAuthConfig()
@@ -82,7 +82,7 @@ func (ar *AuthRoutes) ensureTenantContext(ctx httpx.IContext) (httpx.IRequestCon
 	if tenantID == "" || currentTenantID == tenantID {
 		return reqCtx, tenantID, nil
 	}
-	derived, err := ctxx.WithTenantID(reqCtx, tenantID)
+	derived, err := contextx.WithTenantID(reqCtx, tenantID)
 	if err != nil {
 		return reqCtx, "", err
 	}
@@ -256,7 +256,7 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 	}
 
 	reqCtx := ctx.RequestContext()
-	tenantID, err := tenant.ResolveRequestTenantID(ar.readRequestTenantID(ctx), ctxx.TenantID(reqCtx), ar.authConfig.RequireTenant)
+	tenantID, err := tenant.ResolveRequestTenantID(ar.readRequestTenantID(ctx), contextx.TenantID(reqCtx), ar.authConfig.RequireTenant)
 	if err != nil {
 		return err
 	}

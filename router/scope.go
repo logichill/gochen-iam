@@ -8,21 +8,21 @@ import (
 	scopesvc "gochen-iam/service/scope"
 	"gochen/errors"
 	"gochen/httpx"
-	hbasic "gochen/httpx/nethttp"
+	"gochen/httpx/nethttp"
 )
 
 // ScopeRoutes 授权域治理路由。
 type ScopeRoutes struct {
 	scopeRepo    *scoperepo.ScopeRepo
 	scopeService *scopesvc.ScopeService
-	utils        *hbasic.Utils
+	utils        *nethttp.Utils
 }
 
 func NewScopeRoutes(scopeRepo *scoperepo.ScopeRepo, scopeService *scopesvc.ScopeService) *ScopeRoutes {
 	return &ScopeRoutes{
 		scopeRepo:    scopeRepo,
 		scopeService: scopeService,
-		utils:        &hbasic.Utils{},
+		utils:        &nethttp.Utils{},
 	}
 }
 

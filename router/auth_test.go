@@ -12,7 +12,7 @@ import (
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
 	"gochen/auth"
-	ctxx "gochen/contextx"
+	"gochen/contextx"
 	"gochen/errors"
 	nethttp "gochen/httpx/nethttp"
 )
@@ -122,7 +122,7 @@ func TestAuthRoutesRefreshTokenUsesTenantHeaderAndScopeClaims(t *testing.T) {
 	var gotTenant string
 	service := &authRoutesUserServiceStub{
 		snapshotFn: func(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error) {
-			gotTenant = ctxx.TenantID(ctx)
+			gotTenant = contextx.TenantID(ctx)
 			principal, ok := auth.PrincipalFromContext(ctx)
 			if !ok {
 				t.Fatalf("expected principal in refresh context")
@@ -194,8 +194,8 @@ func TestAuthRoutesRegister_UsesTenantFromHeaderWhenRequired(t *testing.T) {
 	service := &authRoutesUserServiceStub{
 		registerFn: func(ctx context.Context, tenantID string, req *svc.RegisterRequest) (*iamentity.User, error) {
 			gotTenant = tenantID
-			if ctxx.TenantID(ctx) != "tenant-a" {
-				t.Fatalf("expected tenant-a in context, got %s", ctxx.TenantID(ctx))
+			if contextx.TenantID(ctx) != "tenant-a" {
+				t.Fatalf("expected tenant-a in context, got %s", contextx.TenantID(ctx))
 			}
 			return &iamentity.User{TenantID: tenantID, Username: req.Username}, nil
 		},
