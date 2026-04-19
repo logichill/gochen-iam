@@ -7,7 +7,7 @@ import (
 
 	ctxx "gochen/contextx"
 	domaincrud "gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 type Mode string
@@ -66,7 +66,7 @@ func ResolveTenantID(ctx context.Context) (string, error) {
 	}
 	tenantID := strings.TrimSpace(ctxx.TenantID(ctx))
 	if tenantID == "" {
-		return "", errorx.New(errorx.Validation, "tenant_id is required")
+		return "", errors.NewCode(errors.Validation, "tenant_id is required")
 	}
 	return tenantID, nil
 }
@@ -78,7 +78,7 @@ func ResolveTenantIDForFramework(ctx context.Context) (string, error) {
 	}
 	tenantID := strings.TrimSpace(ctxx.TenantID(ctx))
 	if tenantID == "" {
-		return "", errorx.New(errorx.InvalidInput, "tenant ID is required in context")
+		return "", errors.NewCode(errors.InvalidInput, "tenant ID is required in context")
 	}
 	return tenantID, nil
 }
@@ -93,7 +93,7 @@ func NormalizeTenantID(ctx context.Context, targetTenantID string) (string, erro
 		return tenantID, nil
 	}
 	if targetTenantID != tenantID {
-		return "", errorx.New(errorx.Forbidden, "跨租户访问被拒绝")
+		return "", errors.NewCode(errors.Forbidden, "跨租户访问被拒绝")
 	}
 	return tenantID, nil
 }
@@ -106,7 +106,7 @@ func ResolveRequestTenantID(requestTenantID, currentTenantID string, requireTena
 	policy := Current()
 	if policy.IsSingle() {
 		if requestTenantID != "" && requestTenantID != policy.SingleTenantID {
-			return "", errorx.New(errorx.Forbidden, "request tenant does not match configured tenant")
+			return "", errors.NewCode(errors.Forbidden, "request tenant does not match configured tenant")
 		}
 		return policy.SingleTenantID, nil
 	}
@@ -118,7 +118,7 @@ func ResolveRequestTenantID(requestTenantID, currentTenantID string, requireTena
 		return currentTenantID, nil
 	}
 	if requireTenant {
-		return "", errorx.New(errorx.Validation, "tenant_id is required")
+		return "", errors.NewCode(errors.Validation, "tenant_id is required")
 	}
 	return "", nil
 }

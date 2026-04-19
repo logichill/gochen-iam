@@ -2,10 +2,10 @@ package middleware
 
 import (
 	"context"
-	"gochen-iam/auth"
-	"gochen/authz"
+	iamauth "gochen-iam/auth"
+	"gochen/auth"
 	ctxx "gochen/contextx"
-	"gochen/errorx"
+	"gochen/errors"
 	"gochen/httpx"
 	"strings"
 )
@@ -70,7 +70,7 @@ func RoleMiddleware(requiredRole string) httpx.Middleware {
 				Reason:   "用户未认证",
 				Role:     requiredRole,
 			})
-			return errorx.New(errorx.Unauthorized, "用户未认证")
+			return errors.NewCode(errors.Unauthorized, "用户未认证")
 		}
 
 		called := false
@@ -102,7 +102,7 @@ func PermissionMiddleware(required PermissionSpec) httpx.Middleware {
 				Reason:     "invalid permission definition",
 				Permission: requiredPermission.Code,
 			})
-			return errorx.New(errorx.Internal, "invalid permission definition")
+			return errors.NewCode(errors.Internal, "invalid permission definition")
 		}
 	}
 
@@ -120,7 +120,7 @@ func PermissionMiddleware(required PermissionSpec) httpx.Middleware {
 				Reason:     "用户未认证",
 				Permission: requiredPermission.Code,
 			})
-			return errorx.New(errorx.Unauthorized, "用户未认证")
+			return errors.NewCode(errors.Unauthorized, "用户未认证")
 		}
 
 		called := false
@@ -144,23 +144,23 @@ func PermissionMiddleware(required PermissionSpec) httpx.Middleware {
 
 func bindPermissionRuntime(ctx httpx.IContext, requiredPermission PermissionDefinition) error {
 	if ctx == nil {
-		return errorx.New(errorx.InvalidInput, "http context cannot be nil")
+		return errors.NewCode(errors.InvalidInput, "http context cannot be nil")
 	}
 	reqCtx := ctx.RequestContext()
 	if reqCtx == nil {
-		return errorx.New(errorx.InvalidInput, "request context cannot be nil")
+		return errors.NewCode(errors.InvalidInput, "request context cannot be nil")
 	}
 
 	var runtimeCtx context.Context = reqCtx
 	if permissionRequiresHighRiskRuntime(requiredPermission) {
-		derived, err := authz.WithHighRiskAuthorization(runtimeCtx)
+		derived, err := auth.WithHighRiskAuthorization(runtimeCtx)
 		if err != nil {
 			return err
 		}
 		runtimeCtx = derived
 	}
 
-	derived, _, err := authz.BindAuthzEvalContextOrEmpty(runtimeCtx)
+	derived, _, err := auth.BindAuthzEvalContextOrEmpty(runtimeCtx)
 	if err != nil {
 		return err
 	}
@@ -196,10 +196,10 @@ func PlatformScopeMiddleware() httpx.Middleware {
 	return func(ctx httpx.IContext, next func() error) error {
 		reqCtx := ctx.RequestContext()
 		if reqCtx == nil || GetUserID(reqCtx) == 0 {
-			return errorx.New(errorx.Unauthorized, "用户未认证")
+			return errors.NewCode(errors.Unauthorized, "用户未认证")
 		}
-		if auth.ActiveScopeKind(reqCtx) != string(ScopePlatform) {
-			return errorx.New(errorx.Forbidden, "当前授权域不是 platform")
+		if iamauth.ActiveScopeKind(reqCtx) != string(ScopePlatform) {
+			return errors.NewCode(errors.Forbidden, "当前授权域不是 platform")
 		}
 		return next()
 	}
@@ -210,7 +210,7 @@ func UserOnlyMiddleware() httpx.Middleware {
 	return func(ctx httpx.IContext, next func() error) error {
 		userID := GetUserID(ctx.RequestContext())
 		if userID == 0 {
-			return errorx.New(errorx.Unauthorized, "用户未认证")
+			return errors.NewCode(errors.Unauthorized, "用户未认证")
 		}
 		return next()
 	}
@@ -222,7 +222,7 @@ func InjectAuthContext(reqCtx httpx.IRequestContext, userID int64, roles, permis
 	if err == nil {
 		reqCtx = reqCtx.WithContext(derived)
 	}
-	reqCtx = auth.WithRoles(reqCtx, roles)
-	reqCtx = auth.WithPermissions(reqCtx, permissions)
+	reqCtx = iamauth.WithRoles(reqCtx, roles)
+	reqCtx = iamauth.WithPermissions(reqCtx, permissions)
 	return reqCtx
 }

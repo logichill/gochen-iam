@@ -8,8 +8,8 @@ import (
 	iamaccess "gochen-iam/access"
 	iamauth "gochen-iam/auth"
 	"gochen/app/access"
-	"gochen/authz"
-	"gochen/errorx"
+	"gochen/auth"
+	"gochen/errors"
 )
 
 const tenantOwnerPrefix = "tenant:"
@@ -41,16 +41,18 @@ func NewCreateWriteConstraint(ctx context.Context, kind, tenantID string) (Write
 // NewEntityWriteConstraint 为已存在资源构造带 revision 的显式写约束。
 func NewEntityWriteConstraint(ctx context.Context, kind string, entity tenantVersionedEntity) (WriteConstraint, error) {
 	if entity == nil {
-		return WriteConstraint{}, errorx.New(errorx.InvalidInput, "entity is required")
+		return WriteConstraint{}, errors.NewCode(errors.InvalidInput, "entity is required")
 	}
 	kind = strings.TrimSpace(kind)
 	if kind == "" {
-		return WriteConstraint{}, errorx.New(errorx.InvalidInput, "resource kind is required")
+		return WriteConstraint{}, errors.NewCode(errors.InvalidInput, "resource kind is required")
 	}
-	resource := authz.Resource{
+	tenantID := strings.TrimSpace(entity.GetTenantID())
+	resource := auth.Resource{
 		Kind:     kind,
 		ID:       strconv.FormatInt(entity.GetID(), 10),
-		OwnerID:  tenantOwnerID(strings.TrimSpace(entity.GetTenantID())),
+		TenantID: tenantID,
+		OwnerID:  tenantOwnerID(tenantID),
 		Revision: strconv.FormatUint(entity.GetVersion(), 10),
 	}
 	if ownable, ok := any(entity).(ownerEntity); ok && strings.TrimSpace(ownable.GetOwnerID()) != "" {
@@ -61,18 +63,26 @@ func NewEntityWriteConstraint(ctx context.Context, kind string, entity tenantVer
 	} else if resourceKindUsesManagedScope(kind) {
 		resource.ManagedScopeID = managedScopeIDFromContext(ctx)
 	}
-	return iamaccess.NewWriteConstraint(authz.AllowDecision(resource).WriteConstraint(), access.ConstraintMetadata{}), nil
+	return iamaccess.NewWriteConstraint(auth.AllowDecision(resource).WriteConstraint(), access.ConstraintMetadata{}), nil
 }
 
 // NewPlatformCreateConstraint 为 platform-scoped 资源创建显式写约束。
+//
+// 调用约定：调用方需在上游已完成 authz 授权判定（如 router 层的
+// PermissionMiddleware + platform scope kind 检查，或 bootstrap 阶段
+// 显式的 IsSystem principal 场景）。本函数仅负责把已批准的写入范围
+// 投影为仓储可消费的 WriteConstraint，不做授权决策。
 func NewPlatformCreateConstraint(ctx context.Context, kind string) (WriteConstraint, error) {
 	return newPlatformWriteConstraint(kind, "", "")
 }
 
 // NewPlatformEntityConstraint 为已存在的 platform-scoped 资源构造带 revision 的显式写约束。
+//
+// 语义与 NewPlatformCreateConstraint 相同：假定授权判定已在上游完成，
+// 本函数仅为平台级资源的 update/delete 构造带 revision 的写边界。
 func NewPlatformEntityConstraint(ctx context.Context, kind string, entity writeConstraintVersionedEntity) (WriteConstraint, error) {
 	if entity == nil {
-		return WriteConstraint{}, errorx.New(errorx.InvalidInput, "entity is required")
+		return WriteConstraint{}, errors.NewCode(errors.InvalidInput, "entity is required")
 	}
 	_ = ctx
 	return newPlatformWriteConstraint(
@@ -88,18 +98,19 @@ func newWriteConstraint(ctx context.Context, kind, tenantID, resourceID, revisio
 	resourceID = strings.TrimSpace(resourceID)
 	revision = strings.TrimSpace(revision)
 	if kind == "" {
-		return WriteConstraint{}, errorx.New(errorx.InvalidInput, "resource kind is required")
+		return WriteConstraint{}, errors.NewCode(errors.InvalidInput, "resource kind is required")
 	}
-	resource := authz.Resource{
+	resource := auth.Resource{
 		Kind:     kind,
 		ID:       resourceID,
+		TenantID: tenantID,
 		OwnerID:  tenantOwnerID(tenantID),
 		Revision: revision,
 	}
 	if resourceKindUsesManagedScope(kind) {
 		resource.ManagedScopeID = managedScopeIDFromContext(ctx)
 	}
-	return iamaccess.NewWriteConstraint(authz.AllowDecision(resource).WriteConstraint(), access.ConstraintMetadata{}), nil
+	return iamaccess.NewWriteConstraint(auth.AllowDecision(resource).WriteConstraint(), access.ConstraintMetadata{}), nil
 }
 
 func newPlatformWriteConstraint(kind, resourceID, revision string) (WriteConstraint, error) {
@@ -107,14 +118,15 @@ func newPlatformWriteConstraint(kind, resourceID, revision string) (WriteConstra
 	resourceID = strings.TrimSpace(resourceID)
 	revision = strings.TrimSpace(revision)
 	if kind == "" {
-		return WriteConstraint{}, errorx.New(errorx.InvalidInput, "resource kind is required")
+		return WriteConstraint{}, errors.NewCode(errors.InvalidInput, "resource kind is required")
 	}
-	resource := authz.Resource{
-		Kind:     kind,
-		ID:       resourceID,
-		Revision: revision,
+	resource := auth.Resource{
+		Kind:        kind,
+		ID:          resourceID,
+		GlobalScope: true,
+		Revision:    revision,
 	}
-	return iamaccess.NewWriteConstraint(authz.AllowDecision(resource).WriteConstraint(), access.ConstraintMetadata{}), nil
+	return iamaccess.NewWriteConstraint(auth.AllowDecision(resource).WriteConstraint(), access.ConstraintMetadata{}), nil
 }
 
 func tenantOwnerID(tenantID string) string {
@@ -133,7 +145,7 @@ func ManagedScopeIDFromContext(ctx context.Context) int64 {
 	if scopeID := iamauth.ActiveScopeIDFromContext(ctx); scopeID > 0 {
 		return scopeID
 	}
-	if scope, ok := authz.DataScopeFromContext(ctx); ok {
+	if scope, ok := auth.DataScopeFromContext(ctx); ok {
 		if scope.ActiveScopeID > 0 {
 			return scope.ActiveScopeID
 		}
@@ -141,7 +153,7 @@ func ManagedScopeIDFromContext(ctx context.Context) int64 {
 			return scope.VisibleScopeIDs[0]
 		}
 	}
-	if principal, ok := authz.PrincipalFromContext(ctx); ok {
+	if principal, ok := auth.PrincipalFromContext(ctx); ok {
 		if principal.ActiveScopeID > 0 {
 			return principal.ActiveScopeID
 		}

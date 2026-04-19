@@ -3,12 +3,12 @@ package service
 import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
-	"gochen/authz"
+	"gochen/auth"
 )
 
 // InstallIAMPermissionCatalog 安装 IAM 严格权限目录。
 func InstallIAMPermissionCatalog() error {
-	if err := authz.InstallModuleCatalogSync(SyncRequiredPermissionCatalog); err != nil {
+	if err := auth.InstallModuleCatalogSync(SyncRequiredPermissionCatalog); err != nil {
 		return err
 	}
 	iammw.RegisterRequiredPermissionDefinitions(IAMPermissionDefinitions...)
@@ -16,12 +16,12 @@ func InstallIAMPermissionCatalog() error {
 }
 
 // IAMAuthzPermissionDefinitions 返回 IAM 模块声明的核心权限目录元数据。
-func IAMAuthzPermissionDefinitions() []authz.PermissionDefinition {
+func IAMAuthzPermissionDefinitions() []auth.PermissionDefinition {
 	return iammw.AuthzPermissionDefinitions(IAMPermissionDefinitions...)
 }
 
 // SyncRequiredPermissionCatalog 将模块权限目录同步到 strict permission registry。
-func SyncRequiredPermissionCatalog(reg authz.ModuleRegistration) error {
+func SyncRequiredPermissionCatalog(reg auth.ModuleRegistration) error {
 	if len(reg.PermissionDefinitions) > 0 {
 		iammw.RegisterRequiredPermissionDefinitions(iammw.PermissionDefinitionsFromAuthz(reg.PermissionDefinitions...)...)
 		return nil
@@ -34,29 +34,29 @@ func SyncRequiredPermissionCatalog(reg authz.ModuleRegistration) error {
 }
 
 // IAMResourceResolvers 返回 IAM 模块声明的资源解析器目录。
-func IAMResourceResolvers() []authz.ITypedResourceResolver {
-	return []authz.ITypedResourceResolver{
-		authz.TypedResourceResolver[*iamentity.User](func(target *iamentity.User) (authz.Resource, bool) {
+func IAMResourceResolvers() []auth.ITypedResourceResolver {
+	return []auth.ITypedResourceResolver{
+		auth.TypedResourceResolver[*iamentity.User](func(target *iamentity.User) (auth.Resource, bool) {
 			return resourceFromEntity(UserResourceKind, target)
 		}),
-		authz.TypedResourceResolver[*iamentity.Group](func(target *iamentity.Group) (authz.Resource, bool) {
+		auth.TypedResourceResolver[*iamentity.Group](func(target *iamentity.Group) (auth.Resource, bool) {
 			return resourceFromEntity(GroupResourceKind, target)
 		}),
-		authz.TypedResourceResolver[*iamentity.Role](func(target *iamentity.Role) (authz.Resource, bool) {
+		auth.TypedResourceResolver[*iamentity.Role](func(target *iamentity.Role) (auth.Resource, bool) {
 			return resourceFromEntity(RoleResourceKind, target)
 		}),
-		authz.TypedResourceResolver[*iamentity.Tenant](func(target *iamentity.Tenant) (authz.Resource, bool) {
+		auth.TypedResourceResolver[*iamentity.Tenant](func(target *iamentity.Tenant) (auth.Resource, bool) {
 			return platformResourceFromEntity(TenantResourceKind, target)
 		}),
-		authz.TypedResourceResolver[*iamentity.MenuItem](func(target *iamentity.MenuItem) (authz.Resource, bool) {
+		auth.TypedResourceResolver[*iamentity.MenuItem](func(target *iamentity.MenuItem) (auth.Resource, bool) {
 			return platformResourceFromEntity(MenuResourceKind, target)
 		}),
 	}
 }
 
 // IAMAuthzRegistration 返回 IAM 模块声明的 authz 目录。
-func IAMAuthzRegistration() authz.ModuleRegistration {
-	return authz.ModuleRegistration{
+func IAMAuthzRegistration() auth.ModuleRegistration {
+	return auth.ModuleRegistration{
 		ModuleID:              "iam",
 		ModuleName:            "IAM",
 		Permissions:           append([]string(nil), IAMPermissions...),
@@ -66,8 +66,8 @@ func IAMAuthzRegistration() authz.ModuleRegistration {
 }
 
 // NewIAMAuthzRegistry 创建已注册 IAM 目录的 authz 注册表。
-func NewIAMAuthzRegistry() (*authz.Registry, error) {
-	registry := authz.NewRegistry()
+func NewIAMAuthzRegistry() (*auth.Registry, error) {
+	registry := auth.NewRegistry()
 	if err := registry.RegisterModule(IAMAuthzRegistration()); err != nil {
 		return nil, err
 	}

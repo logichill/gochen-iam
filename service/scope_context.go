@@ -4,7 +4,7 @@ import (
 	"context"
 
 	iamauth "gochen-iam/auth"
-	"gochen/authz"
+	"gochen/auth"
 	ctxx "gochen/contextx"
 )
 
@@ -29,15 +29,15 @@ func BindVisibleScopeContext(ctx context.Context, activeScopeID int64, visibleSc
 	if err != nil {
 		return nil, err
 	}
-	return authz.WithDataScope(boundCtx, authz.DataScope{
+	return auth.WithDataScope(boundCtx, auth.DataScope{
 		ActiveScopeID:   activeScopeID,
 		VisibleScopeIDs: visibleScopeIDs,
-		Mode:            authz.ScopeModeManagedScopes,
+		Mode:            auth.ScopeModeManagedScopes,
 	})
 }
 
 func rebindPrincipalActiveScope(ctx context.Context, activeScopeID int64) (context.Context, error) {
-	principal, ok := authz.PrincipalFromContext(ctx)
+	principal, ok := auth.PrincipalFromContext(ctx)
 	if !ok || principal.ActiveScopeID == activeScopeID {
 		return ctx, nil
 	}
@@ -45,7 +45,7 @@ func rebindPrincipalActiveScope(ctx context.Context, activeScopeID int64) (conte
 	tenantID := ctxx.TenantID(ctx)
 	principal.ActiveScopeID = activeScopeID
 
-	boundCtx, err := authz.WithPrincipal(ctx, principal)
+	boundCtx, err := auth.WithPrincipal(ctx, principal)
 	if err != nil {
 		return nil, err
 	}

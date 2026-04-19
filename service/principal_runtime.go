@@ -6,15 +6,15 @@ import (
 
 	iamauth "gochen-iam/auth"
 	iammw "gochen-iam/middleware"
-	"gochen/authz"
-	"gochen/errorx"
+	"gochen/auth"
+	"gochen/errors"
 )
 
-func principalFromContext(ctx context.Context) (authz.Principal, bool) {
-	if principal, ok := authz.PrincipalFromContext(ctx); ok {
+func principalFromContext(ctx context.Context) (auth.Principal, bool) {
+	if principal, ok := auth.PrincipalFromContext(ctx); ok {
 		return principal.Clone(), true
 	}
-	return authz.Principal{}, false
+	return auth.Principal{}, false
 }
 
 func activeScopeIDFromContext(ctx context.Context) int64 {
@@ -36,21 +36,21 @@ func requirePrincipalPermission(ctx context.Context, permission string) error {
 	if permission == "" {
 		return nil
 	}
-	principal, err := authz.RequirePrincipal(ctx)
+	principal, err := auth.RequirePrincipal(ctx)
 	if err != nil {
 		return err
 	}
 	if principalHasPermission(principal, permission) {
 		return nil
 	}
-	return errorx.New(errorx.Forbidden, "权限不足")
+	return errors.NewCode(errors.Forbidden, "权限不足")
 }
 
-func principalHasPermission(principal authz.Principal, permission string) bool {
+func principalHasPermission(principal auth.Principal, permission string) bool {
 	return principal.AllowsPermission(strings.TrimSpace(permission))
 }
 
-func principalCanAccessPlatform(principal authz.Principal, ctx context.Context) bool {
+func principalCanAccessPlatform(principal auth.Principal, ctx context.Context) bool {
 	if principal.IsSystem {
 		return true
 	}

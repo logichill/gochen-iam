@@ -6,7 +6,7 @@ import (
 
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
-	"gochen/authz"
+	"gochen/auth"
 	ctxx "gochen/contextx"
 )
 
@@ -21,9 +21,9 @@ func TestIAMAuthorizerCreateResourceUsesContextTenant(t *testing.T) {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
-	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:   1,
-		Permissions: []string{"*:*:*"},
+		Permissions: []string{"api:user:*"},
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
@@ -59,9 +59,9 @@ func TestIAMAuthorizerDeniesMixedTenantResources(t *testing.T) {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
-	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:   1,
-		Permissions: []string{"*:*:*"},
+		Permissions: []string{"api:user:*"},
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
@@ -80,7 +80,7 @@ func TestIAMAuthorizerDeniesMixedTenantResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	if decision.Effect != authz.EffectDeny {
+	if decision.Effect != auth.EffectDeny {
 		t.Fatalf("expected deny, got %s", decision.Effect)
 	}
 	if decision.ReasonCode != "cross_tenant_resource_set" {
@@ -99,9 +99,9 @@ func TestIAMAuthorizerDeniesCreateResourceWithForeignTenantBoundary(t *testing.T
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
-	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:   1,
-		Permissions: []string{"*:*:*"},
+		Permissions: []string{"api:user:*"},
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
@@ -122,7 +122,7 @@ func TestIAMAuthorizerDeniesCreateResourceWithForeignTenantBoundary(t *testing.T
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	if decision.Effect != authz.EffectDeny {
+	if decision.Effect != auth.EffectDeny {
 		t.Fatalf("expected deny, got %s", decision.Effect)
 	}
 	if decision.ReasonCode != "tenant_scope_denied" {
@@ -141,9 +141,9 @@ func TestIAMAuthorizerAllowsPlatformScopeCrossTenant(t *testing.T) {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
-	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     1,
-		Permissions:   []string{"*:*:*"},
+		Permissions:   []string{"api:role:*"},
 		ActiveScopeID: 101,
 	})
 	if err != nil {
@@ -173,7 +173,7 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
-	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     1,
 		Permissions:   []string{"api:tenant:write"},
 		ActiveScopeID: 7,
@@ -187,7 +187,7 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	if decision.Effect != authz.EffectDeny {
+	if decision.Effect != auth.EffectDeny {
 		t.Fatalf("expected deny, got %s", decision.Effect)
 	}
 	if decision.ReasonCode != "platform_scope_denied" {
@@ -205,7 +205,7 @@ func TestIAMAuthorizerAllowsPlatformScopedMenuWrite(t *testing.T) {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
-	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     1,
 		Permissions:   []string{"api:menu:write"},
 		ActiveScopeID: 1,
@@ -231,7 +231,7 @@ func TestIAMAuthorizerAllowsPlatformScopedMenuWrite(t *testing.T) {
 }
 
 func TestWithSystemPrincipal_ReplaysAuthorizationRuntime(t *testing.T) {
-	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID: 3,
 	})
 	if err != nil {
@@ -241,24 +241,24 @@ func TestWithSystemPrincipal_ReplaysAuthorizationRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	ctx, err = authz.WithExecutionMetadata(ctx, authz.ExecutionMetadata{
+	ctx, err = auth.WithExecutionMetadata(ctx, auth.ExecutionMetadata{
 		RequestID:  "req-iam",
 		DecisionID: "dec-iam",
 	})
 	if err != nil {
 		t.Fatalf("WithExecutionMetadata: %v", err)
 	}
-	ctx, err = authz.WithSnapshotVersion(ctx, "snap-old")
+	ctx, err = auth.WithSnapshotVersion(ctx, "snap-old")
 	if err != nil {
 		t.Fatalf("WithSnapshotVersion: %v", err)
 	}
 
-	ctx, err = WithSystemPrincipal(ctx, "tenant-b", authz.ExecutionMetadata{JobID: "job-iam"})
+	ctx, err = WithSystemPrincipal(ctx, "tenant-b", auth.ExecutionMetadata{JobID: "job-iam"})
 	if err != nil {
 		t.Fatalf("WithSystemPrincipal: %v", err)
 	}
 
-	eval, err := authz.EvalContextFromContext(ctx)
+	eval, err := auth.EvalContextFromContext(ctx)
 	if err != nil {
 		t.Fatalf("EvalContextFromContext: %v", err)
 	}
@@ -268,7 +268,7 @@ func TestWithSystemPrincipal_ReplaysAuthorizationRuntime(t *testing.T) {
 	if got := ctxx.TenantID(ctx); got != "tenant-b" {
 		t.Fatalf("expected tenant-b, got %q", got)
 	}
-	if eval.Consistency != authz.ConsistencyModeStrong {
+	if eval.Consistency != auth.ConsistencyModeStrong {
 		t.Fatalf("expected strong consistency, got %q", eval.Consistency)
 	}
 	if eval.Execution.JobID != "job-iam" {

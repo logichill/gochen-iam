@@ -5,19 +5,19 @@ import (
 	"strings"
 
 	iamauth "gochen-iam/auth"
-	"gochen/authz"
+	"gochen/auth"
 	ctxx "gochen/contextx"
-	"gochen/errorx"
+	"gochen/errors"
 	"gochen/httpx"
 )
 
 // PrincipalFromClaims 将 JWT claims 映射为共享授权 Principal。
-func PrincipalFromClaims(claims *JWTClaims, tenantID string) authz.Principal {
+func PrincipalFromClaims(claims *JWTClaims, tenantID string) auth.Principal {
 	if claims == nil {
-		return authz.Principal{}
+		return auth.Principal{}
 	}
 	_ = strings.TrimSpace(tenantID)
-	return authz.Principal{
+	return auth.Principal{
 		SubjectID:     claims.UserID,
 		Permissions:   claims.Permissions,
 		ActiveScopeID: claims.ActiveScopeID,
@@ -32,10 +32,10 @@ func InjectClaimsRequestContext(
 	resolver AuthContextResolver,
 ) (httpx.IRequestContext, error) {
 	if reqCtx == nil {
-		return nil, errorx.New(errorx.InvalidInput, "request context is nil")
+		return nil, errors.NewCode(errors.InvalidInput, "request context is nil")
 	}
 	if claims == nil {
-		return nil, errorx.New(errorx.InvalidInput, "claims are required")
+		return nil, errors.NewCode(errors.InvalidInput, "claims are required")
 	}
 
 	baseCtx := context.Context(reqCtx)
@@ -50,26 +50,26 @@ func InjectClaimsRequestContext(
 	baseCtx = iamauth.BindActiveScopeContext(baseCtx, claims.ActiveScopeID, "")
 	if claims.ActiveScopeID > 0 {
 		if resolver == nil {
-			return nil, errorx.New(errorx.InvalidInput, "auth context resolver is required")
+			return nil, errors.NewCode(errors.InvalidInput, "auth context resolver is required")
 		}
 		runtime, err = resolver.ResolveAuthContext(baseCtx, claims)
 		if err != nil {
 			return nil, err
 		}
 		if runtime == nil {
-			return nil, errorx.New(errorx.InvalidInput, "resolved auth context is required")
+			return nil, errors.NewCode(errors.InvalidInput, "resolved auth context is required")
 		}
 		baseCtx = iamauth.BindActiveScopeContext(baseCtx, runtime.ActiveScopeID, runtime.ActiveScopeKind)
-		baseCtx, err = authz.WithDataScope(baseCtx, authz.DataScope{
+		baseCtx, err = auth.WithDataScope(baseCtx, auth.DataScope{
 			ActiveScopeID:   runtime.ActiveScopeID,
 			VisibleScopeIDs: runtime.VisibleScopeIDs,
-			Mode:            authz.ScopeModeManagedScopes,
+			Mode:            auth.ScopeModeManagedScopes,
 		})
 		if err != nil {
 			return nil, err
 		}
 	}
-	baseCtx, err = authz.WithPrincipal(baseCtx, PrincipalFromClaims(claims, tenantID))
+	baseCtx, err = auth.WithPrincipal(baseCtx, PrincipalFromClaims(claims, tenantID))
 	if err != nil {
 		return nil, err
 	}

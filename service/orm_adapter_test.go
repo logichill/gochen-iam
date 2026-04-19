@@ -3,13 +3,12 @@ package service
 import (
 	"context"
 	"database/sql"
-	ers "errors"
 	"fmt"
 	"strings"
 
-	database "gochen/db"
+	"gochen/db"
 	"gochen/db/orm"
-	"gochen/errorx"
+	"gochen/errors"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -40,7 +39,7 @@ func (g *scopeAuthorizerTestOrm) WithContext(ctx context.Context) orm.IOrm {
 }
 func (g *scopeAuthorizerTestOrm) Model(meta *orm.ModelMeta) (orm.IModel, error) {
 	if meta == nil {
-		return nil, errorx.New(errorx.InvalidInput, "orm model meta cannot be nil")
+		return nil, errors.NewCode(errors.InvalidInput, "orm model meta cannot be nil")
 	}
 	return &scopeAuthorizerTestModel{db: g.db, meta: meta}, nil
 }
@@ -58,8 +57,8 @@ func (g *scopeAuthorizerTestOrm) BeginTx(ctx context.Context, opts *sql.TxOption
 	}
 	return &scopeAuthorizerTestSession{scopeAuthorizerTestOrm{db: tx, capabilities: g.capabilities}}, nil
 }
-func (g *scopeAuthorizerTestOrm) Database() database.IDatabase { return nil }
-func (g *scopeAuthorizerTestOrm) Raw() any                     { return g.db }
+func (g *scopeAuthorizerTestOrm) Database() db.IDatabase { return nil }
+func (g *scopeAuthorizerTestOrm) Raw() any               { return g.db }
 
 type scopeAuthorizerTestSession struct{ scopeAuthorizerTestOrm }
 
@@ -282,16 +281,16 @@ func convertScopeAuthorizerTestError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if ers.Is(err, gorm.ErrRecordNotFound) {
-		return errorx.New(errorx.NotFound, "record not found")
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return errors.NewCode(errors.NotFound, "record not found")
 	}
 	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "unique"):
-		return errorx.Wrap(err, errorx.Conflict, "unique constraint violation")
+		return errors.Wrap(err, errors.Conflict, "unique constraint violation")
 	case strings.Contains(msg, "foreign key"):
-		return errorx.Wrap(err, errorx.Validation, "foreign key constraint violation")
+		return errors.Wrap(err, errors.Validation, "foreign key constraint violation")
 	default:
-		return errorx.Wrap(err, errorx.Database, fmt.Sprintf("database error: %v", err))
+		return errors.Wrap(err, errors.Database, fmt.Sprintf("database error: %v", err))
 	}
 }

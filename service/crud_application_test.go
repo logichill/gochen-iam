@@ -72,17 +72,21 @@ func TestCRUDApplication_WrapsConstraintMetadataFromContext(t *testing.T) {
 		}},
 	}
 
+	expectedMetadata := appaccess.ConstraintMetadata{
+		DecisionID:      "decision-1",
+		SnapshotVersion: "snap-2",
+		Consistency:     "strong",
+	}
+
 	require.NoError(t, app.CreateWithConstraint(ctx, &iamentity.User{}, constraint))
-	require.Equal(t, constraint, repo.lastCreate.Unwrap())
-	require.Equal(t, "decision-1", repo.lastCreate.Metadata.DecisionID)
-	require.Equal(t, "snap-2", repo.lastCreate.Metadata.SnapshotVersion)
-	require.Equal(t, "strong", repo.lastCreate.Metadata.Consistency)
+	require.Equal(t, constraint.Resources, repo.lastCreate.Unwrap().Resources)
+	require.Equal(t, expectedMetadata, repo.lastCreate.Metadata)
 
 	require.NoError(t, app.UpdateWithConstraint(ctx, &iamentity.User{}, constraint))
-	require.Equal(t, constraint, repo.lastUpdate.Unwrap())
-	require.Equal(t, "decision-1", repo.lastUpdate.Metadata.DecisionID)
+	require.Equal(t, constraint.Resources, repo.lastUpdate.Unwrap().Resources)
+	require.Equal(t, expectedMetadata, repo.lastUpdate.Metadata)
 
 	require.NoError(t, app.DeleteWithConstraint(ctx, 11, constraint))
-	require.Equal(t, constraint, repo.lastDelete.Unwrap())
-	require.Equal(t, "decision-1", repo.lastDelete.Metadata.DecisionID)
+	require.Equal(t, constraint.Resources, repo.lastDelete.Unwrap().Resources)
+	require.Equal(t, expectedMetadata, repo.lastDelete.Metadata)
 }

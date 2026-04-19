@@ -1,6 +1,10 @@
 package service
 
-import iammw "gochen-iam/middleware"
+import (
+	"time"
+
+	iammw "gochen-iam/middleware"
+)
 
 // 用户相关请求和响应类型
 
@@ -65,6 +69,113 @@ type ChangePasswordRequest struct {
 type UpdateUserRequest struct {
 	Email  string `json:"email" binding:"omitempty,email"`
 	Avatar string `json:"avatar" binding:"omitempty"`
+}
+
+// AssignUserRoleBindingRequest 定义用户角色绑定请求。
+type AssignUserRoleBindingRequest struct {
+	RoleID       int64  `json:"role_id" binding:"required"`
+	GrantScopeID *int64 `json:"grant_scope_id,omitempty"`
+}
+
+// UserRoleBindingDetail 描述用户在某个 scope 下持有的角色绑定。
+type UserRoleBindingDetail struct {
+	BindingID          int64    `json:"binding_id"`
+	UserID             int64    `json:"user_id"`
+	RoleID             int64    `json:"role_id"`
+	RoleName           string   `json:"role_name"`
+	RoleCode           string   `json:"role_code,omitempty"`
+	GrantScopeID       int64    `json:"grant_scope_id"`
+	GrantScopeKey      string   `json:"grant_scope_key,omitempty"`
+	GrantScopeKind     string   `json:"grant_scope_kind,omitempty"`
+	NamespaceScopeID   int64    `json:"namespace_scope_id,omitempty"`
+	NamespaceScopeKey  string   `json:"namespace_scope_key,omitempty"`
+	NamespaceScopeKind string   `json:"namespace_scope_kind,omitempty"`
+	Permissions        []string `json:"permissions,omitempty"`
+	Status             string   `json:"status,omitempty"`
+}
+
+// ScopeListItem 描述一个授权域节点。
+type ScopeListItem struct {
+	ID                int64  `json:"id"`
+	Key               string `json:"key"`
+	Name              string `json:"name"`
+	Type              string `json:"type"`
+	ParentID          *int64 `json:"parent_id,omitempty"`
+	Path              string `json:"path"`
+	Depth             int    `json:"depth"`
+	Status            string `json:"status"`
+	Description       string `json:"description,omitempty"`
+	ChildCount        int64  `json:"child_count,omitempty"`
+	CanDelete         bool   `json:"can_delete"`
+	DeleteBlockReason string `json:"delete_block_reason,omitempty"`
+	HealthStatus      string `json:"health_status,omitempty"`
+	HealthReason      string `json:"health_reason,omitempty"`
+	CanRepair         bool   `json:"can_repair"`
+}
+
+// ScopeVisibilityResponse 返回某个 viewer scope 可见的 scope 集合。
+type ScopeVisibilityResponse struct {
+	ViewerScopeID   int64           `json:"viewer_scope_id"`
+	VisibleScopeIDs []int64         `json:"visible_scope_ids"`
+	VisibleScopes   []ScopeListItem `json:"visible_scopes"`
+}
+
+// CreateScopeRequest 定义创建授权域请求。
+type CreateScopeRequest struct {
+	Key         string `json:"key" binding:"required,max=128"`
+	Name        string `json:"name" binding:"required,max=100"`
+	Type        string `json:"type" binding:"required,max=64"`
+	ParentID    int64  `json:"parent_id" binding:"required"`
+	Description string `json:"description" binding:"omitempty,max=500"`
+	Status      string `json:"status" binding:"omitempty,max=20"`
+}
+
+// UpdateScopeRequest 定义更新授权域请求。
+type UpdateScopeRequest struct {
+	Name        string `json:"name" binding:"omitempty,max=100"`
+	Description string `json:"description" binding:"omitempty,max=500"`
+	Status      string `json:"status" binding:"omitempty,max=20"`
+}
+
+// ScopeGovernanceState 描述某个 scope 在治理台中的删除约束状态。
+type ScopeGovernanceState struct {
+	ChildCount        int64  `json:"child_count,omitempty"`
+	CanDelete         bool   `json:"can_delete"`
+	DeleteBlockReason string `json:"delete_block_reason,omitempty"`
+	HealthStatus      string `json:"health_status,omitempty"`
+	HealthReason      string `json:"health_reason,omitempty"`
+	CanRepair         bool   `json:"can_repair"`
+}
+
+// TenantGovernanceState 描述某个 tenant 在治理台中的删除约束状态。
+type TenantGovernanceState struct {
+	CanDelete         bool   `json:"can_delete"`
+	DeleteBlockReason string `json:"delete_block_reason,omitempty"`
+}
+
+// TenantRootScopeHealth 描述 tenant root scope 的健康状态。
+type TenantRootScopeHealth struct {
+	Status    string `json:"status"`
+	Reason    string `json:"reason,omitempty"`
+	CanRepair bool   `json:"can_repair"`
+}
+
+// TenantListItem 描述租户治理列表项。
+type TenantListItem struct {
+	ID                 int64      `json:"id"`
+	Key                string     `json:"key"`
+	Name               string     `json:"name"`
+	Description        string     `json:"description,omitempty"`
+	Status             string     `json:"status,omitempty"`
+	RootScopeID        *int64     `json:"root_scope_id,omitempty"`
+	CreatedAt          time.Time  `json:"created_at,omitempty"`
+	UpdatedAt          time.Time  `json:"updated_at,omitempty"`
+	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
+	CanDelete          bool       `json:"can_delete"`
+	DeleteBlockReason  string     `json:"delete_block_reason,omitempty"`
+	RootScopeStatus    string     `json:"root_scope_status,omitempty"`
+	RootScopeReason    string     `json:"root_scope_reason,omitempty"`
+	CanRepairRootScope bool       `json:"can_repair_root_scope"`
 }
 
 // 组织相关请求和响应类型

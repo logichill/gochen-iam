@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"gochen-iam/tenant"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 func TenantIDFromContext(ctx context.Context) (string, error) {
@@ -29,14 +29,14 @@ func RequireSameTenant(ctx context.Context, tenantIDs ...string) (string, error)
 	for _, current := range tenantIDs {
 		current = strings.TrimSpace(current)
 		if current == "" {
-			return "", errorx.New(errorx.Validation, "target tenant_id is required")
+			return "", errors.NewCode(errors.Validation, "target tenant_id is required")
 		}
 		if tenantID == "" {
 			tenantID = current
 			continue
 		}
 		if current != tenantID {
-			return "", errorx.New(errorx.Forbidden, "跨租户访问被拒绝")
+			return "", errors.NewCode(errors.Forbidden, "跨租户访问被拒绝")
 		}
 	}
 	return RequireTenantMatch(ctx, tenantID)

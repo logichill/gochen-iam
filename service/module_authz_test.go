@@ -4,16 +4,16 @@ import (
 	"testing"
 
 	iammw "gochen-iam/middleware"
-	"gochen/authz"
+	"gochen/auth"
 )
 
 func TestSyncRequiredPermissionCatalog_RegistersDefinitionMetadata(t *testing.T) {
 	const permissionCode = "api:modulecatalogsynctest:write"
 
-	SyncRequiredPermissionCatalog(authz.ModuleRegistration{
+	SyncRequiredPermissionCatalog(auth.ModuleRegistration{
 		ModuleID:   "sync-test",
 		ModuleName: "Sync Test",
-		PermissionDefinitions: []authz.PermissionDefinition{
+		PermissionDefinitions: []auth.PermissionDefinition{
 			{
 				Code:        permissionCode,
 				Name:        "Module Catalog Sync Test",
@@ -29,7 +29,7 @@ func TestSyncRequiredPermissionCatalog_RegistersDefinitionMetadata(t *testing.T)
 	if got.Code != permissionCode {
 		t.Fatalf("expected required permission %q to be registered, got %#v", permissionCode, got)
 	}
-	if got.Type != iammw.PermissionTypeAPI || got.Resource != "modulecatalogsynctest" || got.Action != string(iammw.ActionWrite) {
+	if got.Type != string(iammw.PermissionTypeAPI) || got.Resource != "modulecatalogsynctest" || got.Action != string(iammw.ActionWrite) {
 		t.Fatalf("expected normalized type/resource/action, got %#v", got)
 	}
 	if got.Name != "Module Catalog Sync Test" || got.Description != "ensure module definitions reach strict registry" {
@@ -43,10 +43,10 @@ func TestSyncRequiredPermissionCatalog_RegistersDefinitionMetadata(t *testing.T)
 func TestSyncRequiredPermissionCatalog_RegistersExternalPermissionCode(t *testing.T) {
 	const permissionCode = "ems.reporting.write"
 
-	SyncRequiredPermissionCatalog(authz.ModuleRegistration{
+	SyncRequiredPermissionCatalog(auth.ModuleRegistration{
 		ModuleID:   "reporting",
 		ModuleName: "Reporting",
-		PermissionDefinitions: []authz.PermissionDefinition{
+		PermissionDefinitions: []auth.PermissionDefinition{
 			{
 				Code:        permissionCode,
 				Name:        "Reporting Write",

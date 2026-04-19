@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	domaincrud "gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 func TestCurrent_DefaultIsSingleMode(t *testing.T) {
@@ -72,7 +72,7 @@ func TestNormalizeTenantID_SingleModeRejectsMismatch(t *testing.T) {
 	t.Setenv(EnvSingleTenantID, "single-tenant")
 
 	_, err := NormalizeTenantID(context.Background(), "other-tenant")
-	if !errorx.Is(err, errorx.Forbidden) {
+	if !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("expected Forbidden, got %v", err)
 	}
 }
@@ -110,7 +110,7 @@ func TestInstallTenantResolverRequiresExplicitOptIn(t *testing.T) {
 	defer domaincrud.SetTenantResolver(nil)
 
 	_, err := domaincrud.ResolveTenantID(context.Background())
-	if !errorx.Is(err, errorx.InvalidInput) {
+	if !errors.Is(err, errors.InvalidInput) {
 		t.Fatalf("expected default resolver InvalidInput before install, got %v", err)
 	}
 

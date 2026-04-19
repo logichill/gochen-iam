@@ -3,28 +3,28 @@ package tenant
 import (
 	"context"
 
+	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
-	iamaccess "gochen-iam/access"
 	"gochen/db/orm"
-	db "gochen/db/orm/repo"
-	"gochen/errorx"
+	"gochen/db/orm/repo"
+	"gochen/errors"
 	"gochen/ident"
 )
 
 // TenantRepo 租户数据访问层
 type TenantRepo struct {
-	*db.Repo[*iamentity.Tenant, int64]
+	*repo.Repo[*iamentity.Tenant, int64]
 }
 
 // NewTenantRepository 创建租户仓储。
 func NewTenantRepository(o orm.IOrm) (*TenantRepo, error) {
-	base, err := db.NewRepo[*iamentity.Tenant, int64](
+	base, err := repo.NewRepo[*iamentity.Tenant, int64](
 		o,
 		"tenants",
-		db.WithIDGenerator[*iamentity.Tenant, int64](ident.DefaultInt64Generator()),
-		db.WithResourceKind[*iamentity.Tenant, int64]("iam.tenant"),
-		db.WithSoftDeleteColumns[*iamentity.Tenant, int64]("deleted_at", ""),
+		repo.WithIDGenerator[*iamentity.Tenant, int64](ident.DefaultInt64Generator()),
+		repo.WithResourceKind[*iamentity.Tenant, int64]("iam.tenant"),
+		repo.WithSoftDeleteColumns[*iamentity.Tenant, int64]("deleted_at", ""),
 	)
 	if err != nil {
 		return nil, err
@@ -51,10 +51,10 @@ func (r *TenantRepo) Get(ctx context.Context, id int64) (*iamentity.Tenant, erro
 	var tenant iamentity.Tenant
 	err = model.First(ctx, &tenant, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
 	if err != nil {
-		if errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.New(errorx.NotFound, "租户不存在")
+		if errors.Is(err, errors.NotFound) {
+			return nil, errors.NewCode(errors.NotFound, "租户不存在")
 		}
-		return nil, errorx.Wrap(err, errorx.Database, "查询租户失败")
+		return nil, errors.Wrap(err, errors.Database, "查询租户失败")
 	}
 	return &tenant, nil
 }
@@ -71,11 +71,43 @@ func (r *TenantRepo) FindByKey(ctx context.Context, key string) (*iamentity.Tena
 	)
 
 	if err != nil {
-		if errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.New(errorx.NotFound, "租户不存在")
+		if errors.Is(err, errors.NotFound) {
+			return nil, errors.NewCode(errors.NotFound, "租户不存在")
 		}
-		return nil, errorx.Wrap(err, errorx.Database, "查询租户失败")
+		return nil, errors.Wrap(err, errors.Database, "查询租户失败")
 	}
 
 	return &tenant, nil
+}
+
+func (r *TenantRepo) FindByRootScopeID(ctx context.Context, scopeID int64) (*iamentity.Tenant, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var tenant iamentity.Tenant
+	err = model.First(ctx, &tenant,
+		orm.WithWhere("root_scope_id = ? AND deleted_at IS NULL", scopeID),
+	)
+	if err != nil {
+		if errors.Is(err, errors.NotFound) {
+			return nil, errors.NewCode(errors.NotFound, "租户不存在")
+		}
+		return nil, errors.Wrap(err, errors.Database, "查询租户失败")
+	}
+	return &tenant, nil
+}
+
+func (r *TenantRepo) CountByRootScopeID(ctx context.Context, scopeID int64) (int64, error) {
+	model, err := r.ModelFor(ctx)
+	if err != nil {
+		return 0, err
+	}
+	count, err := model.Count(ctx,
+		orm.WithWhere("root_scope_id = ? AND deleted_at IS NULL", scopeID),
+	)
+	if err != nil {
+		return 0, errors.Wrap(err, errors.Database, "统计租户 root scope 引用失败")
+	}
+	return count, nil
 }

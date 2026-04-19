@@ -8,7 +8,7 @@ import (
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
-	"gochen/errorx"
+	"gochen/errors"
 	"gochen/validation"
 )
 
@@ -137,7 +137,7 @@ func (v *BusinessValidator) ValidateUserDeletion(ctx context.Context, userID int
 			return err
 		}
 		if adminUsers <= 1 {
-			return errorx.New(errorx.Validation, "不能删除最后一个管理员")
+			return errors.NewCode(errors.Validation, "不能删除最后一个管理员")
 		}
 	}
 
@@ -183,7 +183,7 @@ func (v *BusinessValidator) ValidateGroupUpdate(
 	patches ...FieldPatch[iamentity.Group],
 ) error {
 	if req == nil {
-		return errorx.New(errorx.Validation, "update group request is required")
+		return errors.NewCode(errors.Validation, "update group request is required")
 	}
 
 	// 1. 组织是否存在
@@ -242,7 +242,7 @@ func (v *BusinessValidator) ValidateGroupDeletion(ctx context.Context, tenantID 
 		return err
 	}
 	if len(children) > 0 {
-		return errorx.New(errorx.Validation, "不能删除有子组织的组织")
+		return errors.NewCode(errors.Validation, "不能删除有子组织的组织")
 	}
 
 	// 3. 检查是否有用户
@@ -251,7 +251,7 @@ func (v *BusinessValidator) ValidateGroupDeletion(ctx context.Context, tenantID 
 		return err
 	}
 	if len(users) > 0 {
-		return errorx.New(errorx.Validation, "不能删除有用户的组织")
+		return errors.NewCode(errors.Validation, "不能删除有用户的组织")
 	}
 
 	return nil
@@ -293,7 +293,7 @@ func (v *BusinessValidator) ValidateRoleUpdate(ctx context.Context, roleID int64
 
 	// 2. 系统角色不能修改
 	if role.IsSystem {
-		return errorx.New(errorx.Validation, "系统角色不能被修改")
+		return errors.NewCode(errors.Validation, "系统角色不能被修改")
 	}
 
 	// 3. 名称唯一性验证（如果更改了名称）
@@ -326,7 +326,7 @@ func (v *BusinessValidator) ValidateRoleDeletion(ctx context.Context, roleID int
 
 	// 2. 系统角色不能删除
 	if role.IsSystem {
-		return errorx.New(errorx.Validation, "系统角色不能被删除")
+		return errors.NewCode(errors.Validation, "系统角色不能被删除")
 	}
 
 	// 3. 检查是否正在使用中
@@ -335,14 +335,14 @@ func (v *BusinessValidator) ValidateRoleDeletion(ctx context.Context, roleID int
 		return err
 	}
 	if userCount > 0 {
-		return errorx.New(errorx.Validation, "角色正在被用户使用，不能删除")
+		return errors.NewCode(errors.Validation, "角色正在被用户使用，不能删除")
 	}
 	groupCount, err := v.roleRepo.CountGroupsByRoleID(tenantCtx, roleID)
 	if err != nil {
 		return err
 	}
 	if groupCount > 0 {
-		return errorx.New(errorx.Validation, "角色正在使用中，不能删除")
+		return errors.NewCode(errors.Validation, "角色正在使用中，不能删除")
 	}
 
 	return nil
@@ -353,22 +353,22 @@ func (v *BusinessValidator) ValidateRoleDeletion(ctx context.Context, roleID int
 // validateUserBasicFields 验证用户基础字段
 func (v *BusinessValidator) validateUserBasicFields(username, email, password string) error {
 	if err := validation.ValidateRequired(username, "username"); err != nil {
-		return errorx.New(errorx.Validation, "用户名不能为空")
+		return errors.NewCode(errors.Validation, "用户名不能为空")
 	}
 	if err := validation.ValidateStringLength(username, "username", MinUsernameLength, MaxUsernameLength); err != nil {
-		return errorx.New(errorx.Validation, "用户名长度必须在3-50个字符之间")
+		return errors.NewCode(errors.Validation, "用户名长度必须在3-50个字符之间")
 	}
 	if err := validation.ValidateRequired(email, "email"); err != nil {
-		return errorx.New(errorx.Validation, "邮箱不能为空")
+		return errors.NewCode(errors.Validation, "邮箱不能为空")
 	}
 	if err := validation.ValidateEmail(email); err != nil {
-		return errorx.New(errorx.Validation, "邮箱格式不正确")
+		return errors.NewCode(errors.Validation, "邮箱格式不正确")
 	}
 	if err := validation.ValidateRequired(password, "password"); err != nil {
-		return errorx.New(errorx.Validation, "密码不能为空")
+		return errors.NewCode(errors.Validation, "密码不能为空")
 	}
 	if err := validation.ValidateStringLength(password, "password", MinPasswordLength, 0); err != nil {
-		return errorx.New(errorx.Validation, "密码长度不能少于6个字符")
+		return errors.NewCode(errors.Validation, "密码长度不能少于6个字符")
 	}
 	return nil
 }
@@ -376,11 +376,11 @@ func (v *BusinessValidator) validateUserBasicFields(username, email, password st
 // validateUsernameUniqueness 验证用户名唯一性（租户内）
 func (v *BusinessValidator) validateUsernameUniqueness(ctx context.Context, username string) error {
 	existingUser, err := v.userRepo.FindByUsername(ctx, username)
-	if err != nil && !errorx.Is(err, errorx.NotFound) {
-		return errorx.Wrap(err, errorx.Database, "检查用户名失败")
+	if err != nil && !errors.Is(err, errors.NotFound) {
+		return errors.Wrap(err, errors.Database, "检查用户名失败")
 	}
 	if existingUser != nil {
-		return errorx.New(errorx.Validation, "用户名已存在")
+		return errors.NewCode(errors.Validation, "用户名已存在")
 	}
 	return nil
 }
@@ -388,11 +388,11 @@ func (v *BusinessValidator) validateUsernameUniqueness(ctx context.Context, user
 // validateEmailUniqueness 验证邮箱唯一性（租户内）
 func (v *BusinessValidator) validateEmailUniqueness(ctx context.Context, email string) error {
 	existingUser, err := v.userRepo.FindByEmail(ctx, email)
-	if err != nil && !errorx.Is(err, errorx.NotFound) {
-		return errorx.Wrap(err, errorx.Database, "检查邮箱失败")
+	if err != nil && !errors.Is(err, errors.NotFound) {
+		return errors.Wrap(err, errors.Database, "检查邮箱失败")
 	}
 	if existingUser != nil {
-		return errorx.New(errorx.Validation, "邮箱已存在")
+		return errors.NewCode(errors.Validation, "邮箱已存在")
 	}
 	return nil
 }
@@ -401,10 +401,10 @@ func (v *BusinessValidator) validateEmailUniqueness(ctx context.Context, email s
 func (v *BusinessValidator) validatePasswordStrength(password string) error {
 	// 基础长度检查
 	if err := validation.ValidateStringLength(password, "password", MinPasswordLength, 0); err != nil {
-		return errorx.New(errorx.Validation, "密码长度不能少于6个字符")
+		return errors.NewCode(errors.Validation, "密码长度不能少于6个字符")
 	}
 	if err := validation.ValidateStringLength(password, "password", 0, MaxPasswordLength); err != nil {
-		return errorx.New(errorx.Validation, "密码长度不能超过255个字符")
+		return errors.NewCode(errors.Validation, "密码长度不能超过255个字符")
 	}
 
 	// 可以添加更多密码强度规则
@@ -416,7 +416,7 @@ func (v *BusinessValidator) validatePasswordStrength(password string) error {
 // validateAvatarURL 验证头像URL
 func (v *BusinessValidator) validateAvatarURL(avatar string) error {
 	if err := validation.ValidateStringLength(avatar, "avatar", 0, 500); err != nil {
-		return errorx.New(errorx.Validation, "头像URL长度不能超过500个字符")
+		return errors.NewCode(errors.Validation, "头像URL长度不能超过500个字符")
 	}
 	// 可以添加URL格式验证
 	return nil
@@ -425,13 +425,13 @@ func (v *BusinessValidator) validateAvatarURL(avatar string) error {
 // validateGroupBasicFields 验证组织基础字段
 func (v *BusinessValidator) validateGroupBasicFields(name, description string) error {
 	if err := validation.ValidateRequired(name, "group name"); err != nil {
-		return errorx.New(errorx.Validation, "组织名称不能为空")
+		return errors.NewCode(errors.Validation, "组织名称不能为空")
 	}
 	if err := validation.ValidateStringLength(name, "group name", 0, 100); err != nil {
-		return errorx.New(errorx.Validation, "组织名称不能超过100个字符")
+		return errors.NewCode(errors.Validation, "组织名称不能超过100个字符")
 	}
 	if err := validation.ValidateStringLength(description, "group description", 0, 500); err != nil {
-		return errorx.New(errorx.Validation, "组织描述不能超过500个字符")
+		return errors.NewCode(errors.Validation, "组织描述不能超过500个字符")
 	}
 	return nil
 }
@@ -440,10 +440,10 @@ func (v *BusinessValidator) validateGroupBasicFields(name, description string) e
 func (v *BusinessValidator) validateParentGroup(ctx context.Context, parentID int64) error {
 	parent, _, err := LoadTenantBoundResource(ctx, v.groupRepo, parentID)
 	if err != nil {
-		return errorx.Wrap(err, errorx.NotFound, "父组织不存在")
+		return errors.Wrap(err, errors.NotFound, "父组织不存在")
 	}
 	if parent.Level >= MaxGroupLevel {
-		return errorx.New(errorx.Validation, "组织层级不能超过10级")
+		return errors.NewCode(errors.Validation, "组织层级不能超过10级")
 	}
 	return nil
 }
@@ -473,7 +473,7 @@ func (v *BusinessValidator) validateGroupNameUniqueness(ctx context.Context, ten
 	}
 	for _, group := range groups {
 		if group.Name == name {
-			return errorx.New(errorx.Validation, "同一层级下组织名称不能重复")
+			return errors.NewCode(errors.Validation, "同一层级下组织名称不能重复")
 		}
 	}
 	return nil
@@ -484,13 +484,13 @@ func (v *BusinessValidator) validateGroupParentChange(ctx context.Context, group
 	if newParentID != nil {
 		// 不能设置为自己
 		if *newParentID == group.GetID() {
-			return errorx.New(errorx.Validation, "不能将组织设置为自己的父组织")
+			return errors.NewCode(errors.Validation, "不能将组织设置为自己的父组织")
 		}
 
 		// 检查新父组织是否存在
 		newParent, tenantCtx, err := LoadTenantBoundResource(ctx, v.groupRepo, *newParentID)
 		if err != nil {
-			return errorx.Wrap(err, errorx.NotFound, "新父组织不存在")
+			return errors.Wrap(err, errors.NotFound, "新父组织不存在")
 		}
 		if _, err := PreflightSameTenant(tenantCtx, nil, "", group.TenantID, newParent.TenantID); err != nil {
 			return err
@@ -498,12 +498,12 @@ func (v *BusinessValidator) validateGroupParentChange(ctx context.Context, group
 
 		// 不能设置为自己的子组织
 		if newParent.IsDescendantOf(group) {
-			return errorx.New(errorx.Validation, "不能将组织移动到其子组织下")
+			return errors.NewCode(errors.Validation, "不能将组织移动到其子组织下")
 		}
 
 		// 检查新父组织层级
 		if newParent.Level >= MaxGroupLevel {
-			return errorx.New(errorx.Validation, "目标组织层级过深")
+			return errors.NewCode(errors.Validation, "目标组织层级过深")
 		}
 	}
 	return nil
@@ -512,13 +512,13 @@ func (v *BusinessValidator) validateGroupParentChange(ctx context.Context, group
 // validateRoleBasicFields 验证角色基础字段
 func (v *BusinessValidator) validateRoleBasicFields(name, description string) error {
 	if err := validation.ValidateRequired(name, "role name"); err != nil {
-		return errorx.New(errorx.Validation, "角色名称不能为空")
+		return errors.NewCode(errors.Validation, "角色名称不能为空")
 	}
 	if err := validation.ValidateStringLength(name, "role name", 0, 50); err != nil {
-		return errorx.New(errorx.Validation, "角色名称不能超过50个字符")
+		return errors.NewCode(errors.Validation, "角色名称不能超过50个字符")
 	}
 	if err := validation.ValidateStringLength(description, "role description", 0, 500); err != nil {
-		return errorx.New(errorx.Validation, "角色描述不能超过500个字符")
+		return errors.NewCode(errors.Validation, "角色描述不能超过500个字符")
 	}
 	return nil
 }
@@ -530,11 +530,11 @@ func (v *BusinessValidator) validateRoleNameUniqueness(ctx context.Context, tena
 		return err
 	}
 	existingRole, err := v.roleRepo.FindByName(tenantCtx, name)
-	if err != nil && !errorx.Is(err, errorx.NotFound) {
-		return errorx.Wrap(err, errorx.Database, "检查角色名称失败")
+	if err != nil && !errors.Is(err, errors.NotFound) {
+		return errors.Wrap(err, errors.Database, "检查角色名称失败")
 	}
 	if existingRole != nil {
-		return errorx.New(errorx.Validation, "角色名称已存在")
+		return errors.NewCode(errors.Validation, "角色名称已存在")
 	}
 	return nil
 }
@@ -542,11 +542,11 @@ func (v *BusinessValidator) validateRoleNameUniqueness(ctx context.Context, tena
 // validatePermissions 验证权限列表
 func (v *BusinessValidator) validatePermissions(permissions []string) error {
 	if len(permissions) == 0 {
-		return errorx.New(errorx.Validation, "角色必须至少拥有一个权限")
+		return errors.NewCode(errors.Validation, "角色必须至少拥有一个权限")
 	}
 	for _, permission := range permissions {
 		if !v.isValidPermission(permission) {
-			return errorx.New(errorx.Validation, "无效的权限: "+permission)
+			return errors.NewCode(errors.Validation, "无效的权限: "+permission)
 		}
 	}
 	return nil

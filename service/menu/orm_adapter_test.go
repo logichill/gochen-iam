@@ -3,11 +3,10 @@ package menu
 import (
 	"context"
 	"database/sql"
-	ers "errors"
 
-	database "gochen/db"
+	"gochen/db"
 	"gochen/db/orm"
-	"gochen/errorx"
+	"gochen/errors"
 
 	"gorm.io/gorm"
 )
@@ -39,7 +38,7 @@ func (g *menuTestGormOrm) WithContext(ctx context.Context) orm.IOrm {
 }
 func (g *menuTestGormOrm) Model(meta *orm.ModelMeta) (orm.IModel, error) {
 	if meta == nil {
-		return nil, errorx.New(errorx.InvalidInput, "orm model meta cannot be nil")
+		return nil, errors.NewCode(errors.InvalidInput, "orm model meta cannot be nil")
 	}
 	return &menuTestGormModel{db: g.db, meta: meta}, nil
 }
@@ -57,8 +56,8 @@ func (g *menuTestGormOrm) BeginTx(ctx context.Context, opts *sql.TxOptions) (orm
 	}
 	return &menuTestGormSession{menuTestGormOrm{db: tx, capabilities: g.capabilities}}, nil
 }
-func (g *menuTestGormOrm) Database() database.IDatabase { return nil }
-func (g *menuTestGormOrm) Raw() any                     { return g.db }
+func (g *menuTestGormOrm) Database() db.IDatabase { return nil }
+func (g *menuTestGormOrm) Raw() any               { return g.db }
 
 type menuTestGormSession struct{ menuTestGormOrm }
 
@@ -187,8 +186,8 @@ func convertMenuTestError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if ers.Is(err, gorm.ErrRecordNotFound) {
-		return errorx.New(errorx.NotFound, "record not found")
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return errors.NewCode(errors.NotFound, "record not found")
 	}
 	return err
 }

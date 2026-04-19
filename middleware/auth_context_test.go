@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	iamauth "gochen-iam/auth"
-	"gochen/authz"
+	"gochen/auth"
 	ctxx "gochen/contextx"
 	hbasic "gochen/httpx/nethttp"
 )
@@ -25,7 +25,7 @@ func TestInjectClaimsRequestContext_BindsPrincipalAndLegacyHelpers(t *testing.T)
 	}, fixedAuthContextResolver{kind: "platform"})
 	require.NoError(t, err)
 
-	principal, ok := authz.PrincipalFromContext(bound)
+	principal, ok := auth.PrincipalFromContext(bound)
 	require.True(t, ok)
 	require.Equal(t, int64(7), principal.SubjectID)
 	require.Equal(t, int64(100), principal.ActiveScopeID)

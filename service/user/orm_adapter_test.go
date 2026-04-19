@@ -3,13 +3,12 @@ package user_test
 import (
 	"context"
 	"database/sql"
-	ers "errors"
 	"fmt"
 	"strings"
 
-	database "gochen/db"
+	"gochen/db"
 	"gochen/db/orm"
-	"gochen/errorx"
+	"gochen/errors"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -41,7 +40,7 @@ func (g *testGormOrm) WithContext(ctx context.Context) orm.IOrm {
 }
 func (g *testGormOrm) Model(meta *orm.ModelMeta) (orm.IModel, error) {
 	if meta == nil {
-		return nil, errorx.New(errorx.InvalidInput, "orm model meta cannot be nil")
+		return nil, errors.NewCode(errors.InvalidInput, "orm model meta cannot be nil")
 	}
 	return &testGormModel{db: g.db, meta: meta}, nil
 }
@@ -59,8 +58,8 @@ func (g *testGormOrm) BeginTx(ctx context.Context, opts *sql.TxOptions) (orm.IOr
 	}
 	return &testGormSession{testGormOrm{db: tx, capabilities: g.capabilities}}, nil
 }
-func (g *testGormOrm) Database() database.IDatabase { return nil }
-func (g *testGormOrm) Raw() any                     { return g.db }
+func (g *testGormOrm) Database() db.IDatabase { return nil }
+func (g *testGormOrm) Raw() any               { return g.db }
 
 type testGormSession struct{ testGormOrm }
 
@@ -280,8 +279,8 @@ func buildJoinExpr(j orm.Join) string {
 }
 
 func convertTestError(err error) error {
-	if ers.Is(err, gorm.ErrRecordNotFound) {
-		return errorx.New(errorx.NotFound, "record not found")
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return errors.NewCode(errors.NotFound, "record not found")
 	}
 	return err
 }

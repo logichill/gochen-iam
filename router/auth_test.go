@@ -11,9 +11,9 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
-	"gochen/authz"
+	"gochen/auth"
 	ctxx "gochen/contextx"
-	"gochen/errorx"
+	"gochen/errors"
 	nethttp "gochen/httpx/nethttp"
 )
 
@@ -71,12 +71,18 @@ func (s *authRoutesUserServiceStub) ChangePassword(context.Context, int64, *svc.
 func (s *authRoutesUserServiceStub) UpdateProfile(context.Context, int64, *svc.UpdateUserRequest) (*iamentity.User, error) {
 	return nil, nil
 }
-func (s *authRoutesUserServiceStub) ActivateUser(context.Context, int64) error         { return nil }
-func (s *authRoutesUserServiceStub) DeactivateUser(context.Context, int64) error       { return nil }
-func (s *authRoutesUserServiceStub) LockUser(context.Context, int64) error             { return nil }
-func (s *authRoutesUserServiceStub) UnlockUser(context.Context, int64) error           { return nil }
-func (s *authRoutesUserServiceStub) AssignRole(context.Context, int64, int64) error    { return nil }
-func (s *authRoutesUserServiceStub) RemoveRole(context.Context, int64, int64) error    { return nil }
+func (s *authRoutesUserServiceStub) ActivateUser(context.Context, int64) error      { return nil }
+func (s *authRoutesUserServiceStub) DeactivateUser(context.Context, int64) error    { return nil }
+func (s *authRoutesUserServiceStub) LockUser(context.Context, int64) error          { return nil }
+func (s *authRoutesUserServiceStub) UnlockUser(context.Context, int64) error        { return nil }
+func (s *authRoutesUserServiceStub) AssignRole(context.Context, int64, int64) error { return nil }
+func (s *authRoutesUserServiceStub) AssignRoleBinding(context.Context, int64, int64, *int64) error {
+	return nil
+}
+func (s *authRoutesUserServiceStub) RemoveRole(context.Context, int64, int64) error { return nil }
+func (s *authRoutesUserServiceStub) RemoveRoleBinding(context.Context, int64, int64) error {
+	return nil
+}
 func (s *authRoutesUserServiceStub) AssignToGroup(context.Context, int64, int64) error { return nil }
 func (s *authRoutesUserServiceStub) RemoveFromGroup(context.Context, int64, int64) error {
 	return nil
@@ -88,6 +94,9 @@ func (s *authRoutesUserServiceStub) CheckPermission(context.Context, int64, stri
 	return false, nil
 }
 func (s *authRoutesUserServiceStub) UserRoles(context.Context, int64) ([]*iamentity.Role, error) {
+	return nil, nil
+}
+func (s *authRoutesUserServiceStub) UserRoleBindings(context.Context, int64) ([]*svc.UserRoleBindingDetail, error) {
 	return nil, nil
 }
 func (s *authRoutesUserServiceStub) UserGroups(context.Context, int64) ([]*iamentity.Group, error) {
@@ -114,7 +123,7 @@ func TestAuthRoutesRefreshTokenUsesTenantHeaderAndScopeClaims(t *testing.T) {
 	service := &authRoutesUserServiceStub{
 		snapshotFn: func(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error) {
 			gotTenant = ctxx.TenantID(ctx)
-			principal, ok := authz.PrincipalFromContext(ctx)
+			principal, ok := auth.PrincipalFromContext(ctx)
 			if !ok {
 				t.Fatalf("expected principal in refresh context")
 			}
@@ -152,7 +161,7 @@ func TestAuthRoutesRefreshTokenFallsBackToInstalledResolver(t *testing.T) {
 
 	service := &authRoutesUserServiceStub{
 		snapshotFn: func(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error) {
-			principal, ok := authz.PrincipalFromContext(ctx)
+			principal, ok := auth.PrincipalFromContext(ctx)
 			if !ok {
 				t.Fatalf("expected principal in refresh context")
 			}
@@ -275,7 +284,7 @@ func TestAuthRoutesActivateScope_RejectsMismatchedBindingVersion(t *testing.T) {
 	}
 	ctx := newAuthJSONContext(t, "/api/v1/auth/activate-scope", `{"activation_token":"`+activationToken+`","scope_id":101}`)
 	err = routes.activateScope(ctx)
-	if !errorx.Is(err, errorx.Forbidden) {
+	if !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("expected forbidden, got %v", err)
 	}
 }

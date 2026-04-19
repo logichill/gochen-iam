@@ -7,7 +7,7 @@ import (
 	"gochen-iam/access"
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
-	"gochen/authz"
+	"gochen/auth"
 	ctxx "gochen/contextx"
 )
 
@@ -33,7 +33,7 @@ func (r *tenantBoundUserRepoStub) ResolveResourceByID(context.Context, int64) (a
 func bindTenantScopedContext(t *testing.T, tenantID string, activeScopeID int64, scopeCode, scopeType string) context.Context {
 	t.Helper()
 
-	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     1,
 		ActiveScopeID: activeScopeID,
 	})
@@ -46,10 +46,10 @@ func bindTenantScopedContext(t *testing.T, tenantID string, activeScopeID int64,
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, activeScopeID, scopeType)
 	if activeScopeID > 0 {
-		ctx, err = authz.WithDataScope(ctx, authz.DataScope{
+		ctx, err = auth.WithDataScope(ctx, auth.DataScope{
 			ActiveScopeID:   activeScopeID,
 			VisibleScopeIDs: []int64{activeScopeID},
-			Mode:            authz.ScopeModeManagedScopes,
+			Mode:            auth.ScopeModeManagedScopes,
 		})
 		if err != nil {
 			t.Fatalf("WithDataScope: %v", err)
@@ -79,7 +79,7 @@ func TestLoadTenantBoundResource_BindsResolvedTenantContext(t *testing.T) {
 	if got := ctxx.TenantID(tenantCtx); got != "tenant-b" {
 		t.Fatalf("expected returned ctx tenant-b, got %q", got)
 	}
-	principal, ok := authz.PrincipalFromContext(tenantCtx)
+	principal, ok := auth.PrincipalFromContext(tenantCtx)
 	if !ok {
 		t.Fatalf("expected principal on bound context")
 	}
@@ -124,18 +124,18 @@ func TestLoadTenantBoundResource_RebindsResolvedManagedScopeBoundary(t *testing.
 		t.Fatalf("LoadTenantBoundResource: %v", err)
 	}
 
-	scope, ok := authz.DataScopeFromContext(repo.getCtx)
+	scope, ok := auth.DataScopeFromContext(repo.getCtx)
 	if !ok {
 		t.Fatalf("expected data scope on repo context")
 	}
 	if scope.ActiveScopeID != 19 || len(scope.VisibleScopeIDs) != 1 || scope.VisibleScopeIDs[0] != 19 {
 		t.Fatalf("expected rebound resource managed scope 19, got %+v", scope)
 	}
-	if scope.Mode != authz.ScopeModeManagedScopes {
+	if scope.Mode != auth.ScopeModeManagedScopes {
 		t.Fatalf("expected managed scope mode, got %q", scope.Mode)
 	}
 
-	returnedScope, ok := authz.DataScopeFromContext(tenantCtx)
+	returnedScope, ok := auth.DataScopeFromContext(tenantCtx)
 	if !ok {
 		t.Fatalf("expected data scope on returned ctx")
 	}
@@ -181,19 +181,19 @@ func TestLoadTenantBoundResource_TenantOnlyBoundaryClearsPreviousManagedScope(t 
 		t.Fatalf("LoadTenantBoundResource: %v", err)
 	}
 
-	scope, ok := authz.DataScopeFromContext(repo.getCtx)
+	scope, ok := auth.DataScopeFromContext(repo.getCtx)
 	if !ok {
 		t.Fatalf("expected data scope on repo context")
 	}
-	if scope.Mode != authz.ScopeModeGlobal || scope.ActiveScopeID != 0 || len(scope.VisibleScopeIDs) != 0 {
+	if scope.Mode != auth.ScopeModeGlobal || scope.ActiveScopeID != 0 || len(scope.VisibleScopeIDs) != 0 {
 		t.Fatalf("expected global scope after tenant-only rebound, got %+v", scope)
 	}
 
-	returnedScope, ok := authz.DataScopeFromContext(tenantCtx)
+	returnedScope, ok := auth.DataScopeFromContext(tenantCtx)
 	if !ok {
 		t.Fatalf("expected data scope on returned ctx")
 	}
-	if returnedScope.Mode != authz.ScopeModeGlobal {
+	if returnedScope.Mode != auth.ScopeModeGlobal {
 		t.Fatalf("expected returned ctx global mode, got %q", returnedScope.Mode)
 	}
 }
@@ -211,7 +211,7 @@ func TestLoadTenantBoundResource_ClearsPlatformScopeWhenRebindingTenant(t *testi
 		t.Fatalf("LoadTenantBoundResource: %v", err)
 	}
 
-	principal, ok := authz.PrincipalFromContext(tenantCtx)
+	principal, ok := auth.PrincipalFromContext(tenantCtx)
 	if !ok {
 		t.Fatalf("expected principal on tenant context")
 	}
@@ -225,11 +225,11 @@ func TestLoadTenantBoundResource_ClearsPlatformScopeWhenRebindingTenant(t *testi
 		t.Fatalf("expected tenant-b, got %q", got)
 	}
 
-	scope, ok := authz.DataScopeFromContext(repo.getCtx)
+	scope, ok := auth.DataScopeFromContext(repo.getCtx)
 	if !ok {
 		t.Fatalf("expected data scope on rebound context")
 	}
-	if scope.Mode != authz.ScopeModeGlobal {
+	if scope.Mode != auth.ScopeModeGlobal {
 		t.Fatalf("expected global scope mode, got %q", scope.Mode)
 	}
 }
@@ -242,7 +242,7 @@ func TestBindTenantContext_PreservesSameTenantScopedContext(t *testing.T) {
 		t.Fatalf("BindTenantContext: %v", err)
 	}
 
-	principal, ok := authz.PrincipalFromContext(tenantCtx)
+	principal, ok := auth.PrincipalFromContext(tenantCtx)
 	if !ok {
 		t.Fatalf("expected principal on tenant context")
 	}
@@ -253,11 +253,11 @@ func TestBindTenantContext_PreservesSameTenantScopedContext(t *testing.T) {
 		t.Fatalf("expected active scope type preserved, got %q", got)
 	}
 
-	scope, ok := authz.DataScopeFromContext(tenantCtx)
+	scope, ok := auth.DataScopeFromContext(tenantCtx)
 	if !ok {
 		t.Fatalf("expected data scope on tenant context")
 	}
-	if scope.Mode != authz.ScopeModeManagedScopes || scope.ActiveScopeID != 7 {
+	if scope.Mode != auth.ScopeModeManagedScopes || scope.ActiveScopeID != 7 {
 		t.Fatalf("expected scoped data scope preserved, got %+v", scope)
 	}
 }
@@ -273,11 +273,11 @@ func TestBindTenantContext_DefaultsToGlobalScopeWhenTenantIsUnscoped(t *testing.
 		t.Fatalf("BindTenantContext: %v", err)
 	}
 
-	scope, ok := authz.DataScopeFromContext(tenantCtx)
+	scope, ok := auth.DataScopeFromContext(tenantCtx)
 	if !ok {
 		t.Fatalf("expected data scope on tenant context")
 	}
-	if scope.Mode != authz.ScopeModeGlobal || scope.ActiveScopeID != 0 || len(scope.VisibleScopeIDs) != 0 {
+	if scope.Mode != auth.ScopeModeGlobal || scope.ActiveScopeID != 0 || len(scope.VisibleScopeIDs) != 0 {
 		t.Fatalf("expected global data scope, got %+v", scope)
 	}
 }

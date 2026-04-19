@@ -8,7 +8,7 @@ import (
 	iamauth "gochen-iam/auth"
 	iammw "gochen-iam/middleware"
 	"gochen-iam/tenant"
-	"gochen/authz"
+	"gochen/auth"
 	ctxx "gochen/contextx"
 	httpx "gochen/httpx"
 	nethttp "gochen/httpx/nethttp"
@@ -27,7 +27,7 @@ func newTenantGuardRequestContext(t *testing.T, tenantID string) httpx.IRequestC
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	baseCtx, err = authz.WithPrincipal(context.Background(), authz.Principal{SubjectID: 1})
+	baseCtx, err = auth.WithPrincipal(context.Background(), auth.Principal{SubjectID: 1})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
@@ -41,9 +41,9 @@ func newTenantGuardRequestContext(t *testing.T, tenantID string) httpx.IRequestC
 func withPermissions(t *testing.T, reqCtx httpx.IRequestContext, permissions ...string) httpx.IRequestContext {
 	t.Helper()
 	derived := iamauth.WithPermissions(reqCtx, permissions)
-	principal, _ := authz.PrincipalFromContext(derived)
+	principal, _ := auth.PrincipalFromContext(derived)
 	principal.Permissions = permissions
-	updated, err := authz.WithPrincipal(derived, principal)
+	updated, err := auth.WithPrincipal(derived, principal)
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
@@ -59,9 +59,9 @@ func withPermissions(t *testing.T, reqCtx httpx.IRequestContext, permissions ...
 func withActiveScope(t *testing.T, reqCtx httpx.IRequestContext, scopeID int64, scopeCode, scopeType string) httpx.IRequestContext {
 	t.Helper()
 	derived := iamauth.WithActiveScope(reqCtx, scopeID, scopeType)
-	principal, _ := authz.PrincipalFromContext(derived)
+	principal, _ := auth.PrincipalFromContext(derived)
 	principal.ActiveScopeID = scopeID
-	updated, err := authz.WithPrincipal(iamauth.BindActiveScopeContext(derived, scopeID, scopeType), principal)
+	updated, err := auth.WithPrincipal(iamauth.BindActiveScopeContext(derived, scopeID, scopeType), principal)
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}

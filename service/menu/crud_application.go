@@ -8,7 +8,7 @@ import (
 	"gochen/app/access"
 	appcrud "gochen/app/crud"
 	domaincrud "gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 // CRUDApplication 把 menu 的标准 CRUD 路径适配到 gochen 的统一 app/api builder。
@@ -27,7 +27,7 @@ func NewCRUDApplication(
 	menuService *MenuService,
 ) (*CRUDApplication, error) {
 	if menuService == nil {
-		return nil, errorx.New(errorx.InvalidInput, "menu service cannot be nil")
+		return nil, errors.NewCode(errors.InvalidInput, "menu service cannot be nil")
 	}
 	base, err := appcrud.NewApplication(menuRepo, nil, nil)
 	if err != nil {

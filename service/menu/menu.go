@@ -9,8 +9,8 @@ import (
 	iammw "gochen-iam/middleware"
 	menurepo "gochen-iam/repo/menu"
 	svc "gochen-iam/service"
-	"gochen/authz"
-	"gochen/errorx"
+	"gochen/auth"
+	"gochen/errors"
 	"gochen/httpx"
 	"gochen/logging"
 )
@@ -18,13 +18,13 @@ import (
 // MenuService 负责菜单定义管理与当前用户菜单树组装。
 type MenuService struct {
 	menuRepo   *menurepo.MenuItemRepo
-	authorizer authz.IAuthorizer
+	authorizer auth.IAuthorizer
 	logger     logging.ILogger
 }
 
 // NewMenuService 创建菜单应用服务。
-func NewMenuService(menuRepo *menurepo.MenuItemRepo, authorizer *authz.Authorizer) *MenuService {
-	var authzEngine authz.IAuthorizer
+func NewMenuService(menuRepo *menurepo.MenuItemRepo, authorizer *auth.Authorizer) *MenuService {
+	var authzEngine auth.IAuthorizer
 	if authorizer != nil {
 		authzEngine = authorizer
 	}
@@ -123,7 +123,7 @@ type SyncMenuItemsResult struct {
 // CreateMenuItem 创建一条新的菜单定义。
 func (s *MenuService) CreateMenuItem(ctx context.Context, req *CreateMenuItemRequest) (*iamentity.MenuItem, error) {
 	if req == nil {
-		return nil, errorx.New(errorx.Validation, "request is required")
+		return nil, errors.NewCode(errors.Validation, "request is required")
 	}
 	item := &iamentity.MenuItem{
 		Code:      req.Code,
@@ -162,7 +162,7 @@ func (s *MenuService) UpdateMenuItem(
 	patches ...svc.FieldPatch[iamentity.MenuItem],
 ) (*iamentity.MenuItem, error) {
 	if req == nil {
-		return nil, errorx.New(errorx.Validation, "update menu item request is required")
+		return nil, errors.NewCode(errors.Validation, "update menu item request is required")
 	}
 	item, err := s.menuRepo.Get(ctx, id)
 	if err != nil {
@@ -222,10 +222,10 @@ func (s *MenuService) UpdateMenuItem(
 // SyncMenuItems 按声明式菜单定义批量同步菜单数据。
 func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsRequest) (*SyncMenuItemsResult, error) {
 	if req == nil {
-		return nil, errorx.New(errorx.Validation, "request is required")
+		return nil, errors.NewCode(errors.Validation, "request is required")
 	}
 	if len(req.Items) == 0 {
-		return nil, errorx.New(errorx.Validation, "items is required")
+		return nil, errors.NewCode(errors.Validation, "items is required")
 	}
 
 	result := &SyncMenuItemsResult{
@@ -241,10 +241,10 @@ func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsReque
 			return nil, err
 		}
 		if _, exists := itemsByCode[raw.Code]; exists {
-			return nil, errorx.New(errorx.Validation, "同步菜单中存在重复 code: "+raw.Code)
+			return nil, errors.NewCode(errors.Validation, "同步菜单中存在重复 code: "+raw.Code)
 		}
 		if raw.ParentCode != "" && raw.ParentCode == raw.Code {
-			return nil, errorx.New(errorx.Validation, "menu parent_code 不能指向自身: "+raw.Code)
+			return nil, errors.NewCode(errors.Validation, "menu parent_code 不能指向自身: "+raw.Code)
 		}
 		itemsByCode[raw.Code] = raw
 	}
@@ -258,11 +258,11 @@ func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsReque
 	for _, raw := range req.Items {
 
 		existing, err := s.menuRepo.FindByCodeWithDeleted(ctx, raw.Code)
-		if err != nil && !errorx.Is(err, errorx.NotFound) {
+		if err != nil && !errors.Is(err, errors.NotFound) {
 			return nil, err
 		}
 
-		if existing == nil || errorx.Is(err, errorx.NotFound) {
+		if existing == nil || errors.Is(err, errors.NotFound) {
 			item := &iamentity.MenuItem{
 				Code:             raw.Code,
 				Title:            raw.Title,
@@ -465,7 +465,7 @@ func (s *MenuService) CreateEntityWithConstraint(
 // UpdateEntity 更新菜单实体；用于标准 CRUD application 路径，不隐式做额外鉴权。
 func (s *MenuService) UpdateEntity(ctx context.Context, item *iamentity.MenuItem) error {
 	if item == nil {
-		return errorx.New(errorx.Validation, "menu item is required")
+		return errors.NewCode(errors.Validation, "menu item is required")
 	}
 	current, err := s.menuRepo.Get(ctx, item.GetID())
 	if err != nil {
@@ -485,7 +485,7 @@ func (s *MenuService) UpdateEntityWithConstraint(
 	guard svc.WriteConstraint,
 ) error {
 	if item == nil {
-		return errorx.New(errorx.Validation, "menu item is required")
+		return errors.NewCode(errors.Validation, "menu item is required")
 	}
 	current, err := s.menuRepo.Get(ctx, item.GetID())
 	if err != nil {
@@ -518,7 +518,7 @@ func (s *MenuService) DeleteEntityWithConstraint(ctx context.Context, id int64, 
 
 func (s *MenuService) authorizePlatform(ctx context.Context, permission string, targets ...any) error {
 	if s.authorizer == nil {
-		return errorx.New(errorx.InvalidInput, "authorizer is required")
+		return errors.NewCode(errors.InvalidInput, "authorizer is required")
 	}
 	return s.authorizer.Require(ctx, permission, targets...)
 }
@@ -528,7 +528,7 @@ func (s *MenuService) createMenu(ctx context.Context, item *iamentity.MenuItem) 
 		return err
 	}
 	if err := s.menuRepo.Create(ctx, item); err != nil {
-		return errorx.Wrap(err, errorx.Database, "创建菜单失败")
+		return errors.Wrap(err, errors.Database, "创建菜单失败")
 	}
 	return nil
 }
@@ -538,7 +538,7 @@ func (s *MenuService) createMenuWithConstraint(ctx context.Context, item *iament
 		return err
 	}
 	if err := s.menuRepo.CreateWithConstraint(ctx, item, guard); err != nil {
-		return errorx.Wrap(err, errorx.Database, "创建菜单失败")
+		return errors.Wrap(err, errors.Database, "创建菜单失败")
 	}
 	return nil
 }
@@ -556,7 +556,7 @@ func (s *MenuService) updateMenu(ctx context.Context, item *iamentity.MenuItem) 
 		return err
 	}
 	if err := s.menuRepo.Update(ctx, item); err != nil {
-		return errorx.Wrap(err, errorx.Database, "更新菜单失败")
+		return errors.Wrap(err, errors.Database, "更新菜单失败")
 	}
 	return nil
 }
@@ -566,7 +566,7 @@ func (s *MenuService) updateMenuWithConstraint(ctx context.Context, item *iament
 		return err
 	}
 	if err := s.menuRepo.UpdateWithConstraint(ctx, item, guard); err != nil {
-		return errorx.Wrap(err, errorx.Database, "更新菜单失败")
+		return errors.Wrap(err, errors.Database, "更新菜单失败")
 	}
 	return nil
 }
@@ -597,7 +597,7 @@ func (s *MenuService) deleteMenuWithAuthorization(ctx context.Context, item *iam
 
 func (s *MenuService) validateMenuForCreate(ctx context.Context, item *iamentity.MenuItem) error {
 	if item == nil {
-		return errorx.New(errorx.Validation, "menu item is required")
+		return errors.NewCode(errors.Validation, "menu item is required")
 	}
 	item.SetUpdatedAt(time.Now())
 	if err := item.Validate(); err != nil {
@@ -614,10 +614,10 @@ func (s *MenuService) validateMenuForCreate(ctx context.Context, item *iamentity
 	// 这里显式检查并返回更友好的错误信息（当前策略：code 不可复用）。
 	if existing, err := s.menuRepo.FindByCodeWithDeleted(ctx, item.Code); err == nil && existing != nil {
 		if existing.DeletedAt != nil {
-			return errorx.New(errorx.Validation, "菜单 code 已被占用（已删除），当前策略不允许复用；请更换 code 或进行物理删除后重建")
+			return errors.NewCode(errors.Validation, "菜单 code 已被占用（已删除），当前策略不允许复用；请更换 code 或进行物理删除后重建")
 		}
-		return errorx.New(errorx.Validation, "菜单 code 已存在")
-	} else if err != nil && !errorx.Is(err, errorx.NotFound) {
+		return errors.NewCode(errors.Validation, "菜单 code 已存在")
+	} else if err != nil && !errors.Is(err, errors.NotFound) {
 		return err
 	}
 	return nil
@@ -625,7 +625,7 @@ func (s *MenuService) validateMenuForCreate(ctx context.Context, item *iamentity
 
 func (s *MenuService) validateMenuForUpdate(ctx context.Context, item *iamentity.MenuItem) error {
 	if item == nil {
-		return errorx.New(errorx.Validation, "menu item is required")
+		return errors.NewCode(errors.Validation, "menu item is required")
 	}
 	item.SetUpdatedAt(time.Now())
 	if err := item.Validate(); err != nil {
@@ -642,27 +642,27 @@ func (s *MenuService) validateMenuForUpdate(ctx context.Context, item *iamentity
 
 func validateDirectMenuCreatePayload(item *iamentity.MenuItem) error {
 	if item == nil {
-		return errorx.New(errorx.Validation, "menu item is required")
+		return errors.NewCode(errors.Validation, "menu item is required")
 	}
 	if item.GetID() != 0 || item.Version != 0 || !item.CreatedAt.IsZero() || !item.UpdatedAt.IsZero() || item.DeletedAt != nil {
-		return errorx.New(errorx.Validation, "create menu payload contains managed fields")
+		return errors.NewCode(errors.Validation, "create menu payload contains managed fields")
 	}
 	return nil
 }
 
 func validateDirectMenuUpdatePayload(current *iamentity.MenuItem, item *iamentity.MenuItem) error {
 	if current == nil || item == nil {
-		return errorx.New(errorx.Validation, "menu item is required")
+		return errors.NewCode(errors.Validation, "menu item is required")
 	}
 	if item.GetID() != current.GetID() {
-		return errorx.New(errorx.Validation, "menu id mismatch")
+		return errors.NewCode(errors.Validation, "menu id mismatch")
 	}
 	if item.Code != current.Code ||
 		item.Version != current.Version ||
 		!item.CreatedAt.Equal(current.CreatedAt) ||
 		!item.UpdatedAt.Equal(current.UpdatedAt) ||
 		!timePtrEqual(item.DeletedAt, current.DeletedAt) {
-		return errorx.New(errorx.Validation, "update menu payload contains immutable or managed fields")
+		return errors.NewCode(errors.Validation, "update menu payload contains immutable or managed fields")
 	}
 	return nil
 }
@@ -721,10 +721,10 @@ func (s *MenuService) validateParentNoCycle(ctx context.Context, selfID int64, p
 		return nil
 	}
 	if *parentID <= 0 {
-		return errorx.New(errorx.Validation, "parent_id 无效")
+		return errors.NewCode(errors.Validation, "parent_id 无效")
 	}
 	if selfID > 0 && *parentID == selfID {
-		return errorx.New(errorx.Validation, "parent_id 不能指向自身")
+		return errors.NewCode(errors.Validation, "parent_id 不能指向自身")
 	}
 
 	visited := map[int64]struct{}{}
@@ -735,7 +735,7 @@ func (s *MenuService) validateParentNoCycle(ctx context.Context, selfID int64, p
 	curID := *parentID
 	for curID > 0 {
 		if _, ok := visited[curID]; ok {
-			return errorx.New(errorx.Validation, "菜单 parent 链路存在环")
+			return errors.NewCode(errors.Validation, "菜单 parent 链路存在环")
 		}
 		visited[curID] = struct{}{}
 
@@ -758,18 +758,18 @@ func validateMenuPermissionCodes(anyOf []string, allOf []string) error {
 	}
 	for _, p := range anyOf {
 		if !iammw.IsValidPermissionCode(p) {
-			return errorx.New(errorx.Validation, "无效的权限: "+p)
+			return errors.NewCode(errors.Validation, "无效的权限: "+p)
 		}
 		if !iammw.HasRequiredPermission(p) {
-			return errorx.New(errorx.Validation, "未知权限: "+p)
+			return errors.NewCode(errors.Validation, "未知权限: "+p)
 		}
 	}
 	for _, p := range allOf {
 		if !iammw.IsValidPermissionCode(p) {
-			return errorx.New(errorx.Validation, "无效的权限: "+p)
+			return errors.NewCode(errors.Validation, "无效的权限: "+p)
 		}
 		if !iammw.HasRequiredPermission(p) {
-			return errorx.New(errorx.Validation, "未知权限: "+p)
+			return errors.NewCode(errors.Validation, "未知权限: "+p)
 		}
 	}
 	return nil
@@ -789,13 +789,13 @@ func (s *MenuService) validateSyncMenuParentCodes(ctx context.Context, itemsByCo
 			continue
 		}
 		if _, err := s.menuRepo.FindByCode(ctx, item.ParentCode); err != nil {
-			if errorx.Is(err, errorx.NotFound) {
-				return errorx.New(errorx.Validation, "menu parent_code 不存在: "+item.ParentCode)
+			if errors.Is(err, errors.NotFound) {
+				return errors.NewCode(errors.Validation, "menu parent_code 不存在: "+item.ParentCode)
 			}
 			return err
 		}
 		if item.ParentCode == code {
-			return errorx.New(errorx.Validation, "menu parent_code 不能指向自身: "+code)
+			return errors.NewCode(errors.Validation, "menu parent_code 不能指向自身: "+code)
 		}
 	}
 
@@ -805,7 +805,7 @@ func (s *MenuService) validateSyncMenuParentCodes(ctx context.Context, itemsByCo
 			return nil
 		}
 		if _, ok := visiting[code]; ok {
-			return errorx.New(errorx.Validation, "同步菜单 parent_code 链路存在环")
+			return errors.NewCode(errors.Validation, "同步菜单 parent_code 链路存在环")
 		}
 
 		visiting[code] = struct{}{}
@@ -849,8 +849,8 @@ func (s *MenuService) resolveSyncMenuParentID(
 
 	parent, err := s.menuRepo.FindByCode(ctx, parentCode)
 	if err != nil {
-		if errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.New(errorx.Validation, "menu parent_code 不存在: "+parentCode)
+		if errors.Is(err, errors.NotFound) {
+			return nil, errors.NewCode(errors.Validation, "menu parent_code 不存在: "+parentCode)
 		}
 		return nil, err
 	}

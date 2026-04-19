@@ -9,87 +9,44 @@ import (
 	"strings"
 	"sync"
 
-	"gochen/authz"
+	"gochen/auth"
 )
 
 type requiredPermissionMeta struct {
 	Callsite string
 }
 
-// PermissionType 定义权限类型枚举。
-type PermissionType string
+// PermissionType 复用核心 authz 权限类型。
+type PermissionType = auth.PermissionType
 
 const (
-	PermissionTypeAPI    PermissionType = "api"
-	PermissionTypeMenu   PermissionType = "menu"
-	PermissionTypeAction PermissionType = "action"
+	PermissionTypeAPI    PermissionType = auth.PermissionTypeAPI
+	PermissionTypeMenu   PermissionType = auth.PermissionTypeMenu
+	PermissionTypeAction PermissionType = auth.PermissionTypeAction
 )
 
-// PermissionDefinition 定义权限Definition。
-type PermissionDefinition struct {
-	Code        string         `json:"code"`
-	Type        PermissionType `json:"type"`
-	Resource    string         `json:"resource,omitempty"`
-	Action      string         `json:"action,omitempty"`
-	Name        string         `json:"name,omitempty"`
-	Description string         `json:"description,omitempty"`
-	Scopes      []string       `json:"scopes,omitempty"`
-	BuiltinOnly bool           `json:"builtin_only,omitempty"`
-	RiskLevel   string         `json:"risk_level,omitempty"`
-}
-
-// AuthzPermissionDefinition 将 IAM 权限 definition 转换为核心 authz definition。
-func (d PermissionDefinition) AuthzPermissionDefinition() authz.PermissionDefinition {
-	return authz.PermissionDefinition{
-		Code:        d.Code,
-		Type:        string(d.Type),
-		Resource:    d.Resource,
-		Action:      d.Action,
-		Name:        d.Name,
-		Description: d.Description,
-		Scopes:      append([]string(nil), d.Scopes...),
-		BuiltinOnly: d.BuiltinOnly,
-		RiskLevel:   d.RiskLevel,
-	}
-}
+// PermissionDefinition 直接复用核心 authz 权限 definition。
+type PermissionDefinition = auth.PermissionDefinition
 
 // AuthzPermissionDefinitions 批量将 IAM 权限 definition 转换为核心 authz definition。
-func AuthzPermissionDefinitions(definitions ...PermissionDefinition) []authz.PermissionDefinition {
+func AuthzPermissionDefinitions(definitions ...PermissionDefinition) []auth.PermissionDefinition {
 	if len(definitions) == 0 {
 		return nil
 	}
-	out := make([]authz.PermissionDefinition, 0, len(definitions))
-	for _, definition := range definitions {
-		out = append(out, definition.AuthzPermissionDefinition())
-	}
-	return out
+	return append([]auth.PermissionDefinition(nil), definitions...)
 }
 
 // PermissionDefinitionFromAuthz 将核心 authz definition 转换为 IAM 权限 definition。
-func PermissionDefinitionFromAuthz(definition authz.PermissionDefinition) PermissionDefinition {
-	return PermissionDefinition{
-		Code:        definition.Code,
-		Type:        PermissionType(strings.TrimSpace(definition.Type)),
-		Resource:    definition.Resource,
-		Action:      definition.Action,
-		Name:        definition.Name,
-		Description: definition.Description,
-		Scopes:      append([]string(nil), definition.Scopes...),
-		BuiltinOnly: definition.BuiltinOnly,
-		RiskLevel:   definition.RiskLevel,
-	}
+func PermissionDefinitionFromAuthz(definition auth.PermissionDefinition) PermissionDefinition {
+	return PermissionDefinition(definition)
 }
 
 // PermissionDefinitionsFromAuthz 批量将核心 authz definition 转换为 IAM 权限 definition。
-func PermissionDefinitionsFromAuthz(definitions ...authz.PermissionDefinition) []PermissionDefinition {
+func PermissionDefinitionsFromAuthz(definitions ...auth.PermissionDefinition) []PermissionDefinition {
 	if len(definitions) == 0 {
 		return nil
 	}
-	out := make([]PermissionDefinition, 0, len(definitions))
-	for _, definition := range definitions {
-		out = append(out, PermissionDefinitionFromAuthz(definition))
-	}
-	return out
+	return append([]PermissionDefinition(nil), definitions...)
 }
 
 type registeredPermission struct {
@@ -120,11 +77,11 @@ func normalizePermissionDefinition(def PermissionDefinition) PermissionDefinitio
 	}
 	if IsValidPermissionCode(def.Code) {
 		segments := strings.Split(def.Code, ":")
-		def.Type = PermissionType(segments[0])
+		def.Type = segments[0]
 		def.Resource = segments[1]
 		def.Action = segments[2]
 	} else {
-		def.Type = PermissionType(strings.TrimSpace(string(def.Type)))
+		def.Type = strings.TrimSpace(def.Type)
 		def.Resource = strings.TrimSpace(def.Resource)
 		def.Action = strings.TrimSpace(def.Action)
 	}
@@ -368,7 +325,7 @@ func HasRequiredPermission(permission string) bool {
 		if !IsValidPermissionCode(registered) {
 			continue
 		}
-		if authz.PermissionPatternMatches(normalized, registered) || authz.PermissionPatternMatches(registered, normalized) {
+		if auth.PermissionPatternMatches(normalized, registered) || auth.PermissionPatternMatches(registered, normalized) {
 			return true
 		}
 	}

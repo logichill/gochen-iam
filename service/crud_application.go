@@ -7,7 +7,7 @@ import (
 	appaccess "gochen/app/access"
 	appcrud "gochen/app/crud"
 	domain "gochen/domain"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 // IScopedConstraintRepository 适配 gochen-iam 仓储的显式写约束接口。
@@ -33,10 +33,10 @@ func NewCRUDApplication[T domain.IEntity[ID], ID comparable](
 	scopedRepo IScopedConstraintRepository[T, ID],
 ) (*CRUDApplication[T, ID], error) {
 	if repo == nil {
-		return nil, errorx.New(errorx.InvalidInput, "repo cannot be nil")
+		return nil, errors.NewCode(errors.InvalidInput, "repo cannot be nil")
 	}
 	if scopedRepo == nil {
-		return nil, errorx.New(errorx.InvalidInput, "scoped repo cannot be nil")
+		return nil, errors.NewCode(errors.InvalidInput, "scoped repo cannot be nil")
 	}
 	base, err := appcrud.NewApplication[T, ID](&scopedConstraintRepositoryAdapter[T, ID]{
 		IScopedResourceContextRepository: repo,
@@ -51,8 +51,14 @@ func NewCRUDApplication[T domain.IEntity[ID], ID comparable](
 }
 
 func wrapIAMConstraint(ctx context.Context, constraint appaccess.WriteConstraint) iamaccess.WriteConstraint {
-	metadata, _ := appaccess.ConstraintMetadataFromContext(ctx)
-	return iamaccess.NewWriteConstraint(constraint, metadata)
+	// 若 constraint 自身已经由 auth.WriteGuard 注入 metadata，优先保留；
+	// 否则回落到 context 中之前 Bind 的 metadata（兼容手工绕过 authz 的路径）。
+	if constraint.Metadata == (appaccess.ConstraintMetadata{}) {
+		if metadata, ok := appaccess.ConstraintMetadataFromContext(ctx); ok {
+			constraint.Metadata = metadata
+		}
+	}
+	return iamaccess.NewWriteConstraint(constraint, appaccess.ConstraintMetadata{})
 }
 
 func (r *scopedConstraintRepositoryAdapter[T, ID]) CreateWithConstraint(ctx context.Context, entity T, constraint appaccess.WriteConstraint) error {

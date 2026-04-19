@@ -3,10 +3,11 @@ package entity
 import (
 	"strings"
 	"time"
+	"unicode"
 
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
 	"gochen/validation"
 )
 
@@ -47,25 +48,28 @@ func (Scope) TableName() string {
 
 func (s *Scope) Validate() error {
 	if err := validation.ValidateRequired(s.Key, "scope key"); err != nil {
-		return errorx.New(errorx.Validation, "scope key 不能为空")
+		return errors.NewCode(errors.Validation, "scope key 不能为空")
 	}
 	if err := validation.ValidateStringLength(s.Key, "scope key", 0, 128); err != nil {
-		return errorx.New(errorx.Validation, "scope key 长度不能超过128个字符")
+		return errors.NewCode(errors.Validation, "scope key 长度不能超过128个字符")
+	}
+	if !isValidScopeSegment(s.Key) {
+		return errors.NewCode(errors.Validation, "scope key 格式无效")
 	}
 	if err := validation.ValidateRequired(s.Name, "scope name"); err != nil {
-		return errorx.New(errorx.Validation, "scope name 不能为空")
+		return errors.NewCode(errors.Validation, "scope name 不能为空")
 	}
 	if err := validation.ValidateRequired(s.Type, "scope type"); err != nil {
-		return errorx.New(errorx.Validation, "scope type 不能为空")
+		return errors.NewCode(errors.Validation, "scope type 不能为空")
 	}
 	if !IsValidScopeType(s.Type) {
-		return errorx.New(errorx.Validation, "scope type 无效")
+		return errors.NewCode(errors.Validation, "scope type 无效")
 	}
 	if err := validation.ValidateRequired(s.Path, "scope path"); err != nil {
-		return errorx.New(errorx.Validation, "scope path 不能为空")
+		return errors.NewCode(errors.Validation, "scope path 不能为空")
 	}
 	if !strings.HasPrefix(s.Path, "/") || !strings.HasSuffix(s.Path, "/") {
-		return errorx.New(errorx.Validation, "scope path 格式无效")
+		return errors.NewCode(errors.Validation, "scope path 格式无效")
 	}
 	return nil
 }
@@ -111,12 +115,7 @@ func (s *Scope) Covers(target *Scope) bool {
 }
 
 func IsValidScopeType(scopeType string) bool {
-	switch strings.TrimSpace(scopeType) {
-	case ScopeTypePlatform, ScopeTypeTenant:
-		return true
-	default:
-		return false
-	}
+	return isValidScopeSegment(scopeType)
 }
 
 func ScopePathFor(parentPath, key string) string {
@@ -125,4 +124,23 @@ func ScopePathFor(parentPath, key string) string {
 		return "/" + key + "/"
 	}
 	return strings.TrimRight(parentPath, "/") + "/" + key + "/"
+}
+
+func isValidScopeSegment(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			continue
+		}
+		switch r {
+		case ':', '-', '_', '.':
+			continue
+		default:
+			return false
+		}
+	}
+	return !strings.Contains(value, "/")
 }

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"gochen-iam/auth"
+	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	ctxx "gochen/contextx"
 	"gochen/domain/crud"
@@ -60,8 +60,8 @@ func TestBuildMenuTree_WithPermissions_AnyAllAndParentRetention(t *testing.T) {
 		t.Fatalf("WithUserID: %v", err)
 	}
 	reqCtx = reqCtx.WithContext(derived)
-	reqCtx = auth.WithRoles(reqCtx, []string{"user"})
-	reqCtx = auth.WithPermissions(reqCtx, []string{"api:a:read"})
+	reqCtx = iamauth.WithRoles(reqCtx, []string{"user"})
+	reqCtx = iamauth.WithPermissions(reqCtx, []string{"api:a:read"})
 
 	tree := buildMenuTree(items, reqCtx)
 	if len(tree) != 1 {
@@ -89,7 +89,7 @@ func TestBuildMenuTree_TenantOverride_AppliesAndFilters(t *testing.T) {
 		t.Fatalf("WithUserID: %v", err)
 	}
 	reqCtx = reqCtx.WithContext(derived)
-	reqCtx = auth.WithRoles(reqCtx, []string{"user"})
+	reqCtx = iamauth.WithRoles(reqCtx, []string{"user"})
 
 	tree := buildMenuTree(items, reqCtx)
 	if len(tree) != 1 || tree[0].Code != "root" {

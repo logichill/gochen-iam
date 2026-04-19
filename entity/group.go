@@ -8,7 +8,7 @@ import (
 
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
 	"gochen/validation"
 )
 
@@ -45,22 +45,22 @@ func (Group) TableName() string {
 // Validate 验证组织数据
 func (g *Group) Validate() error {
 	if g.TenantID == "" {
-		return errorx.New(errorx.Validation, "租户ID不能为空")
+		return errors.NewCode(errors.Validation, "租户ID不能为空")
 	}
 	if g.ManagedScopeID <= 0 {
-		return errorx.New(errorx.Validation, "managed_scope_id 不能为空")
+		return errors.NewCode(errors.Validation, "managed_scope_id 不能为空")
 	}
 	if g.OwnerID == "" {
-		return errorx.New(errorx.Validation, "owner_id 不能为空")
+		return errors.NewCode(errors.Validation, "owner_id 不能为空")
 	}
 	if err := validation.ValidateRequired(g.Name, "group name"); err != nil {
-		return errorx.New(errorx.Validation, "组织名称不能为空")
+		return errors.NewCode(errors.Validation, "组织名称不能为空")
 	}
 	if err := validation.ValidateStringLength(g.Name, "group name", 0, 100); err != nil {
-		return errorx.New(errorx.Validation, "组织名称不能超过100个字符")
+		return errors.NewCode(errors.Validation, "组织名称不能超过100个字符")
 	}
 	if err := validation.ValidateStringLength(g.Description, "group description", 0, 500); err != nil {
-		return errorx.New(errorx.Validation, "组织描述不能超过500个字符")
+		return errors.NewCode(errors.Validation, "组织描述不能超过500个字符")
 	}
 	return nil
 }

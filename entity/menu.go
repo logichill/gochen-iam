@@ -8,7 +8,7 @@ import (
 
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 // StringArray 定义字符串Array。
@@ -88,16 +88,16 @@ func (MenuItem) TableName() string { return "menu_items" }
 // Validate 校验输入。
 func (m *MenuItem) Validate() error {
 	if m.Code == "" {
-		return errorx.New(errorx.Validation, "menu code is required")
+		return errors.NewCode(errors.Validation, "menu code is required")
 	}
 	if len(m.Code) > 100 {
-		return errorx.New(errorx.Validation, "menu code is too long")
+		return errors.NewCode(errors.Validation, "menu code is too long")
 	}
 	if m.Title == "" {
-		return errorx.New(errorx.Validation, "menu title is required")
+		return errors.NewCode(errors.Validation, "menu title is required")
 	}
 	if len(m.Title) > 200 {
-		return errorx.New(errorx.Validation, "menu title is too long")
+		return errors.NewCode(errors.Validation, "menu title is too long")
 	}
 	if m.Type == "" {
 		m.Type = MenuTypePage
@@ -105,7 +105,7 @@ func (m *MenuItem) Validate() error {
 	switch m.Type {
 	case MenuTypeGroup, MenuTypePage, MenuTypeLink:
 	default:
-		return errorx.New(errorx.Validation, "menu type is invalid")
+		return errors.NewCode(errors.Validation, "menu type is invalid")
 	}
 	return nil
 }

@@ -6,7 +6,7 @@ import (
 
 	iamaccess "gochen-iam/access"
 	"gochen/app/access"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 func RequirePair(
@@ -40,7 +40,7 @@ func RequireSameTenant(resources ...iamaccess.ResourceConstraint) error {
 	}
 	for _, resource := range resources[1:] {
 		if resource.ManagedScopeID != 0 && resource.ManagedScopeID != first {
-			return errorx.New(errorx.Forbidden, "write constraint resources must belong to the same tenant scope")
+			return errors.NewCode(errors.Forbidden, "write constraint resources must belong to the same tenant scope")
 		}
 	}
 	return nil

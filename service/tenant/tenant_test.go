@@ -9,7 +9,7 @@ import (
 	iammw "gochen-iam/middleware"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
-	"gochen/authz"
+	"gochen/auth"
 	"gochen/db"
 	"gochen/db/orm"
 )
@@ -74,9 +74,9 @@ func TestTenantService_ListTenants_FiltersSoftDeletedRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
-	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     1,
-		Permissions:   []string{"*:*:*"},
+		Permissions:   []string{"api:tenant:*"},
 		ActiveScopeID: 1,
 	})
 	if err != nil {

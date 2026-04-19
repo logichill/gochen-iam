@@ -8,7 +8,7 @@ import (
 	iamsvc "gochen-iam/service"
 	"gochen-iam/tenant"
 	ctxx "gochen/contextx"
-	"gochen/errorx"
+	"gochen/errors"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 )
@@ -195,7 +195,7 @@ func (ar *AuthRoutes) activateScope(ctx httpx.IContext) error {
 		}
 	}
 	if !allowed {
-		return errorx.New(errorx.Forbidden, "当前认证结果不允许激活目标授权域")
+		return errors.NewCode(errors.Forbidden, "当前认证结果不允许激活目标授权域")
 	}
 
 	session, err := ar.userService.ActivateScope(ctx.RequestContext(), claims.UserID, req.ScopeID)
@@ -203,7 +203,7 @@ func (ar *AuthRoutes) activateScope(ctx httpx.IContext) error {
 		return err
 	}
 	if strings.TrimSpace(claims.BindingVersion) != "" && claims.BindingVersion != session.BindingVersion {
-		return errorx.New(errorx.Forbidden, "授权绑定已变化，请重新登录")
+		return errors.NewCode(errors.Forbidden, "授权绑定已变化，请重新登录")
 	}
 
 	token, err := iammw.GenerateToken(
@@ -245,7 +245,7 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 		return err
 	}
 	if req.Token == "" {
-		err := errorx.New(errorx.Validation, "token is required")
+		err := errors.NewCode(errors.Validation, "token is required")
 		return err
 	}
 

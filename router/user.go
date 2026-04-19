@@ -8,9 +8,9 @@ import (
 	iamsvc "gochen-iam/service"
 	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
-	"gochen/authz"
-	dataquery "gochen/db/query"
-	"gochen/errorx"
+	"gochen/auth"
+	"gochen/db/query"
+	"gochen/errors"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 )
@@ -25,21 +25,21 @@ type userQueryFields struct {
 	UpdatedAt   time.Time
 }
 
-var userQuerySchema = dataquery.MustInferQuerySchema[userQueryFields](nil)
+var userQuerySchema = query.MustInferQuerySchema[userQueryFields](nil)
 
 // UserRoutes 用户路由注册器
 type UserRoutes struct {
 	userService IUserService
 	utils       *hbasic.Utils
 	userRepo    iamsvc.IScopedResourceContextRepository[*iamentity.User, int64]
-	authorizer  authz.IAuthorizer
+	authorizer  auth.IAuthorizer
 }
 
 // NewUserRoutes 创建用户路由注册器
 func NewUserRoutes(
 	userService IUserService,
 	userRepo iamsvc.IScopedResourceContextRepository[*iamentity.User, int64],
-	authorizer *authz.Authorizer,
+	authorizer *auth.Authorizer,
 ) *UserRoutes {
 	return &UserRoutes{
 		userService: userService,
@@ -52,7 +52,7 @@ func NewUserRoutes(
 // RegisterRoutes 注册路由。
 func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	if group == nil {
-		return errorx.New(errorx.InvalidInput, "route group cannot be nil")
+		return errors.NewCode(errors.InvalidInput, "route group cannot be nil")
 	}
 	// 用户基础CRUD - 使用 shared/httpx/api 构建器
 	userGroup := group.Group("/users")
@@ -66,10 +66,10 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	// 直接使用原生 shared 仓储接口（UserRepo 已实现 ICRUDRepository）
 	appService, err := iamsvc.NewCRUDApplication[*iamentity.User, int64](ur.userRepo, ur.userRepo)
 	if err != nil {
-		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create user crud application").WithContext("route", "iam.user")
 		}
-		return errorx.Wrap(err, errorx.Internal, "failed to create user crud application").WithContext("route", "iam.user")
+		return errors.Wrap(err, errors.Internal, "failed to create user crud application").WithContext("route", "iam.user")
 	}
 
 	builder, err := restapi.NewApiBuilder(
@@ -87,10 +87,10 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		}),
 	)
 	if err != nil {
-		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create user api builder").WithContext("route", "iam.user")
 		}
-		return errorx.Wrap(err, errorx.Internal, "failed to create user api builder").WithContext("route", "iam.user")
+		return errors.Wrap(err, errors.Internal, "failed to create user api builder").WithContext("route", "iam.user")
 	}
 
 	if err := builder.
@@ -100,15 +100,15 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000
 			if cfg.Authorization != nil {
-				cfg.Authorization.Consistency = authz.ConsistencyModeStrong
+				cfg.Authorization.Consistency = auth.ConsistencyModeStrong
 				cfg.Authorization.HighRisk = true
 			}
 		}).
 		Build(userGroup); err != nil {
-		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("build user crud routes").WithContext("route", "iam.user")
 		}
-		return errorx.Wrap(err, errorx.Internal, "failed to build user crud routes").WithContext("route", "iam.user")
+		return errors.Wrap(err, errors.Internal, "failed to build user crud routes").WithContext("route", "iam.user")
 	}
 
 	// 用户扩展功能
@@ -139,6 +139,9 @@ func (ur *UserRoutes) setupAdminUserRoutes(userGroup httpx.IRouteGroup) {
 	userGroup.GET("/:id/roles", ur.getUserRoles)
 	userGroup.POST("/:id/roles", ur.assignUserRole)
 	userGroup.DELETE("/:id/roles/:role", ur.removeUserRole)
+	userGroup.GET("/:id/role-bindings", ur.getUserRoleBindings)
+	userGroup.POST("/:id/role-bindings", ur.assignUserRoleBinding)
+	userGroup.DELETE("/:id/role-bindings/:binding", ur.removeUserRoleBinding)
 
 	// 用户组织管理
 	userGroup.GET("/:id/groups", ur.getUserGroups)
@@ -254,6 +257,26 @@ func (ur *UserRoutes) getUserRoles(ctx httpx.IContext) error {
 	})
 }
 
+// getUserRoleBindings 获取用户直接角色绑定。
+func (ur *UserRoutes) getUserRoleBindings(ctx httpx.IContext) error {
+	reqCtx := ctx.RequestContext()
+	userID, err := ur.utils.ParseID(ctx, "id")
+	if err != nil {
+		return err
+	}
+
+	bindings, err := ur.userService.UserRoleBindings(reqCtx, userID)
+	if err != nil {
+		return err
+	}
+
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
+		"user_id": userID,
+		"items":   bindings,
+		"total":   len(bindings),
+	})
+}
+
 // assignUserRole 分配用户角色。
 func (ur *UserRoutes) assignUserRole(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
@@ -262,25 +285,29 @@ func (ur *UserRoutes) assignUserRole(ctx httpx.IContext) error {
 		return err
 	}
 
-	var req struct {
-		RoleID int64 `json:"role_id" binding:"required"`
-	}
-	if err := ctx.BindJSON(&req); err != nil {
+	req := &iamsvc.AssignUserRoleBindingRequest{}
+	if err := ctx.BindJSON(req); err != nil {
 		return err
 	}
 	if req.RoleID <= 0 {
-		err := errorx.New(errorx.Validation, "role_id must be greater than 0")
+		err := errors.NewCode(errors.Validation, "role_id must be greater than 0")
 		return err
 	}
 
-	if err := ur.userService.AssignRole(reqCtx, userID, req.RoleID); err != nil {
+	if err := ur.userService.AssignRoleBinding(reqCtx, userID, req.RoleID, req.GrantScopeID); err != nil {
 		return err
 	}
 
 	return httpx.WriteSuccess(ctx, map[string]interface{}{
-		"user_id": userID,
-		"role_id": req.RoleID,
+		"user_id":        userID,
+		"role_id":        req.RoleID,
+		"grant_scope_id": req.GrantScopeID,
 	})
+}
+
+// assignUserRoleBinding 在指定 grant scope 下分配用户角色绑定。
+func (ur *UserRoutes) assignUserRoleBinding(ctx httpx.IContext) error {
+	return ur.assignUserRole(ctx)
 }
 
 // removeUserRole 移除用户角色。
@@ -303,6 +330,29 @@ func (ur *UserRoutes) removeUserRole(ctx httpx.IContext) error {
 	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"user_id": userID,
 		"role_id": roleID,
+	})
+}
+
+// removeUserRoleBinding 按 binding id 移除用户角色绑定。
+func (ur *UserRoutes) removeUserRoleBinding(ctx httpx.IContext) error {
+	reqCtx := ctx.RequestContext()
+	userID, err := ur.utils.ParseID(ctx, "id")
+	if err != nil {
+		return err
+	}
+
+	bindingID, err := ur.utils.ParseID(ctx, "binding")
+	if err != nil {
+		return err
+	}
+
+	if err := ur.userService.RemoveRoleBinding(reqCtx, userID, bindingID); err != nil {
+		return err
+	}
+
+	return httpx.WriteSuccess(ctx, map[string]interface{}{
+		"user_id":    userID,
+		"binding_id": bindingID,
 	})
 }
 
@@ -339,7 +389,7 @@ func (ur *UserRoutes) assignUserToGroup(ctx httpx.IContext) error {
 		return err
 	}
 	if req.GroupID <= 0 {
-		err := errorx.New(errorx.Validation, "group_id must be greater than 0")
+		err := errors.NewCode(errors.Validation, "group_id must be greater than 0")
 		return err
 	}
 
@@ -410,7 +460,7 @@ func (ur *UserRoutes) checkUserPermission(ctx httpx.IContext) error {
 		return err
 	}
 	if req.Permission == "" {
-		err := errorx.New(errorx.Validation, "permission is required")
+		err := errors.NewCode(errors.Validation, "permission is required")
 		return err
 	}
 
@@ -431,7 +481,7 @@ func (ur *UserRoutes) getCurrentUser(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
 	userID := iammw.GetUserID(ctx.RequestContext())
 	if userID == 0 {
-		err := errorx.New(errorx.Unauthorized, "用户未认证")
+		err := errors.NewCode(errors.Unauthorized, "用户未认证")
 		return err
 	}
 
@@ -451,7 +501,7 @@ func (ur *UserRoutes) updateCurrentUser(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
 	userID := iammw.GetUserID(ctx.RequestContext())
 	if userID == 0 {
-		err := errorx.New(errorx.Unauthorized, "用户未认证")
+		err := errors.NewCode(errors.Unauthorized, "用户未认证")
 		return err
 	}
 
@@ -476,7 +526,7 @@ func (ur *UserRoutes) changePassword(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
 	userID := iammw.GetUserID(ctx.RequestContext())
 	if userID == 0 {
-		err := errorx.New(errorx.Unauthorized, "用户未认证")
+		err := errors.NewCode(errors.Unauthorized, "用户未认证")
 		return err
 	}
 

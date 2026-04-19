@@ -5,9 +5,9 @@ import (
 	iammw "gochen-iam/middleware"
 	menusvc "gochen-iam/service/menu"
 	restapi "gochen/api/restapi"
-	"gochen/authz"
+	"gochen/auth"
 	domaincrud "gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 )
@@ -20,7 +20,7 @@ import (
 type MenuRoutes struct {
 	menuService *menusvc.MenuService
 	menuRepo    domaincrud.IRepository[*iamentity.MenuItem, int64]
-	authorizer  authz.IAuthorizer
+	authorizer  auth.IAuthorizer
 	utils       *hbasic.Utils
 }
 
@@ -28,7 +28,7 @@ type MenuRoutes struct {
 func NewMenuRoutes(
 	menuService *menusvc.MenuService,
 	menuRepo domaincrud.IRepository[*iamentity.MenuItem, int64],
-	authorizer *authz.Authorizer,
+	authorizer *auth.Authorizer,
 ) *MenuRoutes {
 	return &MenuRoutes{
 		menuService: menuService,
@@ -41,7 +41,7 @@ func NewMenuRoutes(
 // RegisterRoutes 注册菜单相关 HTTP 路由。
 func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	if group == nil {
-		return errorx.New(errorx.InvalidInput, "route group cannot be nil")
+		return errors.NewCode(errors.InvalidInput, "route group cannot be nil")
 	}
 	menuGroup := group.Group("/menus")
 
@@ -57,10 +57,10 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	menuCRUD, err := menusvc.NewCRUDApplication(mr.menuRepo, mr.menuService)
 	if err != nil {
-		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create menu crud application").WithContext("route", "iam.menu")
 		}
-		return errorx.Wrap(err, errorx.Internal, "failed to create menu crud application").WithContext("route", "iam.menu")
+		return errors.Wrap(err, errors.Internal, "failed to create menu crud application").WithContext("route", "iam.menu")
 	}
 
 	builderOptions := []restapi.Option[*iamentity.MenuItem, int64]{}
@@ -75,25 +75,25 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 	builder, err := restapi.NewApiBuilder(menuCRUD, builderOptions...)
 	if err != nil {
-		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create menu api builder").WithContext("route", "iam.menu")
 		}
-		return errorx.Wrap(err, errorx.Internal, "failed to create menu api builder").WithContext("route", "iam.menu")
+		return errors.Wrap(err, errors.Internal, "failed to create menu api builder").WithContext("route", "iam.menu")
 	}
 	if err := builder.
 		Route(func(cfg *restapi.RouteConfig[int64]) {
 			cfg.EnableBatch = false
 			cfg.EnablePagination = false
 			if cfg.Authorization != nil {
-				cfg.Authorization.Consistency = authz.ConsistencyModeStrong
+				cfg.Authorization.Consistency = auth.ConsistencyModeStrong
 				cfg.Authorization.HighRisk = true
 			}
 		}).
 		Build(adminGroup); err != nil {
-		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("build menu crud routes").WithContext("route", "iam.menu")
 		}
-		return errorx.Wrap(err, errorx.Internal, "failed to build menu crud routes").WithContext("route", "iam.menu")
+		return errors.Wrap(err, errors.Internal, "failed to build menu crud routes").WithContext("route", "iam.menu")
 	}
 
 	adminWriteGroup := adminGroup.Group("")

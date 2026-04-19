@@ -9,11 +9,14 @@ import (
 	iamentity "gochen-iam/entity"
 	scoperepo "gochen-iam/repo/scope"
 	tenantrepo "gochen-iam/repo/tenant"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 const (
-	platformScopeCode = "platform"
+	platformScopeCode                 = "platform"
+	tenantRootScopeStatusHealthy      = "healthy"
+	tenantRootScopeStatusMissing      = "missing"
+	tenantRootScopeStatusInconsistent = "inconsistent"
 )
 
 // ScopeAuthorizer 统一封装 active scope 解析、tenant->scope 映射与覆盖判定。
@@ -37,7 +40,7 @@ func (a *ScopeAuthorizer) EnsurePlatformScope(ctx context.Context) (*iamentity.S
 	if err == nil {
 		return scope, nil
 	}
-	if !errorx.Is(err, errorx.NotFound) {
+	if !errors.Is(err, errors.NotFound) {
 		return nil, err
 	}
 
@@ -62,7 +65,7 @@ func (a *ScopeAuthorizer) EnsurePlatformScope(ctx context.Context) (*iamentity.S
 		if reloaded, reloadErr := a.scopeRepo.FindByKey(ctx, platformScopeCode); reloadErr == nil {
 			return reloaded, nil
 		}
-		return nil, errorx.Wrap(err, errorx.Database, "创建 platform scope 失败")
+		return nil, errors.Wrap(err, errors.Database, "创建 platform scope 失败")
 	}
 	if err := a.scopeRepo.RebuildVisibilityMap(ctx); err != nil {
 		return nil, err
@@ -72,7 +75,7 @@ func (a *ScopeAuthorizer) EnsurePlatformScope(ctx context.Context) (*iamentity.S
 
 func (a *ScopeAuthorizer) EnsureTenantRootScope(ctx context.Context, tenant *iamentity.Tenant) (*iamentity.Scope, error) {
 	if tenant == nil {
-		return nil, errorx.New(errorx.InvalidInput, "tenant is required")
+		return nil, errors.NewCode(errors.InvalidInput, "tenant is required")
 	}
 	platformScope, err := a.EnsurePlatformScope(ctx)
 	if err != nil {
@@ -83,28 +86,18 @@ func (a *ScopeAuthorizer) EnsureTenantRootScope(ctx context.Context, tenant *iam
 	if tenant.RootScopeID != nil && *tenant.RootScopeID > 0 {
 		currentScope, err := a.scopeRepo.Get(ctx, *tenant.RootScopeID)
 		if err == nil && currentScope != nil && currentScope.Key == scopeKey {
-			return currentScope, nil
+			return a.ensureTenantRootScopeState(ctx, tenant, platformScope, currentScope)
 		}
-		if err != nil && !errorx.Is(err, errorx.NotFound) {
+		if err != nil && !errors.Is(err, errors.NotFound) {
 			return nil, err
 		}
 	}
 
 	scope, err := a.scopeRepo.FindByKey(ctx, scopeKey)
 	if err == nil {
-		tenant.RootScopeID = &scope.ID
-		if tenant.GetID() > 0 {
-			guard, guardErr := NewPlatformEntityConstraint(ctx, TenantResourceKind, tenant)
-			if guardErr != nil {
-				return nil, guardErr
-			}
-			if updateErr := a.tenantRepo.UpdateWithConstraint(ctx, tenant, guard); updateErr != nil {
-				return nil, updateErr
-			}
-		}
-		return scope, nil
+		return a.ensureTenantRootScopeState(ctx, tenant, platformScope, scope)
 	}
-	if !errorx.Is(err, errorx.NotFound) {
+	if !errors.Is(err, errors.NotFound) {
 		return nil, err
 	}
 
@@ -130,7 +123,7 @@ func (a *ScopeAuthorizer) EnsureTenantRootScope(ctx context.Context, tenant *iam
 		if reloaded, reloadErr := a.scopeRepo.FindByKey(ctx, scopeKey); reloadErr == nil {
 			scope = reloaded
 		} else {
-			return nil, errorx.Wrap(err, errorx.Database, "创建 tenant scope 失败")
+			return nil, errors.Wrap(err, errors.Database, "创建 tenant scope 失败")
 		}
 	}
 	if err := a.scopeRepo.RebuildVisibilityMap(ctx); err != nil {
@@ -150,10 +143,143 @@ func (a *ScopeAuthorizer) EnsureTenantRootScope(ctx context.Context, tenant *iam
 	return scope, nil
 }
 
+func (a *ScopeAuthorizer) ensureTenantRootScopeState(
+	ctx context.Context,
+	tenant *iamentity.Tenant,
+	platformScope *iamentity.Scope,
+	scope *iamentity.Scope,
+) (*iamentity.Scope, error) {
+	if tenant == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "tenant is required")
+	}
+	if platformScope == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "platform scope is required")
+	}
+	if scope == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "scope is required")
+	}
+
+	desiredKey := fmt.Sprintf("tenant:%s", strings.TrimSpace(tenant.Key))
+	desiredPath := iamentity.ScopePathFor(platformScope.Path, desiredKey)
+	parentChanged := scope.ParentID == nil || *scope.ParentID != platformScope.ID
+	needsRepair := scope.Key != desiredKey ||
+		scope.Type != iamentity.ScopeTypeTenant ||
+		parentChanged ||
+		scope.Path != desiredPath ||
+		scope.Depth != platformScope.Depth+1 ||
+		scope.Status != iamentity.ScopeStatusActive ||
+		scope.Name != tenant.Name ||
+		scope.Description != tenant.Description
+
+	if needsRepair {
+		scope.Key = desiredKey
+		scope.Name = tenant.Name
+		scope.Type = iamentity.ScopeTypeTenant
+		scope.ParentID = &platformScope.ID
+		scope.Path = desiredPath
+		scope.Depth = platformScope.Depth + 1
+		scope.Description = tenant.Description
+		scope.Status = iamentity.ScopeStatusActive
+		scope.SetUpdatedAt(time.Now())
+
+		guard, err := NewPlatformEntityConstraint(ctx, ScopeResourceKind, scope)
+		if err != nil {
+			return nil, err
+		}
+		if err := a.scopeRepo.UpdateWithConstraint(ctx, scope, guard); err != nil {
+			return nil, errors.Wrap(err, errors.Database, "修复 tenant root scope 失败")
+		}
+		if parentChanged {
+			if err := a.scopeRepo.RebuildVisibilityMap(ctx); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if tenant.RootScopeID == nil || *tenant.RootScopeID != scope.ID {
+		tenant.RootScopeID = &scope.ID
+		if tenant.GetID() > 0 {
+			guard, err := NewPlatformEntityConstraint(ctx, TenantResourceKind, tenant)
+			if err != nil {
+				return nil, err
+			}
+			if err := a.tenantRepo.UpdateWithConstraint(ctx, tenant, guard); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	return scope, nil
+}
+
+func (a *ScopeAuthorizer) TenantRootScopeHealth(ctx context.Context, tenant *iamentity.Tenant) (*TenantRootScopeHealth, error) {
+	if tenant == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "tenant is required")
+	}
+
+	scopeKey := fmt.Sprintf("tenant:%s", strings.TrimSpace(tenant.Key))
+	if tenant.RootScopeID == nil || *tenant.RootScopeID <= 0 {
+		return &TenantRootScopeHealth{
+			Status:    tenantRootScopeStatusMissing,
+			Reason:    "tenant root scope 尚未初始化。",
+			CanRepair: true,
+		}, nil
+	}
+
+	scope, err := a.scopeRepo.Get(ctx, *tenant.RootScopeID)
+	if err != nil {
+		if errors.Is(err, errors.NotFound) {
+			return &TenantRootScopeHealth{
+				Status:    tenantRootScopeStatusMissing,
+				Reason:    "tenant root scope 记录已失联，可执行修复。",
+				CanRepair: true,
+			}, nil
+		}
+		return nil, err
+	}
+	if scope == nil {
+		return &TenantRootScopeHealth{
+			Status:    tenantRootScopeStatusMissing,
+			Reason:    "tenant root scope 记录为空，可执行修复。",
+			CanRepair: true,
+		}, nil
+	}
+	if scope.Key != scopeKey || scope.Type != iamentity.ScopeTypeTenant {
+		return &TenantRootScopeHealth{
+			Status:    tenantRootScopeStatusInconsistent,
+			Reason:    "tenant root scope 与租户标识不一致，可执行修复。",
+			CanRepair: true,
+		}, nil
+	}
+	platformScope, err := a.EnsurePlatformScope(ctx)
+	if err != nil {
+		return nil, err
+	}
+	expectedPath := iamentity.ScopePathFor(platformScope.Path, scopeKey)
+	if scope.ParentID == nil || *scope.ParentID != platformScope.ID || scope.Path != expectedPath || scope.Depth != platformScope.Depth+1 {
+		return &TenantRootScopeHealth{
+			Status:    tenantRootScopeStatusInconsistent,
+			Reason:    "tenant root scope 结构已漂移，可执行修复。",
+			CanRepair: true,
+		}, nil
+	}
+	if scope.Status != iamentity.ScopeStatusActive {
+		return &TenantRootScopeHealth{
+			Status:    tenantRootScopeStatusInconsistent,
+			Reason:    "tenant root scope 当前未启用，可执行修复。",
+			CanRepair: true,
+		}, nil
+	}
+	return &TenantRootScopeHealth{
+		Status:    tenantRootScopeStatusHealthy,
+		CanRepair: false,
+	}, nil
+}
+
 func (a *ScopeAuthorizer) ResolveTenantScope(ctx context.Context, tenantID string) (*iamentity.Scope, error) {
 	tenantID = strings.TrimSpace(tenantID)
 	if tenantID == "" {
-		return nil, errorx.New(errorx.Validation, "tenant_id is required")
+		return nil, errors.NewCode(errors.Validation, "tenant_id is required")
 	}
 	tenant, err := a.tenantRepo.FindByKey(ctx, tenantID)
 	if err != nil {
@@ -164,37 +290,37 @@ func (a *ScopeAuthorizer) ResolveTenantScope(ctx context.Context, tenantID strin
 
 func (a *ScopeAuthorizer) lookupTenantRootScope(ctx context.Context, tenant *iamentity.Tenant) (*iamentity.Scope, error) {
 	if tenant == nil {
-		return nil, errorx.New(errorx.InvalidInput, "tenant is required")
+		return nil, errors.NewCode(errors.InvalidInput, "tenant is required")
 	}
 
 	scopeKey := fmt.Sprintf("tenant:%s", strings.TrimSpace(tenant.Key))
 	if tenant.RootScopeID == nil || *tenant.RootScopeID <= 0 {
-		return nil, errorx.New(errorx.Internal, "tenant root scope is missing")
+		return nil, errors.NewCode(errors.Internal, "tenant root scope is missing")
 	}
 
 	scope, err := a.scopeRepo.Get(ctx, *tenant.RootScopeID)
 	if err != nil {
-		if errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.New(errorx.Internal, "tenant root scope is missing")
+		if errors.Is(err, errors.NotFound) {
+			return nil, errors.NewCode(errors.Internal, "tenant root scope is missing")
 		}
 		return nil, err
 	}
 	if scope == nil {
-		return nil, errorx.New(errorx.Internal, "tenant root scope is missing")
+		return nil, errors.NewCode(errors.Internal, "tenant root scope is missing")
 	}
 	if scope.Key != scopeKey || scope.Type != iamentity.ScopeTypeTenant {
-		return nil, errorx.New(errorx.Internal, "tenant root scope is inconsistent")
+		return nil, errors.NewCode(errors.Internal, "tenant root scope is inconsistent")
 	}
 	return scope, nil
 }
 
 func (a *ScopeAuthorizer) ResolveActiveScope(ctx context.Context) (*iamentity.Scope, error) {
 	if ctx == nil {
-		return nil, errorx.New(errorx.Unauthorized, "用户未认证")
+		return nil, errors.NewCode(errors.Unauthorized, "用户未认证")
 	}
 	scopeID := activeScopeIDFromContext(ctx)
 	if scopeID <= 0 {
-		return nil, errorx.New(errorx.Unauthorized, "active scope is required")
+		return nil, errors.NewCode(errors.Unauthorized, "active scope is required")
 	}
 	return a.scopeRepo.Get(ctx, scopeID)
 }
@@ -224,7 +350,7 @@ func (a *ScopeAuthorizer) RequirePermissionInScope(ctx context.Context, permissi
 		return err
 	}
 	if !covers {
-		return errorx.New(errorx.Forbidden, "当前授权域不覆盖目标资源")
+		return errors.NewCode(errors.Forbidden, "当前授权域不覆盖目标资源")
 	}
 	return nil
 }

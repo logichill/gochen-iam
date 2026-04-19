@@ -5,7 +5,7 @@ import (
 
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
 	"gochen/validation"
 )
 
@@ -40,43 +40,43 @@ func (*User) TableName() string {
 // Validate 验证用户数据（指针接收者）
 func (u *User) Validate() error {
 	if err := validation.ValidateRequired(u.TenantID, "tenant_id"); err != nil {
-		return errorx.New(errorx.Validation, "租户ID不能为空")
+		return errors.NewCode(errors.Validation, "租户ID不能为空")
 	}
 	if err := validation.ValidateRequired(u.HomeTenantID, "home_tenant_id"); err != nil {
-		return errorx.New(errorx.Validation, "home_tenant_id 不能为空")
+		return errors.NewCode(errors.Validation, "home_tenant_id 不能为空")
 	}
 	if u.HomeScopeID <= 0 {
-		return errorx.New(errorx.Validation, "home_scope_id 不能为空")
+		return errors.NewCode(errors.Validation, "home_scope_id 不能为空")
 	}
 	if u.ManagedScopeID <= 0 {
-		return errorx.New(errorx.Validation, "managed_scope_id 不能为空")
+		return errors.NewCode(errors.Validation, "managed_scope_id 不能为空")
 	}
 	if err := validation.ValidateRequired(u.OwnerID, "owner_id"); err != nil {
-		return errorx.New(errorx.Validation, "owner_id 不能为空")
+		return errors.NewCode(errors.Validation, "owner_id 不能为空")
 	}
 	if err := validation.ValidateRequired(u.Username, "username"); err != nil {
-		return errorx.New(errorx.Validation, "用户名不能为空")
+		return errors.NewCode(errors.Validation, "用户名不能为空")
 	}
 	if err := validation.ValidateStringLength(u.Username, "username", 3, 50); err != nil {
-		return errorx.New(errorx.Validation, "用户名长度必须在3-50个字符之间")
+		return errors.NewCode(errors.Validation, "用户名长度必须在3-50个字符之间")
 	}
 
 	if err := validation.ValidateRequired(u.Email, "email"); err != nil {
-		return errorx.New(errorx.Validation, "邮箱不能为空")
+		return errors.NewCode(errors.Validation, "邮箱不能为空")
 	}
 	if err := validation.ValidateEmail(u.Email); err != nil {
-		return errorx.New(errorx.Validation, "邮箱格式不正确")
+		return errors.NewCode(errors.Validation, "邮箱格式不正确")
 	}
 
 	if err := validation.ValidateRequired(u.Password, "password"); err != nil {
-		return errorx.New(errorx.Validation, "密码不能为空")
+		return errors.NewCode(errors.Validation, "密码不能为空")
 	}
 	if err := validation.ValidateStringLength(u.Password, "password", 6, 0); err != nil {
-		return errorx.New(errorx.Validation, "密码长度不能少于6个字符")
+		return errors.NewCode(errors.Validation, "密码长度不能少于6个字符")
 	}
 
 	if u.Status != "" && !isValidUserStatus(u.Status) {
-		return errorx.New(errorx.Validation, "用户状态无效")
+		return errors.NewCode(errors.Validation, "用户状态无效")
 	}
 
 	return nil

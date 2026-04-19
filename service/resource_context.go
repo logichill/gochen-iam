@@ -6,10 +6,10 @@ import (
 
 	iamauth "gochen-iam/auth"
 	"gochen/app/access"
-	"gochen/authz"
+	"gochen/auth"
 	"gochen/domain"
 	domaincrud "gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 // IResourceContextRepository 组合了资源边界解析与基础按 ID 读取能力。
@@ -33,7 +33,7 @@ func LoadTenantBoundResource[T domain.IEntity[ID], ID comparable](
 ) (T, context.Context, error) {
 	var zero T
 	if repo == nil {
-		return zero, nil, errorx.New(errorx.InvalidInput, "repo is required")
+		return zero, nil, errors.NewCode(errors.InvalidInput, "repo is required")
 	}
 	resource, err := repo.ResolveResourceByID(ctx, id)
 	if err != nil {
@@ -83,8 +83,18 @@ func clearBoundScopeContext(ctx context.Context) (context.Context, error) {
 	if err != nil {
 		return nil, err
 	}
-	if scope, ok := authz.DataScopeFromContext(boundCtx); ok && scope.Mode == authz.ScopeModeManagedScopes {
-		return authz.WithDataScope(boundCtx, authz.DataScope{Mode: authz.ScopeModeGlobal})
+	if scope, ok := auth.DataScopeFromContext(boundCtx); ok && scope.Mode == auth.ScopeModeManagedScopes {
+		return auth.WithDataScope(boundCtx, auth.DataScope{Mode: auth.ScopeModeGlobal})
 	}
 	return boundCtx, nil
+}
+
+// BindTenantGlobalScopeContext 在保留 tenant 边界的同时清空 managed scope 约束。
+// 适用于需要判断“资源真实存在”与“当前 scope 不可见”差异的场景。
+func BindTenantGlobalScopeContext(ctx context.Context, tenantID string) (context.Context, error) {
+	tenantCtx, err := BindTenantContext(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return clearBoundScopeContext(tenantCtx)
 }

@@ -10,9 +10,9 @@ import (
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	"gochen/authz"
-	dataquery "gochen/db/query"
-	"gochen/errorx"
+	"gochen/auth"
+	"gochen/db/query"
+	"gochen/errors"
 	"gochen/logging"
 )
 
@@ -22,7 +22,7 @@ type GroupService struct {
 	userRepo        *userrepo.UserRepo
 	roleRepo        *rolerepo.RoleRepo
 	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      authz.IAuthorizer
+	authorizer      auth.IAuthorizer
 	logger          logging.ILogger
 }
 
@@ -32,7 +32,7 @@ func NewGroupService(
 	userRepo *userrepo.UserRepo,
 	roleRepo *rolerepo.RoleRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer *authz.Authorizer,
+	authorizer *auth.Authorizer,
 ) *GroupService {
 	return &GroupService{
 		groupRepo:       groupRepo,
@@ -71,7 +71,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 		}
 	}
 	if managedScopeID == 0 {
-		return nil, errorx.New(errorx.InvalidInput, "managed scope is required")
+		return nil, errors.NewCode(errors.InvalidInput, "managed scope is required")
 	}
 	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), &iamentity.Group{TenantID: tenantID})
 	if err != nil {
@@ -83,7 +83,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 	if req.ParentID != nil {
 		parent, err := s.groupRepo.Get(tenantCtx, *req.ParentID)
 		if err != nil {
-			return nil, errorx.Wrap(err, errorx.NotFound, "父组织不存在")
+			return nil, errors.Wrap(err, errors.NotFound, "父组织不存在")
 		}
 		if _, err := svc.PreflightSameTenant(tenantCtx, s.scopeAuthorizer, "", tenantID, parent.TenantID); err != nil {
 			return nil, err
@@ -92,7 +92,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 
 		// 检查层级限制
 		if parentGroup.Level >= svc.MaxGroupLevel {
-			return nil, errorx.New(errorx.Validation, "组织层级不能超过10级")
+			return nil, errors.NewCode(errors.Validation, "组织层级不能超过10级")
 		}
 	}
 
@@ -121,7 +121,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 
 	// 6. 保存组织
 	if err := s.groupRepo.CreateWithConstraint(tenantCtx, group, guard); err != nil {
-		return nil, errorx.Wrap(err, errorx.Database, "保存组织失败")
+		return nil, errors.Wrap(err, errors.Database, "保存组织失败")
 	}
 
 	return group, nil
@@ -135,7 +135,7 @@ func (s *GroupService) UpdateGroup(
 	patches ...svc.FieldPatch[iamentity.Group],
 ) (*iamentity.Group, error) {
 	if req == nil {
-		return nil, errorx.New(errorx.Validation, "update group request is required")
+		return nil, errors.NewCode(errors.Validation, "update group request is required")
 	}
 
 	// 1. 获取组织
@@ -165,20 +165,20 @@ func (s *GroupService) UpdateGroup(
 
 	if parentChanged && candidate.ParentID != nil {
 		if *candidate.ParentID == (*group).GetID() {
-			return nil, errorx.New(errorx.Validation, "不能将组织设置为自己的父组织")
+			return nil, errors.NewCode(errors.Validation, "不能将组织设置为自己的父组织")
 		}
 		parent, err := s.groupRepo.Get(tenantCtx, *candidate.ParentID)
 		if err != nil {
-			return nil, errorx.Wrap(err, errorx.NotFound, "父组织不存在")
+			return nil, errors.Wrap(err, errors.NotFound, "父组织不存在")
 		}
 		if _, err := svc.PreflightSameTenant(tenantCtx, s.scopeAuthorizer, "", group.TenantID, parent.TenantID); err != nil {
 			return nil, err
 		}
 		if parent.Level >= svc.MaxGroupLevel {
-			return nil, errorx.New(errorx.Validation, "组织层级不能超过10级")
+			return nil, errors.NewCode(errors.Validation, "组织层级不能超过10级")
 		}
 		if (*group).IsAncestorOf(parent) {
-			return nil, errorx.New(errorx.Validation, "不能将组织移动到其子组织下")
+			return nil, errors.NewCode(errors.Validation, "不能将组织移动到其子组织下")
 		}
 		(*group).SetParent(parent)
 	} else if parentChanged && candidate.ParentID == nil {
@@ -257,7 +257,7 @@ func (s *GroupService) DeleteGroup(ctx context.Context, tenantID string, groupID
 		return err
 	}
 	if len(children) > 0 {
-		return errorx.New(errorx.Validation, "不能删除有子组织的组织，请先处理子组织")
+		return errors.NewCode(errors.Validation, "不能删除有子组织的组织，请先处理子组织")
 	}
 
 	// 2. 检查是否有用户
@@ -266,7 +266,7 @@ func (s *GroupService) DeleteGroup(ctx context.Context, tenantID string, groupID
 		return err
 	}
 	if len(users) > 0 {
-		return errorx.New(errorx.Validation, "不能删除有用户的组织，请先移除用户")
+		return errors.NewCode(errors.Validation, "不能删除有用户的组织，请先移除用户")
 	}
 
 	// 3. 删除组织
@@ -473,17 +473,17 @@ func (s *GroupService) GroupStatistics(ctx context.Context) (*svc.StatisticsResp
 		return nil, err
 	}
 
-	totalGroups, err := s.groupRepo.QueryCount(tenantCtx, dataquery.QueryOptions{})
+	totalGroups, err := s.groupRepo.QueryCount(tenantCtx, query.QueryOptions{})
 	if err != nil {
 		return nil, err
 	}
 
-	totalRoles, err := s.roleRepo.QueryCount(tenantCtx, dataquery.QueryOptions{})
+	totalRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{})
 	if err != nil {
 		return nil, err
 	}
 
-	totalUsers, err := s.userRepo.QueryCount(tenantCtx, dataquery.QueryOptions{})
+	totalUsers, err := s.userRepo.QueryCount(tenantCtx, query.QueryOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -517,13 +517,13 @@ func (s *GroupService) GroupStatistics(ctx context.Context) (*svc.StatisticsResp
 // validateCreateGroupRequest 验证创建组织请求
 func (s *GroupService) validateCreateGroupRequest(req *svc.CreateGroupRequest) error {
 	if req.Name == "" {
-		return errorx.New(errorx.Validation, "组织名称不能为空")
+		return errors.NewCode(errors.Validation, "组织名称不能为空")
 	}
 	if len(req.Name) > 100 {
-		return errorx.New(errorx.Validation, "组织名称不能超过100个字符")
+		return errors.NewCode(errors.Validation, "组织名称不能超过100个字符")
 	}
 	if len(req.Description) > 500 {
-		return errorx.New(errorx.Validation, "组织描述不能超过500个字符")
+		return errors.NewCode(errors.Validation, "组织描述不能超过500个字符")
 	}
 	return nil
 }
@@ -555,7 +555,7 @@ func (s *GroupService) checkGroupNameDuplicate(ctx context.Context, tenantID str
 
 	for _, group := range groups {
 		if group.Name == name {
-			return errorx.New(errorx.Validation, "同一层级下组织名称不能重复")
+			return errors.NewCode(errors.Validation, "同一层级下组织名称不能重复")
 		}
 	}
 

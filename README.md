@@ -38,8 +38,10 @@
 
 约束：
 
-- `tenant_id` 仍保留为业务字段，用于租户内唯一性与请求归一化
+- `tenant_id` 仍保留为业务字段，用于租户内唯一性与请求归一化（例如 email/name 在租户内唯一、同租户关联查询过滤）
+- 授权判定层使用 `authz.Resource.TenantID` 结构化字段承载租户归属语义，不再从 `owner_id` 字符串前缀推断
 - 真正的授权边界统一由 `managed_scope_id` / `namespace_scope_id` 与 `scope_visibility_map` 表达
+- 平台级资源（scope / tenant / menu）通过 `authz.Resource.GlobalScope=true` 显式标记，与"未填充 managed scope"语义完全分离
 - `scope_type / scope_code` 不再作为资源主表达字段，也不再参与 repo 高频过滤
 - `platform` 是 scope，不是 tenant
 

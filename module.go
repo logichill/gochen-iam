@@ -13,11 +13,12 @@ import (
 	groupsvc "gochen-iam/service/group"
 	menusvc "gochen-iam/service/menu"
 	rolesvc "gochen-iam/service/role"
+	scopesvc "gochen-iam/service/scope"
 	tenantsvc "gochen-iam/service/tenant"
 	usersvc "gochen-iam/service/user"
 	"gochen-iam/tenant"
 	"gochen/boot"
-	"gochen/errorx"
+	"gochen/errors"
 	"gochen/httpx"
 	"gochen/server"
 )
@@ -47,6 +48,7 @@ func NewModule() (server.IModule, error) {
 				iamservice.InstallAuthContextResolver,
 				iamservice.NewIAMAuthorizer,
 				tenantsvc.NewTenantService,
+				scopesvc.NewScopeService,
 				usersvc.NewUserService,
 				groupsvc.NewGroupService,
 				rolesvc.NewRoleService,
@@ -58,6 +60,7 @@ func NewModule() (server.IModule, error) {
 				iamrouter.NewRoleRoutes,
 				iamrouter.NewGroupRoutes,
 				iamrouter.NewTenantRoutes,
+				iamrouter.NewScopeRoutes,
 				iamrouter.NewMenuRoutes,
 				NewAuthConfigValidator,
 			).
@@ -86,7 +89,7 @@ func NewAuthConfigValidator(_ *iamservice.AuthContextResolver) *authConfigValida
 // RegisterRoutes 注册路由集合。
 func (v *authConfigValidator) RegisterRoutes(httpx.IRouteGroup) error {
 	if err := iammw.ValidateAuthConfig(nil); err != nil {
-		return errorx.Wrap(err, errorx.Internal, "auth config validation failed")
+		return errors.Wrap(err, errors.Internal, "auth config validation failed")
 	}
 	return nil
 }

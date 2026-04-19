@@ -8,7 +8,7 @@ import (
 	iammw "gochen-iam/middleware"
 	"gochen/domain"
 	"gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
 	"gochen/validation"
 )
 
@@ -70,25 +70,25 @@ func (Role) TableName() string {
 // Validate 验证角色数据
 func (r *Role) Validate() error {
 	if r.TenantID == "" {
-		return errorx.New(errorx.Validation, "租户ID不能为空")
+		return errors.NewCode(errors.Validation, "租户ID不能为空")
 	}
 	if r.OwnerID == "" {
-		return errorx.New(errorx.Validation, "owner_id 不能为空")
+		return errors.NewCode(errors.Validation, "owner_id 不能为空")
 	}
 	if r.NamespaceScopeID <= 0 {
-		return errorx.New(errorx.Validation, "namespace_scope_id 不能为空")
+		return errors.NewCode(errors.Validation, "namespace_scope_id 不能为空")
 	}
 	if err := validation.ValidateRequired(r.Name, "role name"); err != nil {
-		return errorx.New(errorx.Validation, "角色名称不能为空")
+		return errors.NewCode(errors.Validation, "角色名称不能为空")
 	}
 	if err := validation.ValidateStringLength(r.Name, "role name", 0, 50); err != nil {
-		return errorx.New(errorx.Validation, "角色名称不能超过50个字符")
+		return errors.NewCode(errors.Validation, "角色名称不能超过50个字符")
 	}
 	if err := validation.ValidateStringLength(r.Description, "role description", 0, 500); err != nil {
-		return errorx.New(errorx.Validation, "角色描述不能超过500个字符")
+		return errors.NewCode(errors.Validation, "角色描述不能超过500个字符")
 	}
 	if r.Status != "" && !isValidRoleStatus(r.Status) {
-		return errorx.New(errorx.Validation, "角色状态无效")
+		return errors.NewCode(errors.Validation, "角色状态无效")
 	}
 	return nil
 }

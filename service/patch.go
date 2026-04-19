@@ -1,6 +1,6 @@
 package service
 
-import "gochen/errorx"
+import "gochen/errors"
 
 // FieldPatch 表示“对目标实体执行一次显式字段更新”。
 //
@@ -28,7 +28,7 @@ func ValueFieldPatch[T any, V any](setter func(*T, V), value V) FieldPatch[T] {
 // Apply 执行当前 patch。
 func (p FieldPatch[T]) Apply(target *T) error {
 	if target == nil {
-		return errorx.New(errorx.InvalidInput, "field patch target cannot be nil")
+		return errors.NewCode(errors.InvalidInput, "field patch target cannot be nil")
 	}
 	if p.apply == nil {
 		return nil

@@ -14,7 +14,7 @@ import (
 	tenantrepo "gochen-iam/repo/tenant"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	"gochen/authz"
+	"gochen/auth"
 	ctxx "gochen/contextx"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -69,7 +69,7 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     1,
 		Permissions:   []string{"*:*:*"},
 		IsSystem:      true,
@@ -83,10 +83,10 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 		t.Fatalf("WithTenantID: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iamentity.ScopeTypeTenant))
-	ctx, err = authz.WithDataScope(ctx, authz.DataScope{
+	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
 		ActiveScopeID:   1,
 		VisibleScopeIDs: []int64{1},
-		Mode:            authz.ScopeModeManagedScopes,
+		Mode:            auth.ScopeModeManagedScopes,
 	})
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)
@@ -196,7 +196,7 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 	}
 
 	ctx := context.Background()
-	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     1,
 		Permissions:   []string{"*:*:*"},
 		IsSystem:      true,
@@ -210,10 +210,10 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 		t.Fatalf("WithTenantID: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iamentity.ScopeTypeTenant))
-	ctx, err = authz.WithDataScope(ctx, authz.DataScope{
+	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
 		ActiveScopeID:   1,
 		VisibleScopeIDs: []int64{1},
-		Mode:            authz.ScopeModeManagedScopes,
+		Mode:            auth.ScopeModeManagedScopes,
 	})
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)

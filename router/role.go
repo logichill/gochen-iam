@@ -9,9 +9,9 @@ import (
 	rolesvc "gochen-iam/service/role"
 	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
-	"gochen/authz"
-	dataquery "gochen/db/query"
-	"gochen/errorx"
+	"gochen/auth"
+	"gochen/db/query"
+	"gochen/errors"
 	"gochen/httpx"
 	"gochen/httpx/nethttp"
 )
@@ -26,7 +26,7 @@ type roleQueryFields struct {
 	UpdatedAt time.Time
 }
 
-var roleQuerySchema = dataquery.MustInferQuerySchema[roleQueryFields](nil)
+var roleQuerySchema = query.MustInferQuerySchema[roleQueryFields](nil)
 
 // RoleRoutes 角色路由注册器
 type RoleRoutes struct {
@@ -34,7 +34,7 @@ type RoleRoutes struct {
 	utils           *nethttp.Utils
 	roleRepo        svc.IScopedResourceContextRepository[*iamentity.Role, int64]
 	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      authz.IAuthorizer
+	authorizer      auth.IAuthorizer
 	governance      *rolesvc.Governance
 }
 
@@ -43,7 +43,7 @@ func NewRoleRoutes(
 	roleService IRoleService,
 	roleRepo svc.IScopedResourceContextRepository[*iamentity.Role, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer *authz.Authorizer,
+	authorizer *auth.Authorizer,
 ) *RoleRoutes {
 	var governance *rolesvc.Governance
 	if provider, ok := roleService.(interface{ Governance() *rolesvc.Governance }); ok {
@@ -62,7 +62,7 @@ func NewRoleRoutes(
 // RegisterRoutes 注册路由。
 func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	if group == nil {
-		return errorx.New(errorx.InvalidInput, "route group cannot be nil")
+		return errors.NewCode(errors.InvalidInput, "route group cannot be nil")
 	}
 	// 角色基础CRUD - 使用 shared/httpx/api 构建器
 	roleGroup := group.Group("/roles")
@@ -75,10 +75,10 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	appService, err := svc.NewCRUDApplication[*iamentity.Role, int64](rr.roleRepo, rr.roleRepo)
 	if err != nil {
-		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create role crud application").WithContext("route", "iam.role")
 		}
-		return errorx.Wrap(err, errorx.Internal, "failed to create role crud application").WithContext("route", "iam.role")
+		return errors.Wrap(err, errors.Internal, "failed to create role crud application").WithContext("route", "iam.role")
 	}
 
 	builder, err := restapi.NewApiBuilder(
@@ -96,10 +96,10 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		}),
 	)
 	if err != nil {
-		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create role api builder").WithContext("route", "iam.role")
 		}
-		return errorx.Wrap(err, errorx.Internal, "failed to create role api builder").WithContext("route", "iam.role")
+		return errors.Wrap(err, errors.Internal, "failed to create role api builder").WithContext("route", "iam.role")
 	}
 	if err := builder.
 		Route(func(cfg *restapi.RouteConfig[int64]) {
@@ -108,15 +108,15 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000
 			if cfg.Authorization != nil {
-				cfg.Authorization.Consistency = authz.ConsistencyModeStrong
+				cfg.Authorization.Consistency = auth.ConsistencyModeStrong
 				cfg.Authorization.HighRisk = true
 			}
 		}).
 		Build(roleGroup); err != nil {
-		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("build role crud routes").WithContext("route", "iam.role")
 		}
-		return errorx.Wrap(err, errorx.Internal, "failed to build role crud routes").WithContext("route", "iam.role")
+		return errors.Wrap(err, errors.Internal, "failed to build role crud routes").WithContext("route", "iam.role")
 	}
 
 	// 角色扩展功能
@@ -197,7 +197,7 @@ func (rr *RoleRoutes) addRolePermission(ctx httpx.IContext) error {
 		return err
 	}
 	if req.Permission == "" {
-		err := errorx.New(errorx.Validation, "permission is required")
+		err := errors.NewCode(errors.Validation, "permission is required")
 		return err
 	}
 
@@ -221,7 +221,7 @@ func (rr *RoleRoutes) removeRolePermission(ctx httpx.IContext) error {
 
 	permission := ctx.Param("permission")
 	if permission == "" {
-		err := errorx.New(errorx.Validation, "permission is required")
+		err := errors.NewCode(errors.Validation, "permission is required")
 		return err
 	}
 
@@ -267,7 +267,7 @@ func (rr *RoleRoutes) assignRoleToUsers(ctx httpx.IContext) error {
 		return err
 	}
 	if len(req.UserIDs) == 0 {
-		err := errorx.New(errorx.Validation, "user_ids cannot be empty")
+		err := errors.NewCode(errors.Validation, "user_ids cannot be empty")
 		return err
 	}
 	req.RoleID = roleID

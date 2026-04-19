@@ -5,28 +5,28 @@ import (
 	"strconv"
 	"time"
 
+	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
-	iamaccess "gochen-iam/access"
 	"gochen/db/orm"
-	db "gochen/db/orm/repo"
-	"gochen/errorx"
+	"gochen/db/orm/repo"
+	"gochen/errors"
 	"gochen/ident"
 )
 
 // MenuItemRepo 菜单项仓储（全局）。
 type MenuItemRepo struct {
-	*db.Repo[*iamentity.MenuItem, int64]
+	*repo.Repo[*iamentity.MenuItem, int64]
 }
 
 // NewMenuItemRepository 创建菜单条目仓储。
 func NewMenuItemRepository(o orm.IOrm) (*MenuItemRepo, error) {
-	base, err := db.NewRepo[*iamentity.MenuItem, int64](
+	base, err := repo.NewRepo[*iamentity.MenuItem, int64](
 		o,
 		"menu_items",
-		db.WithIDGenerator[*iamentity.MenuItem, int64](ident.DefaultInt64Generator()),
-		db.WithResourceKind[*iamentity.MenuItem, int64]("iam.menu"),
-		db.WithSoftDeleteColumns[*iamentity.MenuItem, int64]("deleted_at", ""),
+		repo.WithIDGenerator[*iamentity.MenuItem, int64](ident.DefaultInt64Generator()),
+		repo.WithResourceKind[*iamentity.MenuItem, int64]("iam.menu"),
+		repo.WithSoftDeleteColumns[*iamentity.MenuItem, int64]("deleted_at", ""),
 	)
 	if err != nil {
 		return nil, err
@@ -64,10 +64,10 @@ func (r *MenuItemRepo) Get(ctx context.Context, id int64) (*iamentity.MenuItem, 
 	}
 	var item iamentity.MenuItem
 	if err := model.First(ctx, &item, orm.WithWhere("id = ? AND deleted_at IS NULL", id)); err != nil {
-		if errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.New(errorx.NotFound, "菜单不存在")
+		if errors.Is(err, errors.NotFound) {
+			return nil, errors.NewCode(errors.NotFound, "菜单不存在")
 		}
-		return nil, errorx.Wrap(err, errorx.Database, "查询菜单失败")
+		return nil, errors.Wrap(err, errors.Database, "查询菜单失败")
 	}
 	return &item, nil
 }
@@ -80,10 +80,10 @@ func (r *MenuItemRepo) GetWithDeleted(ctx context.Context, id int64) (*iamentity
 	}
 	var item iamentity.MenuItem
 	if err := model.First(ctx, &item, orm.WithWhere("id = ?", id)); err != nil {
-		if errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.New(errorx.NotFound, "菜单不存在")
+		if errors.Is(err, errors.NotFound) {
+			return nil, errors.NewCode(errors.NotFound, "菜单不存在")
 		}
-		return nil, errorx.Wrap(err, errorx.Database, "查询菜单失败")
+		return nil, errors.Wrap(err, errors.Database, "查询菜单失败")
 	}
 	return &item, nil
 }
@@ -96,10 +96,10 @@ func (r *MenuItemRepo) FindByCode(ctx context.Context, code string) (*iamentity.
 	}
 	var item iamentity.MenuItem
 	if err := model.First(ctx, &item, orm.WithWhere("code = ? AND deleted_at IS NULL", code)); err != nil {
-		if errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.New(errorx.NotFound, "菜单不存在")
+		if errors.Is(err, errors.NotFound) {
+			return nil, errors.NewCode(errors.NotFound, "菜单不存在")
 		}
-		return nil, errorx.Wrap(err, errorx.Database, "查询菜单失败")
+		return nil, errors.Wrap(err, errors.Database, "查询菜单失败")
 	}
 	return &item, nil
 }
@@ -112,10 +112,10 @@ func (r *MenuItemRepo) FindByCodeWithDeleted(ctx context.Context, code string) (
 	}
 	var item iamentity.MenuItem
 	if err := model.First(ctx, &item, orm.WithWhere("code = ?", code)); err != nil {
-		if errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.New(errorx.NotFound, "菜单不存在")
+		if errors.Is(err, errors.NotFound) {
+			return nil, errors.NewCode(errors.NotFound, "菜单不存在")
 		}
-		return nil, errorx.Wrap(err, errorx.Database, "查询菜单失败")
+		return nil, errors.Wrap(err, errors.Database, "查询菜单失败")
 	}
 	return &item, nil
 }
@@ -128,7 +128,7 @@ func (r *MenuItemRepo) ListAll(ctx context.Context) ([]*iamentity.MenuItem, erro
 	}
 	var items []*iamentity.MenuItem
 	if err := model.Find(ctx, &items, orm.WithWhere("deleted_at IS NULL")); err != nil {
-		return nil, errorx.Wrap(err, errorx.Database, "查询菜单列表失败")
+		return nil, errors.Wrap(err, errors.Database, "查询菜单列表失败")
 	}
 	return items, nil
 }
@@ -143,7 +143,7 @@ func (r *MenuItemRepo) ListPublished(ctx context.Context) ([]*iamentity.MenuItem
 	if err := model.Find(ctx, &items,
 		orm.WithWhere("deleted_at IS NULL AND published = ?", true),
 	); err != nil {
-		return nil, errorx.Wrap(err, errorx.Database, "查询菜单列表失败")
+		return nil, errors.Wrap(err, errors.Database, "查询菜单列表失败")
 	}
 	return items, nil
 }
@@ -159,7 +159,7 @@ func (r *MenuItemRepo) RestoreByID(ctx context.Context, id int64) (*iamentity.Me
 	}
 
 	if err := item.Restore(); err != nil {
-		return nil, errorx.Wrap(err, errorx.Internal, "恢复菜单失败")
+		return nil, errors.Wrap(err, errors.Internal, "恢复菜单失败")
 	}
 
 	model, err := r.ModelFor(ctx)
@@ -172,7 +172,7 @@ func (r *MenuItemRepo) RestoreByID(ctx context.Context, id int64) (*iamentity.Me
 		"deleted_at": item.DeletedAt,
 		"updated_at": item.UpdatedAt,
 	}, orm.WithWhere("id = ?", id)); err != nil {
-		return nil, errorx.Wrap(err, errorx.Database, "恢复菜单失败")
+		return nil, errors.Wrap(err, errors.Database, "恢复菜单失败")
 	}
 	return item, nil
 }
@@ -197,18 +197,18 @@ func (r *MenuItemRepo) RestoreByIDWithConstraint(ctx context.Context, id int64, 
 	}
 	withResult, ok := model.(orm.IModelWithResult)
 	if !ok {
-		return nil, errorx.New(errorx.Unsupported, "guarded menu restore requires an orm model with result support")
+		return nil, errors.NewCode(errors.Unsupported, "guarded menu restore requires an orm model with result support")
 	}
 	result, err := withResult.UpdateValuesWithResult(ctx, map[string]any{
 		"deleted_at": (*time.Time)(nil),
 		"updated_at": now,
 	}, orm.WithWhere("id = ? AND version = ?", id, expectedVersion))
 	if err != nil {
-		return nil, errorx.Wrap(err, errorx.Database, "恢复菜单失败")
+		return nil, errors.Wrap(err, errors.Database, "恢复菜单失败")
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return nil, errorx.Wrap(err, errorx.Database, "读取菜单恢复结果失败")
+		return nil, errors.Wrap(err, errors.Database, "读取菜单恢复结果失败")
 	}
 	if affected == 0 {
 		return nil, classifyMenuGuardMiss(item, expectedVersion)
@@ -221,7 +221,7 @@ func (r *MenuItemRepo) RestoreByIDWithConstraint(ctx context.Context, id int64, 
 // PurgeByID 物理删除菜单（硬删）。
 func (r *MenuItemRepo) PurgeByID(ctx context.Context, id int64) error {
 	if err := r.Purge(ctx, id); err != nil {
-		return errorx.Wrap(err, errorx.Database, "物理删除菜单失败")
+		return errors.Wrap(err, errors.Database, "物理删除菜单失败")
 	}
 	return nil
 }
@@ -242,15 +242,15 @@ func (r *MenuItemRepo) PurgeByIDWithConstraint(ctx context.Context, id int64, gu
 	}
 	withResult, ok := model.(orm.IModelWithResult)
 	if !ok {
-		return errorx.New(errorx.Unsupported, "guarded menu purge requires an orm model with result support")
+		return errors.NewCode(errors.Unsupported, "guarded menu purge requires an orm model with result support")
 	}
 	result, err := withResult.DeleteWithResult(ctx, orm.WithWhere("id = ? AND version = ?", id, expectedVersion))
 	if err != nil {
-		return errorx.Wrap(err, errorx.Database, "物理删除菜单失败")
+		return errors.Wrap(err, errors.Database, "物理删除菜单失败")
 	}
 	affected, err := result.RowsAffected()
 	if err != nil {
-		return errorx.Wrap(err, errorx.Database, "读取菜单硬删结果失败")
+		return errors.Wrap(err, errors.Database, "读取菜单硬删结果失败")
 	}
 	if affected == 0 {
 		return classifyMenuGuardMiss(item, expectedVersion)
@@ -265,17 +265,17 @@ func (r *MenuItemRepo) requireConstrainedMenu(guard iamaccess.WriteConstraint, i
 	}
 	expectedVersion, err := strconv.ParseUint(resource.Revision, 10, 64)
 	if err != nil {
-		return iamaccess.ResourceConstraint{}, 0, errorx.Wrap(err, errorx.InvalidInput, "invalid menu write constraint revision")
+		return iamaccess.ResourceConstraint{}, 0, errors.Wrap(err, errors.InvalidInput, "invalid menu write constraint revision")
 	}
 	return resource, expectedVersion, nil
 }
 
 func classifyMenuGuardMiss(item *iamentity.MenuItem, expectedVersion uint64) error {
 	if item != nil && item.GetVersion() != expectedVersion {
-		return errorx.New(errorx.Conflict, "record revision mismatch").
+		return errors.NewCode(errors.Conflict, "record revision mismatch").
 			WithContext("id", item.GetID()).
 			WithContext("expected_version", expectedVersion).
 			WithContext("actual_version", item.GetVersion())
 	}
-	return errorx.New(errorx.Conflict, "guarded write did not affect any record")
+	return errors.NewCode(errors.Conflict, "guarded write did not affect any record")
 }

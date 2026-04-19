@@ -10,7 +10,7 @@ import (
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
 	"gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 type roleGovernanceRepo interface {
@@ -46,10 +46,10 @@ func NewGovernance(
 // PrepareCreate 在持久化前补齐默认字段并校验创建规则。
 func (g *Governance) PrepareCreate(ctx context.Context, role *iamentity.Role) error {
 	if role == nil {
-		return errorx.New(errorx.InvalidInput, "role is required")
+		return errors.NewCode(errors.InvalidInput, "role is required")
 	}
 	if g == nil || g.roleRepo == nil {
-		return errorx.New(errorx.InvalidInput, "role governance is not configured")
+		return errors.NewCode(errors.InvalidInput, "role governance is not configured")
 	}
 
 	tenantID, err := svc.NormalizeTenantID(ctx, role.TenantID)
@@ -92,10 +92,10 @@ func (g *Governance) PrepareCreate(ctx context.Context, role *iamentity.Role) er
 // PrepareUpdate 在持久化前收敛可变字段并校验更新规则。
 func (g *Governance) PrepareUpdate(ctx context.Context, role *iamentity.Role) error {
 	if g == nil || g.roleRepo == nil {
-		return errorx.New(errorx.InvalidInput, "role governance is not configured")
+		return errors.NewCode(errors.InvalidInput, "role governance is not configured")
 	}
 	if role == nil {
-		return errorx.New(errorx.InvalidInput, "role is required")
+		return errors.NewCode(errors.InvalidInput, "role is required")
 	}
 
 	current, tenantCtx, err := svc.LoadTenantBoundResource(ctx, g.roleRepo, role.GetID())
@@ -115,20 +115,20 @@ func (g *Governance) PrepareUpdateWithCurrent(
 	role *iamentity.Role,
 ) error {
 	if role == nil {
-		return errorx.New(errorx.InvalidInput, "role is required")
+		return errors.NewCode(errors.InvalidInput, "role is required")
 	}
 	if current == nil {
-		return errorx.New(errorx.InvalidInput, "current role is required")
+		return errors.NewCode(errors.InvalidInput, "current role is required")
 	}
 	if g == nil || g.roleRepo == nil {
-		return errorx.New(errorx.InvalidInput, "role governance is not configured")
+		return errors.NewCode(errors.InvalidInput, "role governance is not configured")
 	}
 	if _, err := svc.RequireTenantMatch(ctx, current.GetTenantID()); err != nil {
 		return err
 	}
 
 	if current.IsSystem {
-		return errorx.New(errorx.Validation, "系统角色不能被修改")
+		return errors.NewCode(errors.Validation, "系统角色不能被修改")
 	}
 
 	role.SetTenantID(current.GetTenantID())
@@ -160,7 +160,7 @@ func (g *Governance) PrepareUpdateWithCurrent(
 // ValidateDelete 校验删除前治理规则。
 func (g *Governance) ValidateDelete(ctx context.Context, roleID int64) error {
 	if g == nil || g.roleRepo == nil {
-		return errorx.New(errorx.InvalidInput, "role governance is not configured")
+		return errors.NewCode(errors.InvalidInput, "role governance is not configured")
 	}
 
 	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, g.roleRepo, roleID)
@@ -176,17 +176,17 @@ func (g *Governance) ValidateDelete(ctx context.Context, roleID int64) error {
 // ValidateDeleteWithRole 复用已加载的当前角色执行删除治理。
 func (g *Governance) ValidateDeleteWithRole(ctx context.Context, role *iamentity.Role) error {
 	if role == nil {
-		return errorx.New(errorx.InvalidInput, "role is required")
+		return errors.NewCode(errors.InvalidInput, "role is required")
 	}
 	if g == nil || g.roleRepo == nil || g.userRepo == nil {
-		return errorx.New(errorx.InvalidInput, "role governance is not configured")
+		return errors.NewCode(errors.InvalidInput, "role governance is not configured")
 	}
 	if _, err := svc.RequireTenantMatch(ctx, role.GetTenantID()); err != nil {
 		return err
 	}
 
 	if role.IsSystem {
-		return errorx.New(errorx.Validation, "系统角色不能被删除")
+		return errors.NewCode(errors.Validation, "系统角色不能被删除")
 	}
 
 	userCount, err := g.userRepo.CountByRoleID(ctx, role.GetID())
@@ -194,7 +194,7 @@ func (g *Governance) ValidateDeleteWithRole(ctx context.Context, role *iamentity
 		return err
 	}
 	if userCount > 0 {
-		return errorx.New(errorx.Validation, "角色正在被用户使用，不能删除")
+		return errors.NewCode(errors.Validation, "角色正在被用户使用，不能删除")
 	}
 
 	groupCount, err := g.roleRepo.CountGroupsByRoleID(ctx, role.GetID())
@@ -202,7 +202,7 @@ func (g *Governance) ValidateDeleteWithRole(ctx context.Context, role *iamentity
 		return err
 	}
 	if groupCount > 0 {
-		return errorx.New(errorx.Validation, "角色正在被组织使用，不能删除")
+		return errors.NewCode(errors.Validation, "角色正在被组织使用，不能删除")
 	}
 
 	return nil
@@ -210,11 +210,11 @@ func (g *Governance) ValidateDeleteWithRole(ctx context.Context, role *iamentity
 
 func (g *Governance) ensureNameUnique(ctx context.Context, name string, selfID int64) error {
 	existingRole, err := g.roleRepo.FindByName(ctx, name)
-	if err != nil && !errorx.Is(err, errorx.NotFound) {
-		return errorx.Wrap(err, errorx.Database, "检查角色名称失败")
+	if err != nil && !errors.Is(err, errors.NotFound) {
+		return errors.Wrap(err, errors.Database, "检查角色名称失败")
 	}
 	if existingRole != nil && existingRole.GetID() != selfID {
-		return errorx.New(errorx.Validation, "角色名称已存在")
+		return errors.NewCode(errors.Validation, "角色名称已存在")
 	}
 	return nil
 }
@@ -235,7 +235,7 @@ func (g *Governance) resolveNamespaceScopeForCreate(
 		role.NamespaceScopeID = svc.ManagedScopeIDFromContext(ctx)
 	}
 	if role.NamespaceScopeID <= 0 {
-		return nil, errorx.New(errorx.InvalidInput, "namespace scope boundary is required")
+		return nil, errors.NewCode(errors.InvalidInput, "namespace scope boundary is required")
 	}
 	scopeKind := strings.TrimSpace(iamauth.ActiveScopeKindFromContext(ctx))
 	if scopeKind == "" {
@@ -249,7 +249,7 @@ func (g *Governance) resolveNamespaceScopeForRole(
 	role *iamentity.Role,
 ) (*iamentity.Scope, error) {
 	if role == nil {
-		return nil, errorx.New(errorx.InvalidInput, "role is required")
+		return nil, errors.NewCode(errors.InvalidInput, "role is required")
 	}
 	if g.scopeAuthorizer == nil {
 		scopeKind := strings.TrimSpace(iamauth.ActiveScopeKindFromContext(ctx))
@@ -263,7 +263,7 @@ func (g *Governance) resolveNamespaceScopeForRole(
 		if err == nil {
 			return scope, nil
 		}
-		if !errorx.Is(err, errorx.NotFound) {
+		if !errors.Is(err, errors.NotFound) {
 			return nil, err
 		}
 	}
@@ -272,13 +272,13 @@ func (g *Governance) resolveNamespaceScopeForRole(
 
 func validateRoleMutation(role *iamentity.Role, requirePermissions bool) error {
 	if role == nil {
-		return errorx.New(errorx.InvalidInput, "role is required")
+		return errors.NewCode(errors.InvalidInput, "role is required")
 	}
 	if err := role.Validate(); err != nil {
 		return err
 	}
 	if requirePermissions && len(role.Permissions) == 0 {
-		return errorx.New(errorx.Validation, "角色必须至少拥有一个权限")
+		return errors.NewCode(errors.Validation, "角色必须至少拥有一个权限")
 	}
 	return nil
 }
@@ -286,7 +286,7 @@ func validateRoleMutation(role *iamentity.Role, requirePermissions bool) error {
 func validatePermissions(permissions []string) error {
 	for _, permission := range permissions {
 		if !iammw.IsValidPermissionCode(permission) {
-			return errorx.New(errorx.Validation, "无效的权限: "+permission)
+			return errors.NewCode(errors.Validation, "无效的权限: "+permission)
 		}
 	}
 
@@ -295,7 +295,7 @@ func validatePermissions(permissions []string) error {
 	}
 	for _, permission := range permissions {
 		if !iammw.HasRequiredPermission(permission) {
-			return errorx.New(errorx.Validation, "未知权限: "+permission)
+			return errors.NewCode(errors.Validation, "未知权限: "+permission)
 		}
 	}
 	return nil
@@ -319,7 +319,7 @@ func validatePermissionsForScope(permissions []string, namespaceScope *iamentity
 			}
 		}
 		if definition.BuiltinOnly {
-			return errorx.New(errorx.Validation, "内置通配权限不能授予自定义角色: "+permission)
+			return errors.NewCode(errors.Validation, "内置通配权限不能授予自定义角色: "+permission)
 		}
 		if len(definition.Scopes) == 0 {
 			continue
@@ -332,7 +332,7 @@ func validatePermissionsForScope(permissions []string, namespaceScope *iamentity
 			}
 		}
 		if !allowed {
-			return errorx.New(errorx.Validation, "权限不允许在当前作用域定义: "+permission)
+			return errors.NewCode(errors.Validation, "权限不允许在当前作用域定义: "+permission)
 		}
 	}
 	return nil

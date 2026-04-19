@@ -18,9 +18,10 @@ import (
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
 
-	"gochen/authz"
+	"gochen/auth"
 	ctxx "gochen/contextx"
-	"gochen/errorx"
+	"gochen/errors"
+
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -100,7 +101,7 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 
 	// 创建背景上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:   1,
 		Permissions: []string{"*:*:*"},
 		IsSystem:    true,
@@ -127,20 +128,20 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 		t.Fatalf("ensure tenant root scope: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, rootScope.ID, string(rootScope.Type))
-	ctx, err = authz.WithDataScope(ctx, authz.DataScope{
+	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
 		ActiveScopeID:   rootScope.ID,
 		VisibleScopeIDs: []int64{rootScope.ID},
-		Mode:            authz.ScopeModeManagedScopes,
+		Mode:            auth.ScopeModeManagedScopes,
 	})
 	if err != nil {
 		t.Fatalf("bind tenant root scope: %v", err)
 	}
-	principal, ok := authz.PrincipalFromContext(ctx)
+	principal, ok := auth.PrincipalFromContext(ctx)
 	if !ok {
 		t.Fatalf("expected principal in background context")
 	}
 	principal.ActiveScopeID = rootScope.ID
-	ctx, err = authz.WithPrincipal(ctx, principal)
+	ctx, err = auth.WithPrincipal(ctx, principal)
 	if err != nil {
 		t.Fatalf("rebind principal with active scope: %v", err)
 	}
@@ -228,7 +229,7 @@ func TestUserServiceRegister(t *testing.T) {
 		name        string
 		req         *svc.RegisterRequest
 		expectError bool
-		errorCode   errorx.ErrorCode
+		errorCode   errors.ErrorCode
 	}{
 		{
 			name: "正常注册",
@@ -247,7 +248,7 @@ func TestUserServiceRegister(t *testing.T) {
 				Password: "password123",
 			},
 			expectError: true,
-			errorCode:   errorx.Validation,
+			errorCode:   errors.Validation,
 		},
 		{
 			name: "邮箱已存在",
@@ -257,7 +258,7 @@ func TestUserServiceRegister(t *testing.T) {
 				Password: "password123",
 			},
 			expectError: true,
-			errorCode:   errorx.Validation,
+			errorCode:   errors.Validation,
 		},
 		{
 			name: "用户名太短",
@@ -267,7 +268,7 @@ func TestUserServiceRegister(t *testing.T) {
 				Password: "password123",
 			},
 			expectError: true,
-			errorCode:   errorx.Validation,
+			errorCode:   errors.Validation,
 		},
 		{
 			name: "密码太短",
@@ -277,7 +278,7 @@ func TestUserServiceRegister(t *testing.T) {
 				Password: "12345",
 			},
 			expectError: true,
-			errorCode:   errorx.Validation,
+			errorCode:   errors.Validation,
 		},
 		{
 			name: "6位密码允许注册",
@@ -299,7 +300,7 @@ func TestUserServiceRegister(t *testing.T) {
 					t.Error("expected error, got nil")
 					return
 				}
-				if appErr, ok := err.(*errorx.AppError); ok {
+				if appErr, ok := err.(*errors.AppError); ok {
 					if appErr.Code() != tt.errorCode {
 						t.Errorf("expected error code %s, got %s", tt.errorCode, appErr.Code())
 					}
@@ -532,7 +533,7 @@ func TestUserServiceAuthPathsRejectDisabledUserAsForbidden(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected authenticate error for %s user", tt.name)
 			}
-			if !errorx.Is(err, errorx.Forbidden) {
+			if !errors.Is(err, errors.Forbidden) {
 				t.Fatalf("expected forbidden error for authenticate/%s, got %v", tt.name, err)
 			}
 
@@ -540,7 +541,7 @@ func TestUserServiceAuthPathsRejectDisabledUserAsForbidden(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected snapshot error for %s user", tt.name)
 			}
-			if !errorx.Is(err, errorx.Forbidden) {
+			if !errors.Is(err, errors.Forbidden) {
 				t.Fatalf("expected forbidden error for snapshot/%s, got %v", tt.name, err)
 			}
 		})
@@ -727,7 +728,7 @@ func TestUserServiceGetUserPermissionsRequiresActiveUser(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error for %s user, got perms %v", tt.name, perms)
 			}
-			if !errorx.Is(err, errorx.Forbidden) {
+			if !errors.Is(err, errors.Forbidden) {
 				t.Fatalf("expected forbidden error for %s user, got %v", tt.name, err)
 			}
 
@@ -735,7 +736,7 @@ func TestUserServiceGetUserPermissionsRequiresActiveUser(t *testing.T) {
 			if err == nil {
 				t.Fatalf("expected error for %s user, got allowed=%v", tt.name, allowed)
 			}
-			if !errorx.Is(err, errorx.Forbidden) {
+			if !errors.Is(err, errors.Forbidden) {
 				t.Fatalf("expected forbidden error for %s user, got %v", tt.name, err)
 			}
 			if allowed {
@@ -1113,7 +1114,7 @@ func TestUserServiceAssignRoleMasksCrossTenantRoleAsNotFound(t *testing.T) {
 	}
 
 	err = env.userService.AssignRole(env.backgroundCtx, user.GetID(), otherRole.GetID())
-	if !errorx.Is(err, errorx.NotFound) {
+	if !errors.Is(err, errors.NotFound) {
 		t.Fatalf("expected NotFound for cross-tenant role assignment, got %v", err)
 	}
 }
@@ -1156,7 +1157,7 @@ func TestUserServiceAssignToGroupMasksCrossTenantGroupAsNotFound(t *testing.T) {
 	}
 
 	err = env.userService.AssignToGroup(env.backgroundCtx, user.GetID(), otherGroup.GetID())
-	if !errorx.Is(err, errorx.NotFound) {
+	if !errors.Is(err, errors.NotFound) {
 		t.Fatalf("expected NotFound for cross-tenant group assignment, got %v", err)
 	}
 }

@@ -10,7 +10,7 @@ import (
 
 	"gochen-iam/auth"
 	"gochen-iam/tenant"
-	"gochen/errorx"
+	"gochen/errors"
 	hbasic "gochen/httpx/nethttp"
 )
 
@@ -240,20 +240,20 @@ func TestResolveRequestTenantID(t *testing.T) {
 		currentTenant string
 		requireTenant bool
 		wantTenant    string
-		wantCode      errorx.ErrorCode
+		wantCode      errors.ErrorCode
 	}{
 		{name: "request wins when current empty", requestTenant: "tenant-a", wantTenant: "tenant-a"},
 		{name: "current fills missing request", currentTenant: "tenant-a", wantTenant: "tenant-a"},
 		{name: "matching tenants", requestTenant: "tenant-a", currentTenant: "tenant-a", wantTenant: "tenant-a"},
 		{name: "request overrides current", requestTenant: "tenant-a", currentTenant: "tenant-b", wantTenant: "tenant-a"},
-		{name: "required tenant missing", requireTenant: true, wantCode: errorx.Validation},
+		{name: "required tenant missing", requireTenant: true, wantCode: errors.Validation},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tenantID, err := tenant.ResolveRequestTenantID(tt.requestTenant, tt.currentTenant, tt.requireTenant)
 			if tt.wantCode != "" {
-				if !errorx.Is(err, tt.wantCode) {
+				if !errors.Is(err, tt.wantCode) {
 					t.Fatalf("expected %s, got %v", tt.wantCode, err)
 				}
 				return

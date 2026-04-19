@@ -10,10 +10,10 @@ import (
 	svc "gochen-iam/service"
 	restapi "gochen/api/restapi"
 	appcrud "gochen/app/crud"
-	"gochen/authz"
-	dataquery "gochen/db/query"
+	"gochen/auth"
+	"gochen/db/query"
 	domaincrud "gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
 	"gochen/httpx"
 	hbasic "gochen/httpx/nethttp"
 )
@@ -28,21 +28,21 @@ type groupQueryFields struct {
 	UpdatedAt time.Time
 }
 
-var groupQuerySchema = dataquery.MustInferQuerySchema[groupQueryFields](nil)
+var groupQuerySchema = query.MustInferQuerySchema[groupQueryFields](nil)
 
 // GroupRoutes 组织路由注册器
 type GroupRoutes struct {
 	groupService IGroupService
 	utils        *hbasic.Utils
 	groupRepo    svc.IScopedResourceContextRepository[*iamentity.Group, int64]
-	authorizer   authz.IAuthorizer
+	authorizer   auth.IAuthorizer
 }
 
 // NewGroupRoutes 创建组织路由注册器
 func NewGroupRoutes(
 	groupService IGroupService,
 	groupRepo svc.IScopedResourceContextRepository[*iamentity.Group, int64],
-	authorizer *authz.Authorizer,
+	authorizer *auth.Authorizer,
 ) *GroupRoutes {
 	return &GroupRoutes{
 		groupService: groupService,
@@ -55,7 +55,7 @@ func NewGroupRoutes(
 // RegisterRoutes 注册路由。
 func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	if group == nil {
-		return errorx.New(errorx.InvalidInput, "route group cannot be nil")
+		return errors.NewCode(errors.InvalidInput, "route group cannot be nil")
 	}
 	// 组织基础CRUD - 使用 shared/httpx/api 构建器
 	groupGroup := group.Group("/groups")
@@ -67,10 +67,10 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	appService, err := svc.NewCRUDApplication[*iamentity.Group, int64](gr.groupRepo, gr.groupRepo)
 	if err != nil {
-		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create group crud application").WithContext("route", "iam.group")
 		}
-		return errorx.Wrap(err, errorx.Internal, "failed to create group crud application").WithContext("route", "iam.group")
+		return errors.Wrap(err, errors.Internal, "failed to create group crud application").WithContext("route", "iam.group")
 	}
 
 	builder, err := restapi.NewApiBuilder(
@@ -88,10 +88,10 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		}),
 	)
 	if err != nil {
-		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create group api builder").WithContext("route", "iam.group")
 		}
-		return errorx.Wrap(err, errorx.Internal, "failed to create group api builder").WithContext("route", "iam.group")
+		return errors.Wrap(err, errors.Internal, "failed to create group api builder").WithContext("route", "iam.group")
 	}
 	if err := builder.
 		Route(func(cfg *restapi.RouteConfig[int64]) {
@@ -100,15 +100,15 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 			cfg.DefaultPageSize = 10
 			cfg.MaxPageSize = 1000
 			if cfg.Authorization != nil {
-				cfg.Authorization.Consistency = authz.ConsistencyModeStrong
+				cfg.Authorization.Consistency = auth.ConsistencyModeStrong
 				cfg.Authorization.HighRisk = true
 			}
 		}).
 		Build(groupGroup); err != nil {
-		if appErr, ok := err.(*errorx.AppError); ok && appErr != nil {
+		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("build group crud routes").WithContext("route", "iam.group")
 		}
-		return errorx.Wrap(err, errorx.Internal, "failed to build group crud routes").WithContext("route", "iam.group")
+		return errors.Wrap(err, errors.Internal, "failed to build group crud routes").WithContext("route", "iam.group")
 	}
 
 	// 组织扩展功能
@@ -184,13 +184,13 @@ func (gr *GroupRoutes) getRootGroups(ctx httpx.IContext) error {
 func (gr *GroupRoutes) getGroupsByLevel(ctx httpx.IContext) error {
 	levelStr := ctx.Query("level")
 	if levelStr == "" {
-		err := errorx.New(errorx.Validation, "level parameter is required")
+		err := errors.NewCode(errors.Validation, "level parameter is required")
 		return err
 	}
 
 	level, err := strconv.Atoi(levelStr)
 	if err != nil || level <= 0 {
-		err := errorx.New(errorx.Validation, "level must be a positive integer")
+		err := errors.NewCode(errors.Validation, "level must be a positive integer")
 		return err
 	}
 
@@ -240,7 +240,7 @@ func (gr *GroupRoutes) addUserToGroup(ctx httpx.IContext) error {
 		return err
 	}
 	if req.UserID <= 0 {
-		err := errorx.New(errorx.Validation, "user_id must be greater than 0")
+		err := errors.NewCode(errors.Validation, "user_id must be greater than 0")
 		return err
 	}
 
@@ -292,7 +292,7 @@ func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IContext) error {
 		return err
 	}
 	if len(req.UserIDs) == 0 {
-		err := errorx.New(errorx.Validation, "user_ids cannot be empty")
+		err := errors.NewCode(errors.Validation, "user_ids cannot be empty")
 		return err
 	}
 
@@ -350,7 +350,7 @@ func (gr *GroupRoutes) addGroupRole(ctx httpx.IContext) error {
 		return err
 	}
 	if req.RoleID <= 0 {
-		err := errorx.New(errorx.Validation, "role_id must be greater than 0")
+		err := errors.NewCode(errors.Validation, "role_id must be greater than 0")
 		return err
 	}
 
@@ -409,7 +409,7 @@ func newGroupCRUDHooks(repo svc.IResourceContextRepository[*iamentity.Group, int
 			}
 			managedScopeID := svc.ManagedScopeIDFromContext(ctx)
 			if managedScopeID <= 0 {
-				return errorx.New(errorx.InvalidInput, "managed scope boundary is required")
+				return errors.NewCode(errors.InvalidInput, "managed scope boundary is required")
 			}
 			group.SetTenantID(tenantID)
 			group.SetManagedScopeID(managedScopeID)
@@ -419,7 +419,7 @@ func newGroupCRUDHooks(repo svc.IResourceContextRepository[*iamentity.Group, int
 		},
 		BeforeUpdate: func(ctx context.Context, group *iamentity.Group) error {
 			if group == nil {
-				return errorx.New(errorx.InvalidInput, "group cannot be nil")
+				return errors.NewCode(errors.InvalidInput, "group cannot be nil")
 			}
 			current, _, err := loadTenantBoundEntity(ctx, repo, group.GetID())
 			if err != nil {
@@ -444,25 +444,25 @@ func prepareGroupHierarchy(
 	group *iamentity.Group,
 ) error {
 	if group == nil {
-		return errorx.New(errorx.InvalidInput, "group cannot be nil")
+		return errors.NewCode(errors.InvalidInput, "group cannot be nil")
 	}
 	if group.ParentID == nil {
 		group.SetParent(nil)
 		return nil
 	}
 	if current != nil && *group.ParentID == current.GetID() {
-		return errorx.New(errorx.Validation, "不能将组织设置为自己的父组织")
+		return errors.NewCode(errors.Validation, "不能将组织设置为自己的父组织")
 	}
 
 	parent, _, err := loadTenantBoundEntity(ctx, repo, *group.ParentID)
 	if err != nil {
-		return errorx.Wrap(err, errorx.NotFound, "父组织不存在")
+		return errors.Wrap(err, errors.NotFound, "父组织不存在")
 	}
 	if parent.Level >= svc.MaxGroupLevel {
-		return errorx.New(errorx.Validation, "组织层级不能超过10级")
+		return errors.NewCode(errors.Validation, "组织层级不能超过10级")
 	}
 	if current != nil && current.IsAncestorOf(parent) {
-		return errorx.New(errorx.Validation, "不能将组织移动到其子组织下")
+		return errors.NewCode(errors.Validation, "不能将组织移动到其子组织下")
 	}
 
 	group.SetParent(parent)

@@ -10,10 +10,11 @@ import (
 	scoperepo "gochen-iam/repo/scope"
 	tenantrepo "gochen-iam/repo/tenant"
 	"gochen-iam/tenant"
-	"gochen/authz"
+	"gochen/auth"
 	ctxx "gochen/contextx"
 	"gochen/domain/crud"
-	"gochen/errorx"
+	"gochen/errors"
+
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -58,7 +59,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_UsesPrincipalOutsideHTTP(t *te
 	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
 	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
 
-	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		Permissions: []string{"api:role:read"},
 	})
 	if err != nil {
@@ -96,7 +97,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 	}
 
 	ctx := context.Background()
-	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     7,
 		Permissions:   []string{"api:role:read"},
 		ActiveScopeID: 1,
@@ -109,10 +110,10 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 		t.Fatalf("WithTenantID: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iamentity.ScopeTypePlatform))
-	ctx, err = authz.WithDataScope(ctx, authz.DataScope{
+	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
 		ActiveScopeID:   1,
 		VisibleScopeIDs: []int64{1, 2, 3},
-		Mode:            authz.ScopeModeManagedScopes,
+		Mode:            auth.ScopeModeManagedScopes,
 	})
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)
@@ -204,7 +205,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_DoesNotHealMissingTenantRootSc
 	}
 
 	ctx := context.Background()
-	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     7,
 		Permissions:   []string{"api:role:read"},
 		ActiveScopeID: 1,
@@ -220,7 +221,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_DoesNotHealMissingTenantRootSc
 
 	authorizer := NewScopeAuthorizer(scopeRepo, tenantRepo)
 	err = authorizer.RequirePermissionInTenant(ctx, "api:role:read", "tenant-b")
-	if !errorx.Is(err, errorx.Internal) {
+	if !errors.Is(err, errors.Internal) {
 		t.Fatalf("RequirePermissionInTenant error = %v, want INTERNAL_ERROR", err)
 	}
 
@@ -230,6 +231,159 @@ func TestScopeAuthorizerRequirePermissionInTenant_DoesNotHealMissingTenantRootSc
 	}
 	if scopeCount != 0 {
 		t.Fatalf("scope count = %d, want 0", scopeCount)
+	}
+}
+
+func TestScopeAuthorizerTenantRootScopeHealth_MissingAndInconsistent(t *testing.T) {
+	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeTenant))
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "scope_authorizer_root_scope_health.db")
+
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := db.AutoMigrate(&iamentity.Scope{}, &iamentity.ScopeVisibility{}, &iamentity.Tenant{}); err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+
+	ormAdapter := newScopeAuthorizerTestOrm(db)
+	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter)
+	if err != nil {
+		t.Fatalf("NewScopeRepository: %v", err)
+	}
+	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter)
+	if err != nil {
+		t.Fatalf("NewTenantRepository: %v", err)
+	}
+
+	brokenScope := &iamentity.Scope{
+		Entity: crud.Entity[int64]{ID: 9},
+		Key:    "custom-broken",
+		Name:   "Broken Scope",
+		Type:   "custom",
+		Path:   "/custom-broken/",
+		Depth:  0,
+		Status: iamentity.ScopeStatusActive,
+	}
+	if err := scopeRepo.Create(context.Background(), brokenScope); err != nil {
+		t.Fatalf("create broken scope: %v", err)
+	}
+
+	authorizer := NewScopeAuthorizer(scopeRepo, tenantRepo)
+
+	missingHealth, err := authorizer.TenantRootScopeHealth(context.Background(), &iamentity.Tenant{
+		Key:  "tenant-missing",
+		Name: "Tenant Missing",
+	})
+	if err != nil {
+		t.Fatalf("TenantRootScopeHealth missing: %v", err)
+	}
+	if missingHealth.Status != tenantRootScopeStatusMissing || !missingHealth.CanRepair {
+		t.Fatalf("unexpected missing health: %+v", missingHealth)
+	}
+
+	inconsistentHealth, err := authorizer.TenantRootScopeHealth(context.Background(), &iamentity.Tenant{
+		Key:         "tenant-bad",
+		Name:        "Tenant Bad",
+		RootScopeID: &brokenScope.ID,
+	})
+	if err != nil {
+		t.Fatalf("TenantRootScopeHealth inconsistent: %v", err)
+	}
+	if inconsistentHealth.Status != tenantRootScopeStatusInconsistent || !inconsistentHealth.CanRepair {
+		t.Fatalf("unexpected inconsistent health: %+v", inconsistentHealth)
+	}
+}
+
+func TestScopeAuthorizerEnsureTenantRootScope_RepairsDriftedExistingScope(t *testing.T) {
+	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeTenant))
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "scope_authorizer_repair_existing_scope.db")
+
+	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open database: %v", err)
+	}
+	if err := db.AutoMigrate(&iamentity.Scope{}, &iamentity.ScopeVisibility{}, &iamentity.Tenant{}); err != nil {
+		t.Fatalf("auto migrate: %v", err)
+	}
+
+	ormAdapter := newScopeAuthorizerTestOrm(db)
+	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter)
+	if err != nil {
+		t.Fatalf("NewScopeRepository: %v", err)
+	}
+	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter)
+	if err != nil {
+		t.Fatalf("NewTenantRepository: %v", err)
+	}
+
+	authorizer := NewScopeAuthorizer(scopeRepo, tenantRepo)
+	platformScope, err := authorizer.EnsurePlatformScope(context.Background())
+	if err != nil {
+		t.Fatalf("EnsurePlatformScope: %v", err)
+	}
+
+	driftedScope := &iamentity.Scope{
+		Entity:      crud.Entity[int64]{ID: 20},
+		Key:         "tenant:tenant-a",
+		Name:        "Old Name",
+		Type:        "custom",
+		ParentID:    nil,
+		Path:        "/tenant:tenant-a/",
+		Depth:       0,
+		Description: "old description",
+		Status:      iamentity.ScopeStatusInactive,
+	}
+	if err := scopeRepo.Create(context.Background(), driftedScope); err != nil {
+		t.Fatalf("create drifted scope: %v", err)
+	}
+
+	tenantEntity := &iamentity.Tenant{
+		Entity:      crud.Entity[int64]{ID: 1},
+		Key:         "tenant-a",
+		Name:        "Tenant A",
+		Description: "Tenant A Desc",
+		Status:      TenantStatusActive,
+		RootScopeID: &driftedScope.ID,
+	}
+	if err := tenantRepo.Create(context.Background(), tenantEntity); err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+
+	repairedScope, err := authorizer.EnsureTenantRootScope(context.Background(), tenantEntity)
+	if err != nil {
+		t.Fatalf("EnsureTenantRootScope: %v", err)
+	}
+	if repairedScope.ID != driftedScope.ID {
+		t.Fatalf("expected repaired scope id %d, got %d", driftedScope.ID, repairedScope.ID)
+	}
+	if repairedScope.Type != iamentity.ScopeTypeTenant {
+		t.Fatalf("expected repaired scope type tenant, got %s", repairedScope.Type)
+	}
+	if repairedScope.ParentID == nil || *repairedScope.ParentID != platformScope.ID {
+		t.Fatalf("expected repaired scope parent %d, got %v", platformScope.ID, repairedScope.ParentID)
+	}
+	expectedPath := iamentity.ScopePathFor(platformScope.Path, "tenant:tenant-a")
+	if repairedScope.Path != expectedPath {
+		t.Fatalf("expected repaired path %s, got %s", expectedPath, repairedScope.Path)
+	}
+	if repairedScope.Status != iamentity.ScopeStatusActive {
+		t.Fatalf("expected repaired scope status active, got %s", repairedScope.Status)
+	}
+	if repairedScope.Name != tenantEntity.Name || repairedScope.Description != tenantEntity.Description {
+		t.Fatalf("expected repaired scope metadata to follow tenant, got %+v", repairedScope)
+	}
+
+	health, err := authorizer.TenantRootScopeHealth(context.Background(), tenantEntity)
+	if err != nil {
+		t.Fatalf("TenantRootScopeHealth: %v", err)
+	}
+	if health.Status != tenantRootScopeStatusHealthy || health.CanRepair {
+		t.Fatalf("expected healthy root scope after repair, got %+v", health)
 	}
 }
 

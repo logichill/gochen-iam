@@ -6,7 +6,7 @@ import (
 
 	iammw "gochen-iam/middleware"
 	"gochen-iam/tenant"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 type tenantAccessResolution struct {
@@ -53,7 +53,7 @@ func resolveTenantAccess(ctx context.Context, targetTenantID string) (tenantAcce
 		return tenantAccessResolution{}, err
 	}
 	if currentTenantID != tenantID {
-		return tenantAccessResolution{}, errorx.New(errorx.Forbidden, "跨租户访问被拒绝")
+		return tenantAccessResolution{}, errors.NewCode(errors.Forbidden, "跨租户访问被拒绝")
 	}
 
 	return tenantAccessResolution{TenantID: tenantID}, nil

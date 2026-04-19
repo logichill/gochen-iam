@@ -11,9 +11,9 @@ import (
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	"gochen/authz"
-	dataquery "gochen/db/query"
-	"gochen/errorx"
+	"gochen/auth"
+	"gochen/db/query"
+	"gochen/errors"
 	"gochen/eventing"
 	"gochen/eventing/bus"
 	"gochen/logging"
@@ -25,7 +25,7 @@ type RoleService struct {
 	userRepo        *userrepo.UserRepo
 	groupRepo       *grouprepo.GroupRepo
 	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      authz.IAuthorizer
+	authorizer      auth.IAuthorizer
 	eventBus        bus.IEventBus
 	logger          logging.ILogger
 	governance      *Governance
@@ -37,7 +37,7 @@ func NewRoleService(
 	userRepo *userrepo.UserRepo,
 	groupRepo *grouprepo.GroupRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer *authz.Authorizer,
+	authorizer *auth.Authorizer,
 	eventBus bus.IEventBus,
 ) *RoleService {
 	return &RoleService{
@@ -108,7 +108,7 @@ func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest
 
 	// 3. 保存角色
 	if err := s.roleRepo.CreateWithConstraint(tenantCtx, role, guard); err != nil {
-		return nil, errorx.Wrap(err, errorx.Database, "保存角色失败")
+		return nil, errors.Wrap(err, errors.Database, "保存角色失败")
 	}
 
 	return role, nil
@@ -190,7 +190,7 @@ func (s *RoleService) AssignRoleToUser(ctx context.Context, roleID, userID int64
 
 	// 2. 检查角色是否激活
 	if role.Status != svc.RoleStatusActive {
-		return errorx.New(errorx.Validation, "只能分配激活状态的角色")
+		return errors.NewCode(errors.Validation, "只能分配激活状态的角色")
 	}
 
 	// 4. 分配角色
@@ -244,7 +244,7 @@ func (s *RoleService) AssignRoleToGroup(ctx context.Context, roleID, groupID int
 
 	// 2. 检查角色是否激活
 	if role.Status != svc.RoleStatusActive {
-		return errorx.New(errorx.Validation, "只能分配激活状态的角色")
+		return errors.NewCode(errors.Validation, "只能分配激活状态的角色")
 	}
 
 	// 4. 分配角色给组织
@@ -282,7 +282,7 @@ func (s *RoleService) AddPermission(ctx context.Context, roleID int64, permissio
 
 	// 2. 检查是否为系统角色
 	if role.IsSystem {
-		return errorx.New(errorx.Validation, "系统角色权限不能被修改")
+		return errors.NewCode(errors.Validation, "系统角色权限不能被修改")
 	}
 
 	// 3. 验证权限
@@ -312,7 +312,7 @@ func (s *RoleService) RemovePermission(ctx context.Context, roleID int64, permis
 
 	// 2. 检查是否为系统角色
 	if role.IsSystem {
-		return errorx.New(errorx.Validation, "系统角色权限不能被修改")
+		return errors.NewCode(errors.Validation, "系统角色权限不能被修改")
 	}
 
 	// 3. 移除权限
@@ -343,7 +343,7 @@ func (s *RoleService) DeactivateRole(ctx context.Context, roleID int64) error {
 	}
 
 	if role.IsSystem {
-		return errorx.New(errorx.Validation, "系统角色不能被停用")
+		return errors.NewCode(errors.Validation, "系统角色不能被停用")
 	}
 	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionWrite), role)
 	if err != nil {
@@ -364,11 +364,11 @@ func (s *RoleService) CloneRole(ctx context.Context, roleID int64, newName strin
 
 	// 2. 检查新名称是否重复
 	existingRole, err := s.roleRepo.FindByName(tenantCtx, newName)
-	if err != nil && !errorx.Is(err, errorx.NotFound) {
-		return nil, errorx.Wrap(err, errorx.Database, "检查角色名称失败")
+	if err != nil && !errors.Is(err, errors.NotFound) {
+		return nil, errors.Wrap(err, errors.Database, "检查角色名称失败")
 	}
 	if existingRole != nil {
-		return nil, errorx.New(errorx.Validation, "角色名称已存在")
+		return nil, errors.NewCode(errors.Validation, "角色名称已存在")
 	}
 
 	// 3. 克隆角色
@@ -385,7 +385,7 @@ func (s *RoleService) CloneRole(ctx context.Context, roleID int64, newName strin
 		return nil, err
 	}
 	if err := s.roleRepo.CreateWithConstraint(tenantCtx, clonedRole, guard); err != nil {
-		return nil, errorx.Wrap(err, errorx.Database, "保存克隆角色失败")
+		return nil, errors.Wrap(err, errors.Database, "保存克隆角色失败")
 	}
 
 	return clonedRole, nil
@@ -525,7 +525,7 @@ func (s *RoleService) RoleStatistics(ctx context.Context) (map[string]interface{
 	}
 
 	// 1. 统计总角色数
-	totalRoles, err := s.roleRepo.QueryCount(tenantCtx, dataquery.QueryOptions{})
+	totalRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -598,16 +598,16 @@ func (s *RoleService) BatchAssignRole(ctx context.Context, req *svc.RoleAssignRe
 // validateCreateRoleRequest 验证创建角色请求
 func (s *RoleService) validateCreateRoleRequest(req *svc.CreateRoleRequest) error {
 	if req.Name == "" {
-		return errorx.New(errorx.Validation, "角色名称不能为空")
+		return errors.NewCode(errors.Validation, "角色名称不能为空")
 	}
 	if len(req.Name) > 50 {
-		return errorx.New(errorx.Validation, "角色名称不能超过50个字符")
+		return errors.NewCode(errors.Validation, "角色名称不能超过50个字符")
 	}
 	if len(req.Description) > 500 {
-		return errorx.New(errorx.Validation, "角色描述不能超过500个字符")
+		return errors.NewCode(errors.Validation, "角色描述不能超过500个字符")
 	}
 	if len(req.Permissions) == 0 {
-		return errorx.New(errorx.Validation, "角色必须至少拥有一个权限")
+		return errors.NewCode(errors.Validation, "角色必须至少拥有一个权限")
 	}
 	return nil
 }
@@ -638,7 +638,7 @@ func (s *RoleService) resolveTenantScope(ctx context.Context, tenantID string) (
 
 func (s *RoleService) resolveRoleNamespaceScope(ctx context.Context, role *iamentity.Role) (*iamentity.Scope, error) {
 	if role == nil {
-		return nil, errorx.New(errorx.InvalidInput, "role is required")
+		return nil, errors.NewCode(errors.InvalidInput, "role is required")
 	}
 	if s.scopeAuthorizer == nil {
 		return nil, nil
@@ -648,7 +648,7 @@ func (s *RoleService) resolveRoleNamespaceScope(ctx context.Context, role *iamen
 		if err == nil {
 			return scope, nil
 		}
-		if !errorx.Is(err, errorx.NotFound) {
+		if !errors.Is(err, errors.NotFound) {
 			return nil, err
 		}
 	}
@@ -676,7 +676,7 @@ func (s *RoleService) initializeBuiltinRoles(ctx context.Context, tenantID strin
 
 	for _, builtin := range builtinRoles {
 		existing, err := s.roleRepo.FindByName(ctx, builtin.Name)
-		if err != nil && !errorx.Is(err, errorx.NotFound) {
+		if err != nil && !errors.Is(err, errors.NotFound) {
 			return err
 		}
 		if existing != nil {
@@ -687,7 +687,7 @@ func (s *RoleService) initializeBuiltinRoles(ctx context.Context, tenantID strin
 		clone.NamespaceScopeID = namespaceScope.ID
 		clone.Code = builtin.Name
 		if err := s.roleRepo.Create(ctx, &clone); err != nil {
-			return errorx.Wrap(err, errorx.Database, "初始化内置角色失败: "+builtin.Name)
+			return errors.Wrap(err, errors.Database, "初始化内置角色失败: "+builtin.Name)
 		}
 	}
 	return nil

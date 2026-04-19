@@ -21,8 +21,8 @@ import (
 	userrepo "gochen-iam/repo/user"
 
 	svc "gochen-iam/service"
-	"gochen/authz"
-	"gochen/errorx"
+	"gochen/auth"
+	"gochen/errors"
 	"gochen/logging"
 )
 
@@ -32,7 +32,7 @@ type UserService struct {
 	groupRepo       *grouprepo.GroupRepo
 	roleRepo        *rolerepo.RoleRepo
 	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      authz.IAuthorizer
+	authorizer      auth.IAuthorizer
 	logger          logging.ILogger
 }
 
@@ -42,7 +42,7 @@ func NewUserService(
 	groupRepo *grouprepo.GroupRepo,
 	roleRepo *rolerepo.RoleRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer *authz.Authorizer,
+	authorizer *auth.Authorizer,
 ) *UserService {
 	return &UserService{
 		userRepo:        userRepo,
@@ -86,31 +86,31 @@ func (s *UserService) Register(ctx context.Context, tenantID string, req *svc.Re
 		}
 	}
 	if managedScopeID == 0 {
-		return nil, errorx.New(errorx.InvalidInput, "managed scope is required")
+		return nil, errors.NewCode(errors.InvalidInput, "managed scope is required")
 	}
 
 	// 3. 检查用户名是否已存在
 	existingUser, err := s.userRepo.FindByUsername(tenantCtx, req.Username)
-	if err != nil && !errorx.Is(err, errorx.NotFound) {
-		return nil, errorx.Wrap(err, errorx.Database, "检查用户名失败")
+	if err != nil && !errors.Is(err, errors.NotFound) {
+		return nil, errors.Wrap(err, errors.Database, "检查用户名失败")
 	}
 	if existingUser != nil {
-		return nil, errorx.New(errorx.Validation, "用户名已存在")
+		return nil, errors.NewCode(errors.Validation, "用户名已存在")
 	}
 
 	// 3. 检查邮箱是否已存在
 	existingUser, err = s.userRepo.FindByEmail(tenantCtx, req.Email)
-	if err != nil && !errorx.Is(err, errorx.NotFound) {
-		return nil, errorx.Wrap(err, errorx.Database, "检查邮箱失败")
+	if err != nil && !errors.Is(err, errors.NotFound) {
+		return nil, errors.Wrap(err, errors.Database, "检查邮箱失败")
 	}
 	if existingUser != nil {
-		return nil, errorx.New(errorx.Validation, "邮箱已存在")
+		return nil, errors.NewCode(errors.Validation, "邮箱已存在")
 	}
 
 	// 4. 创建用户实体
 	hashedPassword, err := s.hashPassword(req.Password)
 	if err != nil {
-		return nil, errorx.Wrap(err, errorx.Internal, "密码加密失败")
+		return nil, errors.Wrap(err, errors.Internal, "密码加密失败")
 	}
 
 	user := &iamentity.User{
@@ -132,7 +132,7 @@ func (s *UserService) Register(ctx context.Context, tenantID string, req *svc.Re
 		return nil, err
 	}
 	if err := s.userRepo.CreateWithConstraint(tenantCtx, user, guard); err != nil {
-		return nil, errorx.Wrap(err, errorx.Database, "保存用户失败")
+		return nil, errors.Wrap(err, errors.Database, "保存用户失败")
 	}
 
 	// 6. 分配默认角色
@@ -151,10 +151,10 @@ func (s *UserService) Register(ctx context.Context, tenantID string, req *svc.Re
 // Authenticate 用户认证第一阶段：校验用户名/密码，返回可进入的 scope 集合。
 func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *svc.AuthenticateRequest) (*svc.AuthenticateResult, error) {
 	if req == nil {
-		return nil, errorx.New(errorx.Validation, "请求不能为空")
+		return nil, errors.NewCode(errors.Validation, "请求不能为空")
 	}
 	if req.Username == "" || req.Password == "" {
-		return nil, errorx.New(errorx.Validation, "用户名和密码不能为空")
+		return nil, errors.NewCode(errors.Validation, "用户名和密码不能为空")
 	}
 	tenantID, err := svc.NormalizeTenantID(ctx, tenantID)
 	if err != nil {
@@ -167,16 +167,16 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 
 	user, err := s.userRepo.FindByUsername(tenantCtx, req.Username)
 	if err != nil {
-		if errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.New(errorx.NotFound, "用户名或密码错误")
+		if errors.Is(err, errors.NotFound) {
+			return nil, errors.NewCode(errors.NotFound, "用户名或密码错误")
 		}
-		return nil, errorx.Wrap(err, errorx.Database, "查询用户失败")
+		return nil, errors.Wrap(err, errors.Database, "查询用户失败")
 	}
 	if !s.verifyPassword(req.Password, user.Password) {
-		return nil, errorx.New(errorx.Validation, "用户名或密码错误")
+		return nil, errors.NewCode(errors.Validation, "用户名或密码错误")
 	}
 	if !user.IsActive() {
-		return nil, errorx.New(errorx.Forbidden, "用户账户已被禁用")
+		return nil, errors.NewCode(errors.Forbidden, "用户账户已被禁用")
 	}
 
 	user.UpdateLastLogin()
@@ -193,7 +193,7 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 		return nil, err
 	}
 	if len(availableScopes) == 0 {
-		return nil, errorx.New(errorx.Forbidden, "当前用户没有可激活的授权域")
+		return nil, errors.NewCode(errors.Forbidden, "当前用户没有可激活的授权域")
 	}
 
 	return &svc.AuthenticateResult{
@@ -208,14 +208,14 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 // ActivateScope 用户认证第二阶段：显式选择 active scope，返回可签发 access token 的最小快照。
 func (s *UserService) ActivateScope(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error) {
 	if activeScopeID <= 0 {
-		return nil, errorx.New(errorx.Validation, "active scope is required")
+		return nil, errors.NewCode(errors.Validation, "active scope is required")
 	}
 	user, _, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return nil, err
 	}
 	if !user.IsActive() {
-		return nil, errorx.New(errorx.Forbidden, "用户账户已被禁用")
+		return nil, errors.NewCode(errors.Forbidden, "用户账户已被禁用")
 	}
 	authCtx, err := svc.BindTenantContext(ctx, user.TenantID)
 	if err != nil {
@@ -227,14 +227,14 @@ func (s *UserService) ActivateScope(ctx context.Context, userID, activeScopeID i
 // AuthSnapshot 返回当前 active scope 下的最新权限快照，用于 refresh token。
 func (s *UserService) AuthSnapshot(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error) {
 	if activeScopeID <= 0 {
-		return nil, errorx.New(errorx.Validation, "active scope is required")
+		return nil, errors.NewCode(errors.Validation, "active scope is required")
 	}
 	user, _, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return nil, err
 	}
 	if !user.IsActive() {
-		return nil, errorx.New(errorx.Forbidden, "用户账户已被禁用")
+		return nil, errors.NewCode(errors.Forbidden, "用户账户已被禁用")
 	}
 	authCtx, err := svc.BindTenantContext(ctx, user.TenantID)
 	if err != nil {
@@ -332,7 +332,7 @@ func (s *UserService) buildScopeSession(
 	activeScopeID int64,
 ) (*svc.ActiveScopeSession, error) {
 	if user == nil {
-		return nil, errorx.New(errorx.InvalidInput, "user is required")
+		return nil, errors.NewCode(errors.InvalidInput, "user is required")
 	}
 	availableScopes, bindingVersion, err := s.resolveAvailableScopes(ctx, user)
 	if err != nil {
@@ -352,12 +352,12 @@ func (s *UserService) buildScopeSession(
 			Permissions:    append([]string(nil), scope.Permissions...),
 		}, nil
 	}
-	return nil, errorx.New(errorx.Forbidden, "当前用户不能激活目标授权域")
+	return nil, errors.NewCode(errors.Forbidden, "当前用户不能激活目标授权域")
 }
 
 func (s *UserService) resolveAvailableScopes(ctx context.Context, user *iamentity.User) ([]svc.AuthScopeOption, string, error) {
 	if user == nil {
-		return nil, "", errorx.New(errorx.InvalidInput, "user is required")
+		return nil, "", errors.NewCode(errors.InvalidInput, "user is required")
 	}
 
 	aggregates := map[int64]*authScopeAggregate{}
@@ -407,7 +407,7 @@ func (s *UserService) resolveAvailableScopes(ctx context.Context, user *iamentit
 	for _, binding := range bindings {
 		role, err := s.roleRepo.Get(ctx, binding.RoleID)
 		if err != nil {
-			if errorx.Is(err, errorx.NotFound) {
+			if errors.Is(err, errors.NotFound) {
 				continue
 			}
 			return nil, "", err
@@ -466,7 +466,7 @@ func (s *UserService) resolveAvailableScopes(ctx context.Context, user *iamentit
 		if s.scopeAuthorizer != nil {
 			scope, err := s.scopeAuthorizer.Scope(ctx, scopeID)
 			if err != nil {
-				if errorx.Is(err, errorx.NotFound) {
+				if errors.Is(err, errors.NotFound) {
 					continue
 				}
 				return nil, "", err
@@ -512,18 +512,18 @@ func (s *UserService) ChangePassword(ctx context.Context, userID int64, req *svc
 
 	// 2. 验证旧密码
 	if !s.verifyPassword(req.OldPassword, user.Password) {
-		return errorx.New(errorx.Validation, "原密码错误")
+		return errors.NewCode(errors.Validation, "原密码错误")
 	}
 
 	// 3. 验证新密码
 	if len(req.NewPassword) < svc.MinPasswordLength {
-		return errorx.New(errorx.Validation, "新密码长度不能少于6个字符")
+		return errors.NewCode(errors.Validation, "新密码长度不能少于6个字符")
 	}
 
 	// 4. 更新密码
 	hashedPassword, err := s.hashPassword(req.NewPassword)
 	if err != nil {
-		return errorx.Wrap(err, errorx.Internal, "密码加密失败")
+		return errors.Wrap(err, errors.Internal, "密码加密失败")
 	}
 	user.Password = hashedPassword
 	user.SetUpdatedAt(time.Now())
@@ -546,11 +546,11 @@ func (s *UserService) UpdateProfile(ctx context.Context, userID int64, req *svc.
 	if req.Email != "" && req.Email != user.Email {
 		// 检查邮箱是否已被使用
 		existingUser, err := s.userRepo.FindByEmail(tenantCtx, req.Email)
-		if err != nil && !errorx.Is(err, errorx.NotFound) {
-			return nil, errorx.Wrap(err, errorx.Database, "检查邮箱失败")
+		if err != nil && !errors.Is(err, errors.NotFound) {
+			return nil, errors.Wrap(err, errors.Database, "检查邮箱失败")
 		}
 		if existingUser != nil && existingUser.GetID() != userID {
-			return nil, errorx.New(errorx.Validation, "邮箱已被使用")
+			return nil, errors.NewCode(errors.Validation, "邮箱已被使用")
 		}
 		user.Email = req.Email
 	}
@@ -617,24 +617,53 @@ func (s *UserService) UnlockUser(ctx context.Context, userID int64) error {
 	return nil
 }
 
-// AssignRole 为用户分配角色
+// AssignRole 为用户分配角色。
 func (s *UserService) AssignRole(ctx context.Context, userID, roleID int64) error {
+	return s.AssignRoleBinding(ctx, userID, roleID, nil)
+}
+
+// AssignRoleBinding 在指定 grant scope 下为用户分配角色。
+func (s *UserService) AssignRoleBinding(ctx context.Context, userID, roleID int64, grantScopeID *int64) error {
 	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return err
 	}
-	role, err := s.roleRepo.Get(tenantCtx, roleID)
+	role, roleVisible, err := s.resolveRoleForScope(tenantCtx, user.TenantID, roleID)
 	if err != nil {
 		return err
+	}
+	if role == nil {
+		return errors.NewCode(errors.NotFound, "角色不存在")
+	}
+	if !roleVisible {
+		return errors.NewCode(errors.Forbidden, "当前 active scope 无法访问该角色，请切换到角色所属授权域后重试")
 	}
 	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iammw.ActionWrite), user, role)
 	if err != nil {
 		return err
 	}
-	return s.userRepo.AssignRoleWithConstraint(tenantCtx, userID, roleID, guard)
+	if role.Status != svc.RoleStatusActive {
+		return errors.NewCode(errors.Validation, "只能分配激活状态的角色")
+	}
+
+	targetScopeID := role.NamespaceScopeID
+	if currentScopeID := svc.ManagedScopeIDFromContext(tenantCtx); currentScopeID > 0 {
+		targetScopeID = currentScopeID
+	}
+	if grantScopeID != nil && *grantScopeID > 0 {
+		targetScopeID = *grantScopeID
+	}
+	if err := s.ensureGrantScopeAllowed(tenantCtx, role, targetScopeID); err != nil {
+		return err
+	}
+	boundCtx, err := svc.BindManagedScopeContext(tenantCtx, targetScopeID)
+	if err != nil {
+		return err
+	}
+	return s.userRepo.AssignRoleWithConstraint(boundCtx, userID, roleID, guard)
 }
 
-// RemoveRole 移除用户角色
+// RemoveRole 移除用户角色。
 func (s *UserService) RemoveRole(ctx context.Context, userID, roleID int64) error {
 	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
@@ -649,6 +678,34 @@ func (s *UserService) RemoveRole(ctx context.Context, userID, roleID int64) erro
 		return err
 	}
 	return s.userRepo.RemoveRoleWithConstraint(tenantCtx, userID, roleID, guard)
+}
+
+// RemoveRoleBinding 按 binding id 移除用户角色绑定。
+func (s *UserService) RemoveRoleBinding(ctx context.Context, userID, bindingID int64) error {
+	binding, err := s.userRepo.GetRoleBinding(ctx, bindingID)
+	if err != nil {
+		return err
+	}
+	if binding.UserID != userID {
+		return errors.NewCode(errors.Forbidden, "角色绑定与目标用户不匹配")
+	}
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
+	if err != nil {
+		return err
+	}
+	role, err := s.roleRepo.Get(tenantCtx, binding.RoleID)
+	if err != nil {
+		return err
+	}
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iammw.ActionWrite), user, role)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureGrantScopeVisible(tenantCtx, binding.GrantScopeID); err != nil {
+		return err
+	}
+	_ = guard
+	return s.userRepo.RemoveRoleBinding(tenantCtx, bindingID)
 }
 
 // AssignToGroup 将用户分配到组织
@@ -699,7 +756,7 @@ func (s *UserService) UserPermissions(ctx context.Context, userID int64) ([]stri
 		return nil, err
 	}
 	if !user.IsActive() {
-		return nil, errorx.New(errorx.Forbidden, "用户账户已被禁用")
+		return nil, errors.NewCode(errors.Forbidden, "用户账户已被禁用")
 	}
 
 	_, permissions, err := s.resolveEffectiveRolesAndPermissions(tenantCtx, userID)
@@ -715,7 +772,54 @@ func (s *UserService) CheckPermission(ctx context.Context, userID int64, permiss
 	if err != nil {
 		return false, err
 	}
-	return (authz.Principal{Permissions: permissions}).AllowsPermission(permission), nil
+	return (auth.Principal{Permissions: permissions}).AllowsPermission(permission), nil
+}
+
+func (s *UserService) ensureGrantScopeAllowed(ctx context.Context, role *iamentity.Role, grantScopeID int64) error {
+	if grantScopeID <= 0 {
+		return errors.NewCode(errors.InvalidInput, "grant scope is required")
+	}
+	if s.scopeAuthorizer == nil {
+		return nil
+	}
+	if _, err := s.scopeAuthorizer.Scope(ctx, grantScopeID); err != nil {
+		return err
+	}
+	if activeScopeID := svc.ManagedScopeIDFromContext(ctx); activeScopeID > 0 {
+		allowed, err := s.scopeAuthorizer.ScopeCovers(ctx, activeScopeID, grantScopeID)
+		if err != nil {
+			return err
+		}
+		if !allowed && activeScopeID != grantScopeID {
+			return errors.NewCode(errors.Forbidden, "当前 active scope 不能授予目标授权域")
+		}
+	}
+	if role != nil && role.NamespaceScopeID > 0 && role.NamespaceScopeID != grantScopeID {
+		allowed, err := s.scopeAuthorizer.ScopeCovers(ctx, role.NamespaceScopeID, grantScopeID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return errors.NewCode(errors.Forbidden, "目标授权域不在角色 namespace scope 覆盖范围内")
+		}
+	}
+	return nil
+}
+
+func (s *UserService) ensureGrantScopeVisible(ctx context.Context, grantScopeID int64) error {
+	if grantScopeID <= 0 || s.scopeAuthorizer == nil {
+		return nil
+	}
+	if activeScopeID := svc.ManagedScopeIDFromContext(ctx); activeScopeID > 0 && activeScopeID != grantScopeID {
+		allowed, err := s.scopeAuthorizer.ScopeCovers(ctx, activeScopeID, grantScopeID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return errors.NewCode(errors.Forbidden, "当前 active scope 无法查看目标授权域绑定")
+		}
+	}
+	return nil
 }
 
 // SearchUsers 搜索用户
@@ -760,6 +864,104 @@ func (s *UserService) UserRoles(ctx context.Context, userID int64) ([]*iamentity
 		return nil, err
 	}
 	return s.roleRepo.FindByUserID(tenantCtx, userID)
+}
+
+// UserRoleBindings 获取用户的直接角色绑定。
+func (s *UserService) UserRoleBindings(ctx context.Context, userID int64) ([]*svc.UserRoleBindingDetail, error) {
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.UserPermissionSet.Code(iammw.ActionRead), user.TenantID); err != nil {
+		return nil, err
+	}
+	bindings, err := s.userRepo.ListRoleBindings(tenantCtx, userID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*svc.UserRoleBindingDetail, 0, len(bindings))
+	for _, binding := range bindings {
+		if err := s.ensureGrantScopeVisible(tenantCtx, binding.GrantScopeID); err != nil {
+			if errors.Is(err, errors.Forbidden) {
+				continue
+			}
+			return nil, err
+		}
+		role, roleVisible, err := s.resolveRoleForScope(tenantCtx, user.TenantID, binding.RoleID)
+		if err != nil {
+			return nil, err
+		}
+		roleName := fmt.Sprintf("角色 #%d", binding.RoleID)
+		roleCode := ""
+		namespaceScopeID := int64(0)
+		permissions := []string{}
+		if role == nil {
+			roleName = fmt.Sprintf("已删除角色 #%d", binding.RoleID)
+		} else if !roleVisible {
+			roleName = fmt.Sprintf("不可见角色 #%d", binding.RoleID)
+		} else {
+			roleName = role.Name
+			roleCode = role.Code
+			namespaceScopeID = role.NamespaceScopeID
+			permissions = append([]string(nil), role.Permissions...)
+		}
+		detail := &svc.UserRoleBindingDetail{
+			BindingID:        binding.BindingID,
+			UserID:           userID,
+			RoleID:           binding.RoleID,
+			RoleName:         roleName,
+			RoleCode:         roleCode,
+			GrantScopeID:     binding.GrantScopeID,
+			NamespaceScopeID: namespaceScopeID,
+			Permissions:      permissions,
+			Status:           binding.Status,
+		}
+		if s.scopeAuthorizer != nil {
+			if grantScope, err := s.scopeAuthorizer.Scope(tenantCtx, binding.GrantScopeID); err == nil && grantScope != nil {
+				detail.GrantScopeKey = grantScope.Key
+				detail.GrantScopeKind = grantScope.Type
+			}
+			if roleVisible && role != nil && role.NamespaceScopeID > 0 {
+				if namespaceScope, err := s.scopeAuthorizer.Scope(tenantCtx, role.NamespaceScopeID); err == nil && namespaceScope != nil {
+					detail.NamespaceScopeKey = namespaceScope.Key
+					detail.NamespaceScopeKind = namespaceScope.Type
+				}
+			}
+		}
+		result = append(result, detail)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].GrantScopeID != result[j].GrantScopeID {
+			return result[i].GrantScopeID < result[j].GrantScopeID
+		}
+		if result[i].RoleName != result[j].RoleName {
+			return result[i].RoleName < result[j].RoleName
+		}
+		return result[i].BindingID < result[j].BindingID
+	})
+	return result, nil
+}
+
+func (s *UserService) resolveRoleForScope(ctx context.Context, tenantID string, roleID int64) (*iamentity.Role, bool, error) {
+	role, err := s.roleRepo.Get(ctx, roleID)
+	if err == nil {
+		return role, true, nil
+	}
+	if !errors.Is(err, errors.NotFound) {
+		return nil, false, err
+	}
+	tenantGlobalCtx, bindErr := svc.BindTenantGlobalScopeContext(ctx, tenantID)
+	if bindErr != nil {
+		return nil, false, bindErr
+	}
+	role, err = s.roleRepo.Get(tenantGlobalCtx, roleID)
+	if err == nil {
+		return role, false, nil
+	}
+	if errors.Is(err, errors.NotFound) {
+		return nil, false, nil
+	}
+	return nil, false, err
 }
 
 // UserGroups 获取用户所属组织
@@ -811,19 +1013,19 @@ func (s *UserService) BatchAssignToGroup(ctx context.Context, groupID int64, use
 // validateRegisterRequest 验证注册请求
 func (s *UserService) validateRegisterRequest(req *svc.RegisterRequest) error {
 	if req.Username == "" {
-		return errorx.New(errorx.Validation, "用户名不能为空")
+		return errors.NewCode(errors.Validation, "用户名不能为空")
 	}
 	if len(req.Username) < svc.MinUsernameLength || len(req.Username) > svc.MaxUsernameLength {
-		return errorx.New(errorx.Validation, "用户名长度必须在3-50个字符之间")
+		return errors.NewCode(errors.Validation, "用户名长度必须在3-50个字符之间")
 	}
 	if req.Email == "" {
-		return errorx.New(errorx.Validation, "邮箱不能为空")
+		return errors.NewCode(errors.Validation, "邮箱不能为空")
 	}
 	if req.Password == "" {
-		return errorx.New(errorx.Validation, "密码不能为空")
+		return errors.NewCode(errors.Validation, "密码不能为空")
 	}
 	if len(req.Password) < svc.MinPasswordLength {
-		return errorx.New(errorx.Validation, "密码长度不能少于6个字符")
+		return errors.NewCode(errors.Validation, "密码长度不能少于6个字符")
 	}
 	// 可选：添加更强的密码策略
 	// - 至少包含一个大写字母

@@ -11,8 +11,9 @@ import (
 	iammw "gochen-iam/middleware"
 	menurepo "gochen-iam/repo/menu"
 	svc "gochen-iam/service"
-	"gochen/authz"
-	"gochen/errorx"
+	"gochen/auth"
+	"gochen/errors"
+
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -53,7 +54,7 @@ func setupMenuServiceTest(t *testing.T) *menuServiceTestEnv {
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     1,
 		Permissions:   []string{"*:*:*"},
 		IsSystem:      true,
@@ -100,7 +101,7 @@ func TestMenuServiceCreateMenuItem_FailsClosedWithoutAuthorizer(t *testing.T) {
 		Type:      iamentity.MenuTypeGroup,
 		Published: true,
 	})
-	if !errorx.Is(err, errorx.InvalidInput) {
+	if !errors.Is(err, errors.InvalidInput) {
 		t.Fatalf("expected invalid input error, got %v", err)
 	}
 }

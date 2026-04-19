@@ -14,9 +14,10 @@ import (
 	svc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
-	"gochen/authz"
+	"gochen/auth"
 	ctxx "gochen/contextx"
-	"gochen/errorx"
+	"gochen/errors"
+
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -96,7 +97,7 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 
 	// 创建背景上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	ctx, err = authz.WithPrincipal(ctx, authz.Principal{
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     1,
 		Permissions:   []string{"*:*:*"},
 		ActiveScopeID: 1,
@@ -248,8 +249,8 @@ func TestGroupServiceCreateDuplicateName(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for duplicate name, got nil")
 	}
-	if appErr, ok := err.(*errorx.AppError); ok {
-		if appErr.Code() != errorx.Validation {
+	if appErr, ok := err.(*errors.AppError); ok {
+		if appErr.Code() != errors.Validation {
 			t.Errorf("expected validation error, got %s", appErr.Code())
 		}
 	}
@@ -523,7 +524,7 @@ func TestGroupServiceUpdateGroup_RejectsDuplicateNameInTargetParent(t *testing.T
 	if err == nil {
 		t.Fatalf("expected duplicate name validation when reparenting into target parent")
 	}
-	if !errorx.Is(err, errorx.Validation) {
+	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
 }

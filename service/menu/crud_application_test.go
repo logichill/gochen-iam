@@ -5,7 +5,7 @@ import (
 	"time"
 
 	iamentity "gochen-iam/entity"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 func TestMenuServiceCreateEntity_RejectsManagedFields(t *testing.T) {
@@ -22,7 +22,7 @@ func TestMenuServiceCreateEntity_RejectsManagedFields(t *testing.T) {
 	item.CreatedAt = time.Now()
 
 	err := env.menuService.CreateEntity(env.backgroundCtx, item)
-	if !errorx.Is(err, errorx.Validation) {
+	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
 }
@@ -42,7 +42,7 @@ func TestMenuServiceUpdateEntity_RejectsImmutableFieldMutation(t *testing.T) {
 	candidate.Code = "dashboard-v2"
 
 	err := env.menuService.UpdateEntity(env.backgroundCtx, &candidate)
-	if !errorx.Is(err, errorx.Validation) {
+	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
 }

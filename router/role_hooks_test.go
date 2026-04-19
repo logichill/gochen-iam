@@ -9,7 +9,7 @@ import (
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
 	rolesvc "gochen-iam/service/role"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 type roleHookRepoStub struct {
@@ -33,7 +33,7 @@ func (s *roleHookRepoStub) Delete(context.Context, int64) error { return nil }
 func (s *roleHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Role, error) {
 	role, ok := s.roles[id]
 	if !ok {
-		return nil, errorx.New(errorx.NotFound, "角色不存在")
+		return nil, errors.NewCode(errors.NotFound, "角色不存在")
 	}
 	return cloneRole(role), nil
 }
@@ -41,7 +41,7 @@ func (s *roleHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Role, er
 func (s *roleHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (access.ResourceBoundary, error) {
 	role, ok := s.roles[id]
 	if !ok {
-		return access.ResourceBoundary{}, errorx.New(errorx.NotFound, "角色不存在")
+		return access.ResourceBoundary{}, errors.NewCode(errors.NotFound, "角色不存在")
 	}
 	s.lastResolved = id
 	return access.ResourceBoundary{
@@ -63,7 +63,7 @@ func (s *roleHookRepoStub) FindByName(ctx context.Context, name string) (*iament
 		}
 		return cloneRole(role), nil
 	}
-	return nil, errorx.New(errorx.NotFound, "角色不存在")
+	return nil, errors.NewCode(errors.NotFound, "角色不存在")
 }
 
 func (s *roleHookRepoStub) CountGroupsByRoleID(_ context.Context, roleID int64) (int64, error) {
@@ -98,7 +98,7 @@ func TestRoleCRUDHooks_CreateRejectsBuiltinWildcardPermissions(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected builtin wildcard permission to be rejected")
 	}
-	if !errorx.Is(err, errorx.Validation) {
+	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
 }
@@ -175,7 +175,7 @@ func TestRoleCRUDHooks_UpdateRejectsSystemRoleMutation(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected system role mutation to be rejected")
 	}
-	if !errorx.Is(err, errorx.Validation) {
+	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
 }
@@ -247,10 +247,10 @@ func TestRoleCRUDHooks_DeleteRejectsInUseAndCrossTenantRole(t *testing.T) {
 	governance := rolesvc.NewGovernance(repo, &roleUsageCounterStub{userUsage: map[int64]int64{3: 1}}, nil)
 	hooks := newScopeBackedRoleCRUDHooks(repo, nil, governance)
 
-	if err := hooks.BeforeDelete(tenantCtx(t, "tenant-a"), 3); !errorx.Is(err, errorx.Validation) {
+	if err := hooks.BeforeDelete(tenantCtx(t, "tenant-a"), 3); !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected in-use role delete to fail with validation error, got %v", err)
 	}
-	if err := hooks.BeforeDelete(tenantCtx(t, "tenant-b"), 3); !errorx.Is(err, errorx.Forbidden) {
+	if err := hooks.BeforeDelete(tenantCtx(t, "tenant-b"), 3); !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("expected cross-tenant delete to fail with forbidden error, got %v", err)
 	}
 }

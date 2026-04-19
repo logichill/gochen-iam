@@ -9,9 +9,9 @@ import (
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
-	"gochen/authz"
+	"gochen/auth"
 	ctxx "gochen/contextx"
-	"gochen/errorx"
+	"gochen/errors"
 )
 
 func TestMain(m *testing.M) {
@@ -40,7 +40,7 @@ func (s *groupHookRepoStub) Delete(context.Context, int64) error { return nil }
 func (s *groupHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Group, error) {
 	g, ok := s.groups[id]
 	if !ok {
-		return nil, errorx.New(errorx.NotFound, "组织不存在")
+		return nil, errors.NewCode(errors.NotFound, "组织不存在")
 	}
 	cp := *g
 	return &cp, nil
@@ -49,7 +49,7 @@ func (s *groupHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Group, 
 func (s *groupHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (access.ResourceBoundary, error) {
 	g, ok := s.groups[id]
 	if !ok {
-		return access.ResourceBoundary{}, errorx.New(errorx.NotFound, "组织不存在")
+		return access.ResourceBoundary{}, errors.NewCode(errors.NotFound, "组织不存在")
 	}
 	return access.ResourceBoundary{
 		Kind:    "iam.group",
@@ -60,7 +60,7 @@ func (s *groupHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (ac
 
 func tenantCtx(t *testing.T, tenantID string) context.Context {
 	t.Helper()
-	ctx, err := authz.WithPrincipal(context.Background(), authz.Principal{
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     1,
 		ActiveScopeID: 1,
 	})
@@ -72,10 +72,10 @@ func tenantCtx(t *testing.T, tenantID string) context.Context {
 		t.Fatalf("WithTenantID: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iamentity.ScopeTypeTenant))
-	ctx, err = authz.WithDataScope(ctx, authz.DataScope{
+	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
 		ActiveScopeID:   1,
 		VisibleScopeIDs: []int64{1},
-		Mode:            authz.ScopeModeManagedScopes,
+		Mode:            auth.ScopeModeManagedScopes,
 	})
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)
@@ -171,7 +171,7 @@ func TestGroupCRUDHooks_DeleteCrossTenantRejected(t *testing.T) {
 
 	ctx := tenantCtx(t, "tenant-b")
 	err := hooks.BeforeDelete(ctx, 1)
-	if !errorx.Is(err, errorx.Forbidden) {
+	if !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("expected Forbidden error for cross-tenant delete, got %v", err)
 	}
 }

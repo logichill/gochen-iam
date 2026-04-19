@@ -11,7 +11,7 @@ import (
 
 	"gochen-iam/tenant"
 	ctxx "gochen/contextx"
-	"gochen/errorx"
+	"gochen/errors"
 	"gochen/httpx"
 )
 
@@ -46,12 +46,12 @@ type AuthConfig struct {
 	SkipPaths    []string `json:"skip_paths" yaml:"skip_paths"`
 	RequiredRole string   `json:"required_role" yaml:"required_role"`
 
-	AccessTokenTTL   time.Duration `json:"-" yaml:"-"`
-	ActivationTTL    time.Duration `json:"-" yaml:"-"`
-	AllowQueryToken  bool          `json:"-" yaml:"-"`
-	RequireTenant    bool          `json:"-" yaml:"-"`
-	AllowTenantQuery bool          `json:"-" yaml:"-"`
-	TenantHeader     string        `json:"-" yaml:"-"`
+	AccessTokenTTL   time.Duration       `json:"-" yaml:"-"`
+	ActivationTTL    time.Duration       `json:"-" yaml:"-"`
+	AllowQueryToken  bool                `json:"-" yaml:"-"`
+	RequireTenant    bool                `json:"-" yaml:"-"`
+	AllowTenantQuery bool                `json:"-" yaml:"-"`
+	TenantHeader     string              `json:"-" yaml:"-"`
 	ContextResolver  AuthContextResolver `json:"-" yaml:"-"`
 }
 
@@ -128,11 +128,11 @@ func ValidateAuthConfig(config *AuthConfig) error {
 		config = DefaultAuthConfig()
 	}
 	if config.SecretKey == "" {
-		return errorx.New(errorx.Internal, "必须设置 AUTH_SECRET 环境变量")
+		return errors.NewCode(errors.Internal, "必须设置 AUTH_SECRET 环境变量")
 	}
 	// 生产环境禁止允许 query token，避免 token 泄露到 URL/日志链路。
 	if !isDevEnv() && config.AllowQueryToken {
-		return errorx.New(errorx.Internal, "生产环境禁止启用 AUTH_ALLOW_QUERY_TOKEN")
+		return errors.NewCode(errors.Internal, "生产环境禁止启用 AUTH_ALLOW_QUERY_TOKEN")
 	}
 	return nil
 }
@@ -182,7 +182,7 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 				Decision: "deny",
 				Reason:   "用户未认证",
 			})
-			return errorx.New(errorx.Unauthorized, "用户未认证")
+			return errors.NewCode(errors.Unauthorized, "用户未认证")
 		}
 
 		// 对于必需鉴权，仅在“确实需要解析 token”时才做配置校验；
@@ -282,7 +282,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 		token := extractToken(ctx, config)
 		if token == "" {
 			if tenantID == "" && config.RequireTenant {
-				err := errorx.New(errorx.Validation, "tenant_id is required")
+				err := errors.NewCode(errors.Validation, "tenant_id is required")
 				recordAuthzDenied(ctx, AuditRecord{
 					Decision: "deny",
 					Reason:   err.Error(),
@@ -379,7 +379,7 @@ func validateToken(token, secretKey string) (*JWTClaims, error) {
 		return nil, err
 	}
 	if claims == nil || claims.UserID <= 0 {
-		return nil, errorx.New(errorx.Unauthorized, "无效的token")
+		return nil, errors.NewCode(errors.Unauthorized, "无效的token")
 	}
 	return claims, nil
 }
@@ -395,9 +395,9 @@ type JWTClaims struct {
 
 // ActivationClaims 表达认证成功后的短期 scope 激活票据。
 type ActivationClaims struct {
-	UserID          int64    `json:"user_id"`
-	BindingVersion  string   `json:"binding_version,omitempty"`
-	AvailableScopes []int64  `json:"available_scope_ids,omitempty"`
+	UserID          int64   `json:"user_id"`
+	BindingVersion  string  `json:"binding_version,omitempty"`
+	AvailableScopes []int64 `json:"available_scope_ids,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -409,7 +409,7 @@ func GenerateToken(userID, activeScopeID int64, bindingVersion string, permissio
 // GenerateTokenWithTTL 生成 access token（可配置 TTL）。
 func GenerateTokenWithTTL(userID, activeScopeID int64, bindingVersion string, permissions []string, secretKey string, ttl time.Duration) (string, error) {
 	if secretKey == "" {
-		return "", errorx.New(errorx.Internal, "JWT 密钥未配置")
+		return "", errors.NewCode(errors.Internal, "JWT 密钥未配置")
 	}
 	if ttl <= 0 {
 		ttl = defaultAccessTokenTTL
@@ -429,7 +429,7 @@ func GenerateTokenWithTTL(userID, activeScopeID int64, bindingVersion string, pe
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(secretKey))
 	if err != nil {
-		return "", errorx.New(errorx.Internal, "生成token失败")
+		return "", errors.NewCode(errors.Internal, "生成token失败")
 	}
 	return signed, nil
 }
@@ -437,7 +437,7 @@ func GenerateTokenWithTTL(userID, activeScopeID int64, bindingVersion string, pe
 // GenerateActivationToken 生成认证成功后的短期 scope 激活票据。
 func GenerateActivationToken(userID int64, bindingVersion string, availableScopeIDs []int64, secretKey string, ttl time.Duration) (string, error) {
 	if secretKey == "" {
-		return "", errorx.New(errorx.Internal, "JWT 密钥未配置")
+		return "", errors.NewCode(errors.Internal, "JWT 密钥未配置")
 	}
 	if ttl <= 0 {
 		ttl = defaultActivationTTL
@@ -455,7 +455,7 @@ func GenerateActivationToken(userID int64, bindingVersion string, availableScope
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString([]byte(secretKey))
 	if err != nil {
-		return "", errorx.New(errorx.Internal, "生成激活票据失败")
+		return "", errors.NewCode(errors.Internal, "生成激活票据失败")
 	}
 	return signed, nil
 }
@@ -463,22 +463,22 @@ func GenerateActivationToken(userID int64, bindingVersion string, availableScope
 // ParseToken 解析并验证 JWT 令牌
 func ParseToken(tokenStr, secretKey string) (*JWTClaims, error) {
 	if secretKey == "" {
-		return nil, errorx.New(errorx.Unauthorized, "认证配置错误")
+		return nil, errors.NewCode(errors.Unauthorized, "认证配置错误")
 	}
 
 	token, err := jwt.ParseWithClaims(tokenStr, &JWTClaims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errorx.New(errorx.Unauthorized, "不支持的签名方法")
+			return nil, errors.NewCode(errors.Unauthorized, "不支持的签名方法")
 		}
 		return []byte(secretKey), nil
 	})
 	if err != nil {
-		return nil, errorx.New(errorx.Unauthorized, "token 解析失败")
+		return nil, errors.NewCode(errors.Unauthorized, "token 解析失败")
 	}
 
 	claims, ok := token.Claims.(*JWTClaims)
 	if !ok || !token.Valid {
-		return nil, errorx.New(errorx.Unauthorized, "无效的token")
+		return nil, errors.NewCode(errors.Unauthorized, "无效的token")
 	}
 
 	return claims, nil
@@ -487,22 +487,22 @@ func ParseToken(tokenStr, secretKey string) (*JWTClaims, error) {
 // ParseActivationToken 解析并验证激活票据。
 func ParseActivationToken(tokenStr, secretKey string) (*ActivationClaims, error) {
 	if secretKey == "" {
-		return nil, errorx.New(errorx.Unauthorized, "认证配置错误")
+		return nil, errors.NewCode(errors.Unauthorized, "认证配置错误")
 	}
 
 	token, err := jwt.ParseWithClaims(tokenStr, &ActivationClaims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errorx.New(errorx.Unauthorized, "不支持的签名方法")
+			return nil, errors.NewCode(errors.Unauthorized, "不支持的签名方法")
 		}
 		return []byte(secretKey), nil
 	})
 	if err != nil {
-		return nil, errorx.New(errorx.Unauthorized, "activation token 解析失败")
+		return nil, errors.NewCode(errors.Unauthorized, "activation token 解析失败")
 	}
 
 	claims, ok := token.Claims.(*ActivationClaims)
 	if !ok || !token.Valid || claims.UserID <= 0 {
-		return nil, errorx.New(errorx.Unauthorized, "无效的 activation token")
+		return nil, errors.NewCode(errors.Unauthorized, "无效的 activation token")
 	}
 	return claims, nil
 }

@@ -22,12 +22,15 @@ type IUserService interface {
 	LockUser(ctx context.Context, userID int64) error
 	UnlockUser(ctx context.Context, userID int64) error
 	AssignRole(ctx context.Context, userID, roleID int64) error
+	AssignRoleBinding(ctx context.Context, userID, roleID int64, grantScopeID *int64) error
 	RemoveRole(ctx context.Context, userID, roleID int64) error
+	RemoveRoleBinding(ctx context.Context, userID, bindingID int64) error
 	AssignToGroup(ctx context.Context, userID, groupID int64) error
 	RemoveFromGroup(ctx context.Context, userID, groupID int64) error
 	UserPermissions(ctx context.Context, userID int64) ([]string, error)
 	CheckPermission(ctx context.Context, userID int64, permission string) (bool, error)
 	UserRoles(ctx context.Context, userID int64) ([]*iamentity.Role, error)
+	UserRoleBindings(ctx context.Context, userID int64) ([]*svc.UserRoleBindingDetail, error)
 	UserGroups(ctx context.Context, userID int64) ([]*iamentity.Group, error)
 	UserProfile(ctx context.Context, userID int64) (*iamentity.User, error)
 }
@@ -66,6 +69,17 @@ type IRoleService interface {
 type ITenantService interface {
 	ActivateTenant(ctx context.Context, tenantID int64) error
 	DeactivateTenant(ctx context.Context, tenantID int64) error
+	RepairTenantRootScope(ctx context.Context, tenantID int64) (*iamentity.Scope, error)
+}
+
+// IScopeService 定义授权域治理能力接口。
+type IScopeService interface {
+	CreateScope(ctx context.Context, req *svc.CreateScopeRequest) (*iamentity.Scope, error)
+	UpdateScope(ctx context.Context, scopeID int64, req *svc.UpdateScopeRequest) (*iamentity.Scope, error)
+	ActivateScope(ctx context.Context, scopeID int64) error
+	DeactivateScope(ctx context.Context, scopeID int64) error
+	DeleteScope(ctx context.Context, scopeID int64) error
+	ScopeGovernanceState(ctx context.Context, scopeID int64) (*svc.ScopeGovernanceState, error)
 }
 
 // IMenuService 定义菜单服务能力接口。
