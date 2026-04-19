@@ -9,7 +9,7 @@ import (
 	"gochen/domain"
 	"gochen/domain/crud"
 	"gochen/errors"
-	"gochen/validation"
+	"gochen/validate"
 )
 
 // PermissionArray 权限数组类型
@@ -78,13 +78,13 @@ func (r *Role) Validate() error {
 	if r.NamespaceScopeID <= 0 {
 		return errors.NewCode(errors.Validation, "namespace_scope_id 不能为空")
 	}
-	if err := validation.ValidateRequired(r.Name, "role name"); err != nil {
+	if err := validate.Required(r.Name, "role name"); err != nil {
 		return errors.NewCode(errors.Validation, "角色名称不能为空")
 	}
-	if err := validation.ValidateStringLength(r.Name, "role name", 0, 50); err != nil {
+	if err := validate.StringLength(r.Name, "role name", 0, 50); err != nil {
 		return errors.NewCode(errors.Validation, "角色名称不能超过50个字符")
 	}
-	if err := validation.ValidateStringLength(r.Description, "role description", 0, 500); err != nil {
+	if err := validate.StringLength(r.Description, "role description", 0, 500); err != nil {
 		return errors.NewCode(errors.Validation, "角色描述不能超过500个字符")
 	}
 	if r.Status != "" && !isValidRoleStatus(r.Status) {

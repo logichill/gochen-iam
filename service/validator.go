@@ -9,7 +9,7 @@ import (
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
 	"gochen/errors"
-	"gochen/validation"
+	"gochen/validate"
 )
 
 // BusinessValidator 业务规则验证器
@@ -352,22 +352,22 @@ func (v *BusinessValidator) ValidateRoleDeletion(ctx context.Context, roleID int
 
 // validateUserBasicFields 验证用户基础字段
 func (v *BusinessValidator) validateUserBasicFields(username, email, password string) error {
-	if err := validation.ValidateRequired(username, "username"); err != nil {
+	if err := validate.Required(username, "username"); err != nil {
 		return errors.NewCode(errors.Validation, "用户名不能为空")
 	}
-	if err := validation.ValidateStringLength(username, "username", MinUsernameLength, MaxUsernameLength); err != nil {
+	if err := validate.StringLength(username, "username", MinUsernameLength, MaxUsernameLength); err != nil {
 		return errors.NewCode(errors.Validation, "用户名长度必须在3-50个字符之间")
 	}
-	if err := validation.ValidateRequired(email, "email"); err != nil {
+	if err := validate.Required(email, "email"); err != nil {
 		return errors.NewCode(errors.Validation, "邮箱不能为空")
 	}
-	if err := validation.ValidateEmail(email); err != nil {
+	if err := validate.Email(email); err != nil {
 		return errors.NewCode(errors.Validation, "邮箱格式不正确")
 	}
-	if err := validation.ValidateRequired(password, "password"); err != nil {
+	if err := validate.Required(password, "password"); err != nil {
 		return errors.NewCode(errors.Validation, "密码不能为空")
 	}
-	if err := validation.ValidateStringLength(password, "password", MinPasswordLength, 0); err != nil {
+	if err := validate.StringLength(password, "password", MinPasswordLength, 0); err != nil {
 		return errors.NewCode(errors.Validation, "密码长度不能少于6个字符")
 	}
 	return nil
@@ -400,10 +400,10 @@ func (v *BusinessValidator) validateEmailUniqueness(ctx context.Context, email s
 // validatePasswordStrength 验证密码强度
 func (v *BusinessValidator) validatePasswordStrength(password string) error {
 	// 基础长度检查
-	if err := validation.ValidateStringLength(password, "password", MinPasswordLength, 0); err != nil {
+	if err := validate.StringLength(password, "password", MinPasswordLength, 0); err != nil {
 		return errors.NewCode(errors.Validation, "密码长度不能少于6个字符")
 	}
-	if err := validation.ValidateStringLength(password, "password", 0, MaxPasswordLength); err != nil {
+	if err := validate.StringLength(password, "password", 0, MaxPasswordLength); err != nil {
 		return errors.NewCode(errors.Validation, "密码长度不能超过255个字符")
 	}
 
@@ -415,7 +415,7 @@ func (v *BusinessValidator) validatePasswordStrength(password string) error {
 
 // validateAvatarURL 验证头像URL
 func (v *BusinessValidator) validateAvatarURL(avatar string) error {
-	if err := validation.ValidateStringLength(avatar, "avatar", 0, 500); err != nil {
+	if err := validate.StringLength(avatar, "avatar", 0, 500); err != nil {
 		return errors.NewCode(errors.Validation, "头像URL长度不能超过500个字符")
 	}
 	// 可以添加URL格式验证
@@ -424,13 +424,13 @@ func (v *BusinessValidator) validateAvatarURL(avatar string) error {
 
 // validateGroupBasicFields 验证组织基础字段
 func (v *BusinessValidator) validateGroupBasicFields(name, description string) error {
-	if err := validation.ValidateRequired(name, "group name"); err != nil {
+	if err := validate.Required(name, "group name"); err != nil {
 		return errors.NewCode(errors.Validation, "组织名称不能为空")
 	}
-	if err := validation.ValidateStringLength(name, "group name", 0, 100); err != nil {
+	if err := validate.StringLength(name, "group name", 0, 100); err != nil {
 		return errors.NewCode(errors.Validation, "组织名称不能超过100个字符")
 	}
-	if err := validation.ValidateStringLength(description, "group description", 0, 500); err != nil {
+	if err := validate.StringLength(description, "group description", 0, 500); err != nil {
 		return errors.NewCode(errors.Validation, "组织描述不能超过500个字符")
 	}
 	return nil
@@ -511,13 +511,13 @@ func (v *BusinessValidator) validateGroupParentChange(ctx context.Context, group
 
 // validateRoleBasicFields 验证角色基础字段
 func (v *BusinessValidator) validateRoleBasicFields(name, description string) error {
-	if err := validation.ValidateRequired(name, "role name"); err != nil {
+	if err := validate.Required(name, "role name"); err != nil {
 		return errors.NewCode(errors.Validation, "角色名称不能为空")
 	}
-	if err := validation.ValidateStringLength(name, "role name", 0, 50); err != nil {
+	if err := validate.StringLength(name, "role name", 0, 50); err != nil {
 		return errors.NewCode(errors.Validation, "角色名称不能超过50个字符")
 	}
-	if err := validation.ValidateStringLength(description, "role description", 0, 500); err != nil {
+	if err := validate.StringLength(description, "role description", 0, 500); err != nil {
 		return errors.NewCode(errors.Validation, "角色描述不能超过500个字符")
 	}
 	return nil

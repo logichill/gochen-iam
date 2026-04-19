@@ -9,7 +9,7 @@ import (
 	"gochen/domain"
 	"gochen/domain/crud"
 	"gochen/errors"
-	"gochen/validation"
+	"gochen/validate"
 )
 
 // Group 组织实体
@@ -53,13 +53,13 @@ func (g *Group) Validate() error {
 	if g.OwnerID == "" {
 		return errors.NewCode(errors.Validation, "owner_id 不能为空")
 	}
-	if err := validation.ValidateRequired(g.Name, "group name"); err != nil {
+	if err := validate.Required(g.Name, "group name"); err != nil {
 		return errors.NewCode(errors.Validation, "组织名称不能为空")
 	}
-	if err := validation.ValidateStringLength(g.Name, "group name", 0, 100); err != nil {
+	if err := validate.StringLength(g.Name, "group name", 0, 100); err != nil {
 		return errors.NewCode(errors.Validation, "组织名称不能超过100个字符")
 	}
-	if err := validation.ValidateStringLength(g.Description, "group description", 0, 500); err != nil {
+	if err := validate.StringLength(g.Description, "group description", 0, 500); err != nil {
 		return errors.NewCode(errors.Validation, "组织描述不能超过500个字符")
 	}
 	return nil

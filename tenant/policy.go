@@ -2,11 +2,11 @@ package tenant
 
 import (
 	"context"
-	"os"
-	"strings"
 	"gochen/contextx"
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
+	"os"
+	"strings"
 )
 
 type Mode string

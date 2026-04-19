@@ -6,7 +6,7 @@ import (
 	"gochen/domain"
 	"gochen/domain/crud"
 	"gochen/errors"
-	"gochen/validation"
+	"gochen/validate"
 )
 
 // Tenant 定义租户。
@@ -29,19 +29,19 @@ func (Tenant) TableName() string {
 
 // Validate 校验租户数据
 func (t *Tenant) Validate() error {
-	if err := validation.ValidateRequired(t.Key, "tenant key"); err != nil {
+	if err := validate.Required(t.Key, "tenant key"); err != nil {
 		return errors.NewCode(errors.Validation, "租户编码不能为空")
 	}
-	if err := validation.ValidateStringLength(t.Key, "tenant key", 0, 64); err != nil {
+	if err := validate.StringLength(t.Key, "tenant key", 0, 64); err != nil {
 		return errors.NewCode(errors.Validation, "租户编码长度不能超过64个字符")
 	}
-	if err := validation.ValidateRequired(t.Name, "tenant name"); err != nil {
+	if err := validate.Required(t.Name, "tenant name"); err != nil {
 		return errors.NewCode(errors.Validation, "租户名称不能为空")
 	}
-	if err := validation.ValidateStringLength(t.Name, "tenant name", 0, 100); err != nil {
+	if err := validate.StringLength(t.Name, "tenant name", 0, 100); err != nil {
 		return errors.NewCode(errors.Validation, "租户名称不能超过100个字符")
 	}
-	if err := validation.ValidateStringLength(t.Description, "tenant description", 0, 500); err != nil {
+	if err := validate.StringLength(t.Description, "tenant description", 0, 500); err != nil {
 		return errors.NewCode(errors.Validation, "租户描述不能超过500个字符")
 	}
 	return nil

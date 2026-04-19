@@ -8,7 +8,7 @@ import (
 	"gochen/domain"
 	"gochen/domain/crud"
 	"gochen/errors"
-	"gochen/validation"
+	"gochen/validate"
 )
 
 const (
@@ -47,25 +47,25 @@ func (Scope) TableName() string {
 }
 
 func (s *Scope) Validate() error {
-	if err := validation.ValidateRequired(s.Key, "scope key"); err != nil {
+	if err := validate.Required(s.Key, "scope key"); err != nil {
 		return errors.NewCode(errors.Validation, "scope key 不能为空")
 	}
-	if err := validation.ValidateStringLength(s.Key, "scope key", 0, 128); err != nil {
+	if err := validate.StringLength(s.Key, "scope key", 0, 128); err != nil {
 		return errors.NewCode(errors.Validation, "scope key 长度不能超过128个字符")
 	}
 	if !isValidScopeSegment(s.Key) {
 		return errors.NewCode(errors.Validation, "scope key 格式无效")
 	}
-	if err := validation.ValidateRequired(s.Name, "scope name"); err != nil {
+	if err := validate.Required(s.Name, "scope name"); err != nil {
 		return errors.NewCode(errors.Validation, "scope name 不能为空")
 	}
-	if err := validation.ValidateRequired(s.Type, "scope type"); err != nil {
+	if err := validate.Required(s.Type, "scope type"); err != nil {
 		return errors.NewCode(errors.Validation, "scope type 不能为空")
 	}
 	if !IsValidScopeType(s.Type) {
 		return errors.NewCode(errors.Validation, "scope type 无效")
 	}
-	if err := validation.ValidateRequired(s.Path, "scope path"); err != nil {
+	if err := validate.Required(s.Path, "scope path"); err != nil {
 		return errors.NewCode(errors.Validation, "scope path 不能为空")
 	}
 	if !strings.HasPrefix(s.Path, "/") || !strings.HasSuffix(s.Path, "/") {
