@@ -2,6 +2,7 @@ package role
 
 import (
 	"context"
+	stdErrors "errors"
 	"time"
 
 	iamentity "gochen-iam/entity"
@@ -11,6 +12,7 @@ import (
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
+	appcrud "gochen/app/crud"
 	"gochen/auth"
 	"gochen/db/query"
 	"gochen/errors"
@@ -18,6 +20,8 @@ import (
 	"gochen/eventing/bus"
 	"gochen/logging"
 )
+
+var errBatchAssignRoleRollback = stdErrors.New("rollback batch assign role")
 
 // RoleService 角色服务
 type RoleService struct {
@@ -558,38 +562,30 @@ func (s *RoleService) RoleStatistics(ctx context.Context) (map[string]interface{
 
 // BatchAssignRole 批量分配角色（事务包裹）
 func (s *RoleService) BatchAssignRole(ctx context.Context, req *svc.RoleAssignRequest) (*svc.BatchOperationResponse, error) {
-	txCtx, err := s.roleRepo.BeginTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	txContext := txCtx.Context()
-	committed := false
-	defer func() {
-		if !committed {
-			_ = s.roleRepo.Rollback(txCtx)
-		}
-	}()
-
 	response := &svc.BatchOperationResponse{}
-	for _, userID := range req.UserIDs {
-		if err := s.AssignRoleToUser(txContext, req.RoleID, userID); err != nil {
-			response.FailureCount++
-			response.Errors = append(response.Errors, err)
-		} else {
-			response.SuccessCount++
+	err := appcrud.WithTx(ctx, s.roleRepo, func(txCtx context.Context) error {
+		for _, userID := range req.UserIDs {
+			if err := s.AssignRoleToUser(txCtx, req.RoleID, userID); err != nil {
+				response.FailureCount++
+				response.Errors = append(response.Errors, err)
+			} else {
+				response.SuccessCount++
+			}
 		}
+		if response.FailureCount > 0 {
+			response.SuccessCount = 0
+			return errBatchAssignRoleRollback
+		}
+		return nil
+	})
+	if err != nil && !stdErrors.Is(err, errBatchAssignRoleRollback) {
+		return nil, err
 	}
 
 	// 如果有任何失败，整个事务回滚，SuccessCount 置零以反映真实状态
 	if response.FailureCount > 0 {
-		response.SuccessCount = 0
 		return response, nil
 	}
-
-	if err := s.roleRepo.Commit(txCtx); err != nil {
-		return nil, err
-	}
-	committed = true
 	return response, nil
 }
 

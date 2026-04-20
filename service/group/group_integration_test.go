@@ -684,6 +684,51 @@ func TestGroupServiceBatchAddUsersToGroup(t *testing.T) {
 	}
 }
 
+func TestGroupServiceBatchAddUsersToGroup_RollsBackOnFailure(t *testing.T) {
+	env := setupGroupServiceTest(t)
+	defer env.teardown(t)
+
+	req := &svc.CreateGroupRequest{
+		TenantID:    env.tenantID,
+		Name:        "批量回滚测试",
+		Description: "批量添加失败回滚测试",
+	}
+	group, err := env.groupService.CreateGroup(env.backgroundCtx, req)
+	if err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+
+	user1 := env.createTestUser(t, "batchrollback1", "rollback1@example.com")
+	user2 := env.createTestUser(t, "batchrollback2", "rollback2@example.com")
+
+	resp, err := env.groupService.BatchAddUsersToGroup(
+		env.backgroundCtx,
+		group.GetID(),
+		[]int64{user1.GetID(), -1, user2.GetID()},
+	)
+	if err != nil {
+		t.Fatalf("batch add users with rollback: %v", err)
+	}
+
+	if resp.SuccessCount != 0 {
+		t.Errorf("expected success count 0 after rollback, got %d", resp.SuccessCount)
+	}
+	if resp.FailureCount != 1 {
+		t.Errorf("expected failure count 1, got %d", resp.FailureCount)
+	}
+	if len(resp.Errors) != 1 {
+		t.Errorf("expected 1 error, got %d", len(resp.Errors))
+	}
+
+	users, err := env.groupService.GroupUsers(env.backgroundCtx, group.GetID())
+	if err != nil {
+		t.Fatalf("get group users after rollback: %v", err)
+	}
+	if len(users) != 0 {
+		t.Errorf("expected 0 users after rollback, got %d", len(users))
+	}
+}
+
 // TestGroupServiceAddGroupRole 测试添加组织角色
 func TestGroupServiceAddGroupRole(t *testing.T) {
 	env := setupGroupServiceTest(t)

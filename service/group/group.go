@@ -2,6 +2,7 @@ package group
 
 import (
 	"context"
+	stdErrors "errors"
 	"time"
 
 	iamentity "gochen-iam/entity"
@@ -10,11 +11,14 @@ import (
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
+	appcrud "gochen/app/crud"
 	"gochen/auth"
 	"gochen/db/query"
 	"gochen/errors"
 	"gochen/logging"
 )
+
+var errBatchAddUsersRollback = stdErrors.New("rollback batch add users to group")
 
 // GroupService 组织服务
 type GroupService struct {
@@ -378,38 +382,30 @@ func (s *GroupService) RemoveUserFromGroup(ctx context.Context, groupID, userID 
 
 // BatchAddUsersToGroup 批量添加用户到组织（事务包裹）
 func (s *GroupService) BatchAddUsersToGroup(ctx context.Context, groupID int64, userIDs []int64) (*svc.BatchOperationResponse, error) {
-	txCtx, err := s.groupRepo.BeginTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-	txContext := txCtx.Context()
-	committed := false
-	defer func() {
-		if !committed {
-			_ = s.groupRepo.Rollback(txCtx)
-		}
-	}()
-
 	response := &svc.BatchOperationResponse{}
-	for _, userID := range userIDs {
-		if err := s.AddUserToGroup(txContext, groupID, userID); err != nil {
-			response.FailureCount++
-			response.Errors = append(response.Errors, err)
-		} else {
-			response.SuccessCount++
+	err := appcrud.WithTx(ctx, s.groupRepo, func(txCtx context.Context) error {
+		for _, userID := range userIDs {
+			if err := s.AddUserToGroup(txCtx, groupID, userID); err != nil {
+				response.FailureCount++
+				response.Errors = append(response.Errors, err)
+			} else {
+				response.SuccessCount++
+			}
 		}
+		if response.FailureCount > 0 {
+			response.SuccessCount = 0
+			return errBatchAddUsersRollback
+		}
+		return nil
+	})
+	if err != nil && !stdErrors.Is(err, errBatchAddUsersRollback) {
+		return nil, err
 	}
 
 	// 如果有任何失败，整个事务回滚，SuccessCount 置零以反映真实状态
 	if response.FailureCount > 0 {
-		response.SuccessCount = 0
 		return response, nil
 	}
-
-	if err := s.groupRepo.Commit(txCtx); err != nil {
-		return nil, err
-	}
-	committed = true
 	return response, nil
 }
 
