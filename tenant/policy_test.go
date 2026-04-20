@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	domaincrud "gochen/domain/crud"
+	appcrud "gochen/app/crud"
 	"gochen/errors"
 )
 
@@ -106,17 +106,17 @@ func TestInstallTenantResolverRequiresExplicitOptIn(t *testing.T) {
 	t.Setenv(EnvTenantMode, string(ModeSingle))
 	t.Setenv(EnvSingleTenantID, "single-tenant")
 
-	domaincrud.SetTenantResolver(nil)
-	defer domaincrud.SetTenantResolver(nil)
+	appcrud.SetTenantResolver(nil)
+	defer appcrud.SetTenantResolver(nil)
 
-	_, err := domaincrud.ResolveTenantID(context.Background())
+	_, err := appcrud.ResolveTenantID(context.Background())
 	if !errors.Is(err, errors.InvalidInput) {
 		t.Fatalf("expected default resolver InvalidInput before install, got %v", err)
 	}
 
 	InstallTenantResolver()
 
-	tenantID, err := domaincrud.ResolveTenantID(context.Background())
+	tenantID, err := appcrud.ResolveTenantID(context.Background())
 	if err != nil {
 		t.Fatalf("ResolveTenantID after install: %v", err)
 	}

@@ -1,6 +1,6 @@
 package access
 
-import "gochen/app/access"
+import "gochen/auth/access"
 
 // WriteConstraint 封装 gochen 应用层写约束。
 //

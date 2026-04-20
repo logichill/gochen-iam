@@ -4,8 +4,8 @@ import (
 	"context"
 
 	iamaccess "gochen-iam/access"
-	appaccess "gochen/app/access"
 	appcrud "gochen/app/crud"
+	appaccess "gochen/auth/access"
 	domain "gochen/domain"
 	"gochen/errors"
 )

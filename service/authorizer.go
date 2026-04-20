@@ -8,8 +8,8 @@ import (
 	iamaccess "gochen-iam/access"
 	iammw "gochen-iam/middleware"
 	"gochen-iam/tenant"
-	appaccess "gochen/app/access"
 	"gochen/auth"
+	appaccess "gochen/auth/access"
 	"gochen/contextx"
 	"gochen/errors"
 )

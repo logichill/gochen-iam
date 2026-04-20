@@ -15,7 +15,6 @@ import (
 	appcrud "gochen/app/crud"
 	"gochen/db/orm"
 	"gochen/domain"
-	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 )
 
@@ -31,7 +30,7 @@ func loadTenantBoundEntity[T domain.IEntity[ID], ID comparable](
 func TenantHooksForUser(repo svc.IResourceContextRepository[*iamentity.User, int64]) *appcrud.Hooks[*iamentity.User, int64] {
 	return &appcrud.Hooks[*iamentity.User, int64]{
 		BeforeCreate: func(ctx context.Context, entity *iamentity.User) error {
-			tenantID, err := domaincrud.ResolveTenantID(ctx)
+			tenantID, err := appcrud.ResolveTenantID(ctx)
 			if err != nil {
 				return err
 			}
@@ -47,7 +46,7 @@ func TenantHooksForUser(repo svc.IResourceContextRepository[*iamentity.User, int
 			return nil
 		},
 		BeforeUpdate: func(ctx context.Context, entity *iamentity.User) error {
-			contextTenantID, err := domaincrud.ResolveTenantID(ctx)
+			contextTenantID, err := appcrud.ResolveTenantID(ctx)
 			if err != nil {
 				return err
 			}
@@ -100,7 +99,7 @@ func TenantHooksForRole(
 			if governance != nil {
 				return governance.PrepareCreate(ctx, entity)
 			}
-			tenantID, err := domaincrud.ResolveTenantID(ctx)
+			tenantID, err := appcrud.ResolveTenantID(ctx)
 			if err != nil {
 				return err
 			}
@@ -130,7 +129,7 @@ func TenantHooksForRole(
 			if governance != nil {
 				return governance.PrepareUpdate(ctx, entity)
 			}
-			contextTenantID, err := domaincrud.ResolveTenantID(ctx)
+			contextTenantID, err := appcrud.ResolveTenantID(ctx)
 			if err != nil {
 				return err
 			}
@@ -464,7 +463,7 @@ func checkTenantOwnership[T tenantOwner[ID], ID comparable](
 	repo svc.IResourceContextRepository[T, ID],
 	id ID,
 ) error {
-	contextTenantID, err := domaincrud.ResolveTenantID(ctx)
+	contextTenantID, err := appcrud.ResolveTenantID(ctx)
 	if err != nil {
 		return err
 	}

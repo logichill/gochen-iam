@@ -2,8 +2,8 @@ package tenant
 
 import (
 	"context"
+	appcrud "gochen/app/crud"
 	"gochen/contextx"
-	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 	"os"
 	"strings"
@@ -28,7 +28,7 @@ type Policy struct {
 
 // InstallTenantResolver 由组合根显式安装 CRUD tenant 解析策略。
 func InstallTenantResolver() {
-	domaincrud.SetTenantResolver(domaincrud.TenantResolverFunc(ResolveTenantIDForFramework))
+	appcrud.SetTenantResolver(appcrud.TenantResolverFunc(ResolveTenantIDForFramework))
 }
 
 func singlePolicy() Policy {

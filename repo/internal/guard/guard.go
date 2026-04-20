@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	iamaccess "gochen-iam/access"
-	"gochen/app/access"
+	"gochen/auth/access"
 	"gochen/errors"
 )
 

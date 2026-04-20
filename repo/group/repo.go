@@ -7,11 +7,12 @@ import (
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
-	"gochen/app/access"
+	appcrud "gochen/app/crud"
 	"gochen/auth"
+	"gochen/auth/access"
 	"gochen/db/orm"
 	"gochen/db/orm/repo"
-	"gochen/domain/crud"
+	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 	"gochen/ident"
 )
@@ -32,7 +33,7 @@ func (r *GroupRepo) tenantScopedQuery(ctx context.Context) (*repo.ScopedQuery, e
 	if err != nil {
 		return nil, err
 	}
-	tenantID, err := crud.ResolveTenantID(ctx)
+	tenantID, err := appcrud.ResolveTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -89,35 +90,18 @@ func (r *GroupRepo) Create(ctx context.Context, group *iamentity.Group) (err err
 	if group.OwnerID == "" {
 		group.OwnerID = tenantOwnerID(group.TenantID)
 	}
-	txCtx, err := r.BeginTx(ctx)
-	if err != nil {
-		return err
-	}
-	txContext := txCtx.Context()
-	committed := false
-	defer func() {
-		if !committed {
-			_ = r.Rollback(txCtx)
+	return appcrud.WithTx(ctx, r.Repo, func(txCtx context.Context) error {
+		if err := r.syncGroupHierarchy(txCtx, group); err != nil {
+			return err
 		}
-	}()
-
-	if err := r.syncGroupHierarchy(txContext, group); err != nil {
-		return err
-	}
-	if err := r.Repo.Create(txContext, group); err != nil {
-		return err
-	}
-	if err := r.syncGroupHierarchy(txContext, group); err != nil {
-		return err
-	}
-	if err := r.Repo.Update(txContext, group); err != nil {
-		return err
-	}
-	if err := r.Commit(txCtx); err != nil {
-		return err
-	}
-	committed = true
-	return nil
+		if err := r.Repo.Create(txCtx, group); err != nil {
+			return err
+		}
+		if err := r.syncGroupHierarchy(txCtx, group); err != nil {
+			return err
+		}
+		return r.Repo.Update(txCtx, group)
+	})
 }
 
 // Update 更新组织，并在父链变化时同步修复整个子树的 path/level。
@@ -131,42 +115,28 @@ func (r *GroupRepo) Update(ctx context.Context, group *iamentity.Group) (err err
 	if group.OwnerID == "" {
 		group.OwnerID = tenantOwnerID(group.TenantID)
 	}
-	txCtx, err := r.BeginTx(ctx)
-	if err != nil {
-		return err
-	}
-	txContext := txCtx.Context()
-	committed := false
-	defer func() {
-		if !committed {
-			_ = r.Rollback(txCtx)
-		}
-	}()
-
-	current, err := r.Get(txContext, group.GetID())
-	if err != nil {
-		return err
-	}
-	if err := r.syncGroupHierarchy(txContext, group); err != nil {
-		return err
-	}
-	pathChanged := current.Path != group.Path || current.Level != group.Level || int64PtrValue(current.ParentID) != int64PtrValue(group.ParentID)
-
-	if err := r.Repo.Update(txContext, group); err != nil {
-		return err
-	}
-	if pathChanged {
-		if err := r.repairDescendantHierarchy(txContext, group, func(child *iamentity.Group) error {
-			return r.Repo.Update(txContext, child)
-		}); err != nil {
+	return appcrud.WithTx(ctx, r.Repo, func(txCtx context.Context) error {
+		current, err := r.Get(txCtx, group.GetID())
+		if err != nil {
 			return err
 		}
-	}
-	if err := r.Commit(txCtx); err != nil {
-		return err
-	}
-	committed = true
-	return nil
+		if err := r.syncGroupHierarchy(txCtx, group); err != nil {
+			return err
+		}
+		pathChanged := current.Path != group.Path || current.Level != group.Level || int64PtrValue(current.ParentID) != int64PtrValue(group.ParentID)
+
+		if err := r.Repo.Update(txCtx, group); err != nil {
+			return err
+		}
+		if pathChanged {
+			if err := r.repairDescendantHierarchy(txCtx, group, func(child *iamentity.Group) error {
+				return r.Repo.Update(txCtx, child)
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *GroupRepo) CountByManagedScopeID(ctx context.Context, scopeID int64) (int64, error) {
@@ -231,29 +201,12 @@ func (r *GroupRepo) CreateWithConstraint(ctx context.Context, group *iamentity.G
 	if err := r.Repo.EnsureID(group); err != nil {
 		return err
 	}
-	txCtx, err := r.BeginTx(ctx)
-	if err != nil {
-		return err
-	}
-	txContext := txCtx.Context()
-	committed := false
-	defer func() {
-		if !committed {
-			_ = r.Rollback(txCtx)
+	return appcrud.WithTx(ctx, r.Repo, func(txCtx context.Context) error {
+		if err := r.syncGroupHierarchy(txCtx, group); err != nil {
+			return err
 		}
-	}()
-
-	if err := r.syncGroupHierarchy(txContext, group); err != nil {
-		return err
-	}
-	if err := r.Repo.CreateWithConstraint(assocguard.BindContext(txContext, guard), group, guard.Unwrap()); err != nil {
-		return err
-	}
-	if err := r.Commit(txCtx); err != nil {
-		return err
-	}
-	committed = true
-	return nil
+		return r.Repo.CreateWithConstraint(assocguard.BindContext(txCtx, guard), group, guard.Unwrap())
+	})
 }
 
 // UpdateWithConstraint 在显式写边界下更新组织，并在父链变化时同步修复子树。
@@ -261,42 +214,28 @@ func (r *GroupRepo) UpdateWithConstraint(ctx context.Context, group *iamentity.G
 	if group == nil {
 		return errors.NewCode(errors.InvalidInput, "group cannot be nil")
 	}
-	txCtx, err := r.BeginTx(ctx)
-	if err != nil {
-		return err
-	}
-	txContext := txCtx.Context()
-	committed := false
-	defer func() {
-		if !committed {
-			_ = r.Rollback(txCtx)
-		}
-	}()
-
-	current, err := r.Get(txContext, group.GetID())
-	if err != nil {
-		return err
-	}
-	if err := r.syncGroupHierarchy(txContext, group); err != nil {
-		return err
-	}
-	pathChanged := current.Path != group.Path || current.Level != group.Level || int64PtrValue(current.ParentID) != int64PtrValue(group.ParentID)
-
-	if err := r.Repo.UpdateWithConstraint(assocguard.BindContext(txContext, guard), group, guard.Unwrap()); err != nil {
-		return err
-	}
-	if pathChanged {
-		if err := r.repairDescendantHierarchy(txContext, group, func(child *iamentity.Group) error {
-			return r.Repo.UpdateWithConstraint(assocguard.BindContext(txContext, guard), child, guard.Unwrap())
-		}); err != nil {
+	return appcrud.WithTx(ctx, r.Repo, func(txCtx context.Context) error {
+		current, err := r.Get(txCtx, group.GetID())
+		if err != nil {
 			return err
 		}
-	}
-	if err := r.Commit(txCtx); err != nil {
-		return err
-	}
-	committed = true
-	return nil
+		if err := r.syncGroupHierarchy(txCtx, group); err != nil {
+			return err
+		}
+		pathChanged := current.Path != group.Path || current.Level != group.Level || int64PtrValue(current.ParentID) != int64PtrValue(group.ParentID)
+
+		if err := r.Repo.UpdateWithConstraint(assocguard.BindContext(txCtx, guard), group, guard.Unwrap()); err != nil {
+			return err
+		}
+		if pathChanged {
+			if err := r.repairDescendantHierarchy(txCtx, group, func(child *iamentity.Group) error {
+				return r.Repo.UpdateWithConstraint(assocguard.BindContext(txCtx, guard), child, guard.Unwrap())
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (r *GroupRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
@@ -521,7 +460,7 @@ func (r *GroupRepo) AddUserToGroup(ctx context.Context, groupID, userID int64) e
 		return err
 	}
 	err = model.Association(group, "Users").
-		Append(ctx, &iamentity.User{Entity: crud.Entity[int64]{ID: userID}})
+		Append(ctx, &iamentity.User{Entity: domaincrud.Entity[int64]{ID: userID}})
 
 	if err != nil {
 		return errors.Wrap(err, errors.Database, "添加用户到组织失败")
@@ -538,7 +477,7 @@ func (r *GroupRepo) AddUserToGroupWithConstraint(ctx context.Context, groupID, u
 		"Users",
 		userResourceKind,
 		userID,
-		&iamentity.User{Entity: crud.Entity[int64]{ID: userID}},
+		&iamentity.User{Entity: domaincrud.Entity[int64]{ID: userID}},
 		false,
 		"添加用户到组织失败",
 		guard,
@@ -558,7 +497,7 @@ func (r *GroupRepo) RemoveUserFromGroup(ctx context.Context, groupID, userID int
 		return err
 	}
 	err = model.Association(group, "Users").
-		Delete(ctx, &iamentity.User{Entity: crud.Entity[int64]{ID: userID}})
+		Delete(ctx, &iamentity.User{Entity: domaincrud.Entity[int64]{ID: userID}})
 
 	if err != nil {
 		return errors.Wrap(err, errors.Database, "从组织移除用户失败")
@@ -575,7 +514,7 @@ func (r *GroupRepo) RemoveUserFromGroupWithConstraint(ctx context.Context, group
 		"Users",
 		userResourceKind,
 		userID,
-		&iamentity.User{Entity: crud.Entity[int64]{ID: userID}},
+		&iamentity.User{Entity: domaincrud.Entity[int64]{ID: userID}},
 		true,
 		"从组织移除用户失败",
 		guard,
@@ -595,7 +534,7 @@ func (r *GroupRepo) AddDefaultRole(ctx context.Context, groupID, roleID int64) e
 		return err
 	}
 	err = model.Association(group, "DefaultRoles").
-		Append(ctx, &iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}})
+		Append(ctx, &iamentity.Role{Entity: domaincrud.Entity[int64]{ID: roleID}})
 
 	if err != nil {
 		return errors.Wrap(err, errors.Database, "添加默认角色失败")
@@ -612,7 +551,7 @@ func (r *GroupRepo) AddDefaultRoleWithConstraint(ctx context.Context, groupID, r
 		"DefaultRoles",
 		roleResourceKind,
 		roleID,
-		&iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}},
+		&iamentity.Role{Entity: domaincrud.Entity[int64]{ID: roleID}},
 		false,
 		"添加默认角色失败",
 		guard,
@@ -632,7 +571,7 @@ func (r *GroupRepo) RemoveDefaultRole(ctx context.Context, groupID, roleID int64
 		return err
 	}
 	err = model.Association(group, "DefaultRoles").
-		Delete(ctx, &iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}})
+		Delete(ctx, &iamentity.Role{Entity: domaincrud.Entity[int64]{ID: roleID}})
 
 	if err != nil {
 		return errors.Wrap(err, errors.Database, "移除默认角色失败")
@@ -649,7 +588,7 @@ func (r *GroupRepo) RemoveDefaultRoleWithConstraint(ctx context.Context, groupID
 		"DefaultRoles",
 		roleResourceKind,
 		roleID,
-		&iamentity.Role{Entity: crud.Entity[int64]{ID: roleID}},
+		&iamentity.Role{Entity: domaincrud.Entity[int64]{ID: roleID}},
 		true,
 		"移除默认角色失败",
 		guard,

@@ -8,12 +8,13 @@ import (
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
-	"gochen/app/access"
+	appcrud "gochen/app/crud"
 	"gochen/auth"
+	"gochen/auth/access"
 	"gochen/db/orm"
 	"gochen/db/orm/repo"
 	"gochen/db/query"
-	"gochen/domain/crud"
+	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 	"gochen/ident"
 )
@@ -49,7 +50,7 @@ func (r *UserRepo) tenantScopedQuery(ctx context.Context) (*repo.ScopedQuery, er
 	if err != nil {
 		return nil, err
 	}
-	tenantID, err := crud.ResolveTenantID(ctx)
+	tenantID, err := appcrud.ResolveTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +98,7 @@ func NewUserRepository(o orm.IOrm) (*UserRepo, error) {
 
 // Create 覆盖通用创建，省略非表字段（version/created_by/updated_by/deleted_by）
 func (r *UserRepo) Create(ctx context.Context, u *iamentity.User) error {
-	tenantID, err := crud.ResolveTenantID(ctx)
+	tenantID, err := appcrud.ResolveTenantID(ctx)
 	if err == nil {
 		if u.TenantID == "" {
 			u.TenantID = tenantID
@@ -128,7 +129,7 @@ func (r *UserRepo) Create(ctx context.Context, u *iamentity.User) error {
 
 // Update 覆盖通用更新，省略非表字段
 func (r *UserRepo) Update(ctx context.Context, u *iamentity.User) error {
-	tenantID, err := crud.ResolveTenantID(ctx)
+	tenantID, err := appcrud.ResolveTenantID(ctx)
 	if err != nil {
 		return err
 	}
@@ -534,7 +535,7 @@ func (r *UserRepo) AssignToGroup(ctx context.Context, userID, groupID int64) err
 		return err
 	}
 	err = model.Association(user, "Groups").
-		Append(ctx, &iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}})
+		Append(ctx, &iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}})
 
 	if err != nil {
 		return errors.Wrap(err, errors.Database, "分配用户到组织失败")
@@ -551,7 +552,7 @@ func (r *UserRepo) AssignToGroupWithConstraint(ctx context.Context, userID, grou
 		"Groups",
 		groupResourceKind,
 		groupID,
-		&iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}},
+		&iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}},
 		false,
 		"分配用户到组织失败",
 		guard,
@@ -570,7 +571,7 @@ func (r *UserRepo) RemoveFromGroup(ctx context.Context, userID, groupID int64) e
 		return err
 	}
 	err = model.Association(user, "Groups").
-		Delete(ctx, &iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}})
+		Delete(ctx, &iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}})
 
 	if err != nil {
 		return errors.Wrap(err, errors.Database, "从组织移除用户失败")
@@ -587,7 +588,7 @@ func (r *UserRepo) RemoveFromGroupWithConstraint(ctx context.Context, userID, gr
 		"Groups",
 		groupResourceKind,
 		groupID,
-		&iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}},
+		&iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}},
 		true,
 		"从组织移除用户失败",
 		guard,

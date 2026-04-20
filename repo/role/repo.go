@@ -7,12 +7,13 @@ import (
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
-	"gochen/app/access"
+	appcrud "gochen/app/crud"
 	"gochen/auth"
+	"gochen/auth/access"
 	"gochen/db/orm"
 	"gochen/db/orm/repo"
 	"gochen/db/query"
-	"gochen/domain/crud"
+	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 	"gochen/ident"
 )
@@ -33,7 +34,7 @@ func (r *RoleRepo) tenantScopedQuery(ctx context.Context) (*repo.ScopedQuery, er
 	if err != nil {
 		return nil, err
 	}
-	tenantID, err := crud.ResolveTenantID(ctx)
+	tenantID, err := appcrud.ResolveTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +81,7 @@ func NewRoleRepository(o orm.IOrm) (*RoleRepo, error) {
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供
 
 func (r *RoleRepo) Create(ctx context.Context, role *iamentity.Role) error {
-	tenantID, err := crud.ResolveTenantID(ctx)
+	tenantID, err := appcrud.ResolveTenantID(ctx)
 	if err == nil {
 		if role.TenantID == "" {
 			role.TenantID = tenantID
@@ -100,7 +101,7 @@ func (r *RoleRepo) Create(ctx context.Context, role *iamentity.Role) error {
 }
 
 func (r *RoleRepo) Update(ctx context.Context, role *iamentity.Role) error {
-	tenantID, err := crud.ResolveTenantID(ctx)
+	tenantID, err := appcrud.ResolveTenantID(ctx)
 	if err != nil {
 		return err
 	}
@@ -426,7 +427,7 @@ func (r *RoleRepo) AssignToGroup(ctx context.Context, roleID, groupID int64) err
 		return err
 	}
 	err = model.Association(role, "Groups").
-		Append(ctx, &iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}})
+		Append(ctx, &iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}})
 
 	if err != nil {
 		return errors.Wrap(err, errors.Database, "分配角色给组织失败")
@@ -443,7 +444,7 @@ func (r *RoleRepo) AssignToGroupWithConstraint(ctx context.Context, roleID, grou
 		"Groups",
 		groupResourceKind,
 		groupID,
-		&iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}},
+		&iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}},
 		false,
 		"分配角色给组织失败",
 		guard,
@@ -463,7 +464,7 @@ func (r *RoleRepo) RemoveFromGroup(ctx context.Context, roleID, groupID int64) e
 		return err
 	}
 	err = model.Association(role, "Groups").
-		Delete(ctx, &iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}})
+		Delete(ctx, &iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}})
 
 	if err != nil {
 		return errors.Wrap(err, errors.Database, "从组织移除角色失败")
@@ -480,7 +481,7 @@ func (r *RoleRepo) RemoveFromGroupWithConstraint(ctx context.Context, roleID, gr
 		"Groups",
 		groupResourceKind,
 		groupID,
-		&iamentity.Group{Entity: crud.Entity[int64]{ID: groupID}},
+		&iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}},
 		true,
 		"从组织移除角色失败",
 		guard,

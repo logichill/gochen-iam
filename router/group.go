@@ -12,7 +12,6 @@ import (
 	appcrud "gochen/app/crud"
 	"gochen/auth"
 	"gochen/db/query"
-	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 	"gochen/httpx"
 	"gochen/httpx/nethttp"
@@ -403,7 +402,7 @@ func newGroupCRUDHooks(repo svc.IResourceContextRepository[*iamentity.Group, int
 	return &appcrud.Hooks[*iamentity.Group, int64]{
 		BeforeCreate: func(ctx context.Context, group *iamentity.Group) error {
 			// 1. 租户隔离：从上下文注入 tenant_id
-			tenantID, err := domaincrud.ResolveTenantID(ctx)
+			tenantID, err := appcrud.ResolveTenantID(ctx)
 			if err != nil {
 				return err
 			}

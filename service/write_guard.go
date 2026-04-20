@@ -7,8 +7,8 @@ import (
 
 	iamaccess "gochen-iam/access"
 	iamauth "gochen-iam/auth"
-	"gochen/app/access"
 	"gochen/auth"
+	"gochen/auth/access"
 	"gochen/errors"
 )
 
