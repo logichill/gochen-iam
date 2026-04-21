@@ -249,71 +249,7 @@ func (s *UserService) AuthSnapshot(ctx context.Context, userID, activeScopeID in
 // 1. 用户直接分配的角色（user_roles）
 // 2. 用户所属 Group 的默认角色（group_roles）
 func (s *UserService) resolveEffectiveRolesAndPermissions(ctx context.Context, userID int64) ([]string, []string, error) {
-	// 1. 用户直接分配的角色
-	directRoles, err := s.roleRepo.FindByUserID(ctx, userID)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// 2. 用户所属 Group 的默认角色
-	groups, err := s.groupRepo.FindByUserID(ctx, userID)
-	if err != nil {
-		return nil, nil, err
-	}
-	var groupRoles []*iamentity.Role
-	for _, group := range groups {
-		if group == nil {
-			continue
-		}
-		roles, err := s.roleRepo.FindByGroupID(ctx, group.GetID())
-		if err != nil {
-			return nil, nil, err
-		}
-		groupRoles = append(groupRoles, roles...)
-	}
-
-	// 3. 合并去重
-	roleNames := make([]string, 0, len(directRoles)+len(groupRoles))
-	roleSet := make(map[string]struct{}, len(directRoles)+len(groupRoles))
-
-	permissions := make([]string, 0)
-	permissionSet := make(map[string]struct{})
-
-	mergeRole := func(role *iamentity.Role) {
-		if role == nil || role.Status != svc.RoleStatusActive {
-			return
-		}
-		name := strings.TrimSpace(role.Name)
-		if name != "" {
-			if _, exists := roleSet[name]; !exists {
-				roleSet[name] = struct{}{}
-				roleNames = append(roleNames, name)
-			}
-		}
-		for _, permission := range role.Permissions {
-			permission = strings.TrimSpace(permission)
-			if permission == "" {
-				continue
-			}
-			if _, exists := permissionSet[permission]; !exists {
-				permissionSet[permission] = struct{}{}
-				permissions = append(permissions, permission)
-			}
-		}
-	}
-
-	for i := range directRoles {
-		mergeRole(directRoles[i])
-	}
-	for i := range groupRoles {
-		mergeRole(groupRoles[i])
-	}
-
-	// 固定输出顺序，避免测试与 token 声明受数据库返回顺序影响。
-	sort.Strings(roleNames)
-	sort.Strings(permissions)
-
-	return roleNames, permissions, nil
+	return svc.ResolveEffectiveRoleNamesAndPermissionsForUser(ctx, userID, s.roleRepo, s.groupRepo)
 }
 
 type authScopeAggregate struct {

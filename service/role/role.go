@@ -422,7 +422,7 @@ func (s *RoleService) RoleGroups(ctx context.Context, roleID int64) ([]*iamentit
 // CheckPermission 检查权限
 func (s *RoleService) CheckPermission(ctx context.Context, req *svc.PermissionCheckRequest) (*svc.PermissionCheckResponse, error) {
 	// 1. 获取用户
-	user, _, err := svc.LoadTenantBoundResource(ctx, s.userRepo, req.UserID)
+	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, req.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -430,19 +430,22 @@ func (s *RoleService) CheckPermission(ctx context.Context, req *svc.PermissionCh
 		return nil, err
 	}
 
-	// 2. 检查权限
-	hasPermission := user.HasPermission(req.Permission)
-
-	// 3. 获取用户角色
-	var roles []string
-	for _, role := range user.Roles {
-		roles = append(roles, role.Name)
+	// 2. 按有效角色求值，包含 group 默认角色链路
+	roles, permissions, err := svc.ResolveEffectiveRoleNamesAndPermissionsForUser(
+		tenantCtx,
+		req.UserID,
+		s.roleRepo,
+		s.groupRepo,
+	)
+	if err != nil {
+		return nil, err
 	}
+	hasPermission := (auth.Principal{Permissions: permissions}).AllowsPermission(req.Permission)
 
 	return &svc.PermissionCheckResponse{
 		HasPermission: hasPermission,
 		Roles:         roles,
-		Source:        "direct", // 简化实现，实际可以区分直接权限和继承权限
+		Source:        "effective",
 	}, nil
 }
 

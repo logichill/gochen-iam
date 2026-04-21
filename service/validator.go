@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"strings"
 
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
+	"gochen/auth"
 	"gochen/errors"
 	"gochen/validate"
 )
@@ -111,32 +113,22 @@ func (v *BusinessValidator) ValidateUserDeletion(ctx context.Context, userID int
 		return err
 	}
 
-	// 2. 检查是否为系统管理员
-	roles, err := v.roleRepo.FindByUserID(tenantCtx, userID)
+	// 2. 检查删除后是否还会保留同作用域的管理员能力
+	roles, err := ResolveEffectiveRolesForUser(tenantCtx, userID, v.roleRepo, v.groupRepo)
 	if err != nil {
 		return err
 	}
-	protectedRoleName := ""
-	for _, role := range roles {
-		if role == nil {
-			continue
-		}
-		if role.Name == SystemAdminRoleName || role.Name == AdminRoleName {
-			protectedRoleName = role.Name
-			break
-		}
-	}
-	if protectedRoleName != "" {
-		adminRole, err := v.roleRepo.FindByName(tenantCtx, protectedRoleName)
+	protectedScopes := adminNamespaceScopes(roles)
+	if len(protectedScopes) > 0 {
+		activeRoles, err := v.roleRepo.FindByStatus(tenantCtx, RoleStatusActive)
 		if err != nil {
 			return err
 		}
-		// 检查是否为最后一个作用域管理员
-		adminUsers, err := v.userRepo.CountByRoleID(ctx, adminRole.GetID())
+		remainingAdmins, err := v.remainingAdminUserIDs(tenantCtx, userID, activeRoles, protectedScopes)
 		if err != nil {
 			return err
 		}
-		if adminUsers <= 1 {
+		if len(remainingAdmins) == 0 {
 			return errors.NewCode(errors.Validation, "不能删除最后一个管理员")
 		}
 	}
@@ -145,6 +137,86 @@ func (v *BusinessValidator) ValidateUserDeletion(ctx context.Context, userID int
 	// 这里可以添加更多业务规则，比如检查用户是否有未完成的任务等
 
 	return nil
+}
+
+func (v *BusinessValidator) remainingAdminUserIDs(
+	ctx context.Context,
+	excludedUserID int64,
+	roles []*iamentity.Role,
+	protectedScopes map[int64]struct{},
+) (map[int64]struct{}, error) {
+	remaining := make(map[int64]struct{})
+	for _, role := range roles {
+		if !roleMatchesProtectedAdminScope(role, protectedScopes) {
+			continue
+		}
+		users, err := v.userRepo.FindByRoleID(ctx, role.GetID())
+		if err != nil {
+			return nil, err
+		}
+		for _, user := range users {
+			if user == nil || user.GetID() <= 0 || user.GetID() == excludedUserID {
+				continue
+			}
+			remaining[user.GetID()] = struct{}{}
+		}
+
+		groups, err := v.groupRepo.FindByDefaultRoleID(ctx, role.GetID())
+		if err != nil {
+			return nil, err
+		}
+		for _, group := range groups {
+			if group == nil || group.GetID() <= 0 {
+				continue
+			}
+			groupUsers, err := v.userRepo.FindByGroupID(ctx, group.GetID())
+			if err != nil {
+				return nil, err
+			}
+			for _, user := range groupUsers {
+				if user == nil || user.GetID() <= 0 || user.GetID() == excludedUserID {
+					continue
+				}
+				remaining[user.GetID()] = struct{}{}
+			}
+		}
+	}
+	return remaining, nil
+}
+
+func adminNamespaceScopes(roles []*iamentity.Role) map[int64]struct{} {
+	scopes := make(map[int64]struct{})
+	for _, role := range roles {
+		if !roleHasAdminCapability(role) {
+			continue
+		}
+		scopes[role.NamespaceScopeID] = struct{}{}
+	}
+	return scopes
+}
+
+func roleMatchesProtectedAdminScope(role *iamentity.Role, protectedScopes map[int64]struct{}) bool {
+	if !roleHasAdminCapability(role) || len(protectedScopes) == 0 {
+		return false
+	}
+	_, ok := protectedScopes[role.NamespaceScopeID]
+	return ok
+}
+
+func roleHasAdminCapability(role *iamentity.Role) bool {
+	if role == nil || !role.IsActive() {
+		return false
+	}
+	for _, permission := range role.Permissions {
+		permission = strings.TrimSpace(permission)
+		if permission == "" {
+			continue
+		}
+		if auth.PermissionPatternMatches(permission, AdminEntryPermission.Code) {
+			return true
+		}
+	}
+	return false
 }
 
 // 组织相关业务规则验证
