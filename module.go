@@ -19,12 +19,12 @@ import (
 	"gochen-iam/tenant"
 	"gochen/boot"
 	"gochen/errors"
+	"gochen/host/module"
 	"gochen/httpx"
-	"gochen/server"
 )
 
 // NewModule 创建 IAM 领域模块
-func NewModule() (server.IModule, error) {
+func NewModule() (module.IModule, error) {
 	tenant.InstallTenantResolver()
 	if err := iamservice.InstallIAMPermissionCatalog(); err != nil {
 		return nil, err
