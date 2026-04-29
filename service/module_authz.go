@@ -3,7 +3,7 @@ package service
 import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
-	"gochen/auth"
+	auth "gochen/auth/core"
 )
 
 // InstallIAMPermissionCatalog 安装 IAM 严格权限目录。

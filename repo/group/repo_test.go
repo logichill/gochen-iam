@@ -5,7 +5,8 @@ import (
 	"database/sql"
 	"testing"
 
-	"gochen/auth"
+	iamentity "gochen-iam/entity"
+	auth "gochen/auth/core"
 	"gochen/contextx"
 	"gochen/db"
 	"gochen/db/orm"
@@ -26,26 +27,34 @@ func (a *capturingAssociation) Clear(context.Context) error           { return n
 type capturingModel struct {
 	meta *orm.ModelMeta
 
+	firstFn          func(dest any) error
 	firstCalls       int
 	associationCalls int
 	lastFirstOpts    orm.QueryOptions
 
 	lastAssociation *capturingAssociation
+	savedEntity     any
 }
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities { return nil }
-func (m *capturingModel) First(_ context.Context, _ any, opts ...orm.QueryOption) error {
+func (m *capturingModel) First(_ context.Context, dest any, opts ...orm.QueryOption) error {
 	m.firstCalls++
 	m.lastFirstOpts = orm.CollectQueryOptions(opts...)
+	if m.firstFn != nil {
+		return m.firstFn(dest)
+	}
 	return nil
 }
 func (m *capturingModel) Find(context.Context, any, ...orm.QueryOption) error { return nil }
 func (m *capturingModel) Count(context.Context, ...orm.QueryOption) (int64, error) {
 	return 0, nil
 }
-func (m *capturingModel) Create(context.Context, ...any) error                { return nil }
-func (m *capturingModel) Save(context.Context, any, ...orm.QueryOption) error { return nil }
+func (m *capturingModel) Create(context.Context, ...any) error { return nil }
+func (m *capturingModel) Save(_ context.Context, entity any, _ ...orm.QueryOption) error {
+	m.savedEntity = entity
+	return nil
+}
 func (m *capturingModel) UpdateValues(context.Context, map[string]any, ...orm.QueryOption) error {
 	return nil
 }
@@ -185,6 +194,54 @@ func TestGroupRepo_Get_FiltersByTenantFromPrincipal(t *testing.T) {
 	requireCondition(t, where, "tenant_id = ?", "tenant-a")
 	requireCondition(t, where, "id = ?", int64(7))
 	requireCondition(t, where, "deleted_at IS NULL")
+}
+
+func TestGroupRepo_Update_StripsAssociationsBeforeSave(t *testing.T) {
+	o := &fakeOrm{
+		baseModel:    &capturingModel{},
+		sessionModel: &capturingModel{},
+	}
+	r, err := NewGroupRepository(o)
+	if err != nil {
+		t.Fatalf("NewGroupRepository: %v", err)
+	}
+
+	group := &iamentity.Group{
+		TenantID:       "tenant-a",
+		ManagedScopeID: 1,
+		OwnerID:        "tenant:tenant-a",
+		Name:           "ops",
+		ParentID:       nil,
+		Parent:         &iamentity.Group{},
+		Children:       []*iamentity.Group{{}},
+		Users:          []*iamentity.User{{}},
+		DefaultRoles:   []*iamentity.Role{{}},
+	}
+	group.SetID(7)
+
+	o.sessionModel.firstFn = func(dest any) error {
+		if target, ok := dest.(**iamentity.Group); ok {
+			*target = &iamentity.Group{}
+			(*target).SetID(7)
+			return nil
+		}
+		return nil
+	}
+	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
+	if err := r.Update(ctx, group); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	saved, ok := o.sessionModel.savedEntity.(*iamentity.Group)
+	if !ok || saved == nil {
+		t.Fatalf("expected saved group entity, got %#v", o.sessionModel.savedEntity)
+	}
+	if saved == group {
+		t.Fatal("expected update to save a detached copy")
+	}
+	if saved.Parent != nil || saved.Children != nil || saved.Users != nil || saved.DefaultRoles != nil {
+		t.Fatalf("expected associations stripped before save, got parent=%v children=%v users=%v roles=%v", saved.Parent, saved.Children, saved.Users, saved.DefaultRoles)
+	}
 }
 
 func requireCondition(t *testing.T, conditions []orm.Condition, expr string, wantArgs ...any) {

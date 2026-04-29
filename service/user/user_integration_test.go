@@ -18,7 +18,7 @@ import (
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
 
-	"gochen/auth"
+	auth "gochen/auth/core"
 	"gochen/contextx"
 	"gochen/errors"
 

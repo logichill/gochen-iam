@@ -9,7 +9,7 @@ import (
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
-	"gochen/auth"
+	auth "gochen/auth/core"
 	"gochen/contextx"
 	"gochen/errors"
 )

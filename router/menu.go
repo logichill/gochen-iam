@@ -5,7 +5,7 @@ import (
 	iammw "gochen-iam/middleware"
 	menusvc "gochen-iam/service/menu"
 	restapi "gochen/api/restapi"
-	"gochen/auth"
+	auth "gochen/auth/core"
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 	"gochen/httpx"

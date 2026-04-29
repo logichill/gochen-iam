@@ -7,7 +7,7 @@ import (
 	"gochen-iam/access"
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
-	"gochen/auth"
+	auth "gochen/auth/core"
 	"gochen/contextx"
 )
 

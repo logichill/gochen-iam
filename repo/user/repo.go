@@ -9,8 +9,8 @@ import (
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
 	appcrud "gochen/app/crud"
-	"gochen/auth"
 	"gochen/auth/access"
+	auth "gochen/auth/core"
 	"gochen/db/orm"
 	"gochen/db/orm/repo"
 	"gochen/db/query"
@@ -154,7 +154,29 @@ func (r *UserRepo) Update(ctx context.Context, u *iamentity.User) error {
 	if err != nil {
 		return err
 	}
-	return model.Save(ctx, u, orm.WithWhere("id = ? AND tenant_id = ? AND deleted_at IS NULL", u.GetID(), tenantID))
+	return model.Save(ctx, userWithoutAssociations(u), orm.WithWhere("id = ? AND tenant_id = ? AND deleted_at IS NULL", u.GetID(), tenantID))
+}
+
+func userWithoutAssociations(user *iamentity.User) *iamentity.User {
+	if user == nil {
+		return nil
+	}
+	return &iamentity.User{
+		Entity:         user.Entity,
+		Timestamps:     user.Timestamps,
+		DeletedAt:      user.DeletedAt,
+		TenantID:       user.TenantID,
+		HomeTenantID:   user.HomeTenantID,
+		HomeScopeID:    user.HomeScopeID,
+		ManagedScopeID: user.ManagedScopeID,
+		OwnerID:        user.OwnerID,
+		Username:       user.Username,
+		Email:          user.Email,
+		Password:       user.Password,
+		Status:         user.Status,
+		Avatar:         user.Avatar,
+		LastLoginAt:    user.LastLoginAt,
+	}
 }
 
 // CreateWithConstraint 在显式写边界下创建用户。

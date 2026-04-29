@@ -12,7 +12,7 @@ import (
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
 	usersvc "gochen-iam/service/user"
-	"gochen/auth"
+	auth "gochen/auth/core"
 	"gochen/contextx"
 
 	"gorm.io/driver/sqlite"

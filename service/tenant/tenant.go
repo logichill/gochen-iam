@@ -8,7 +8,7 @@ import (
 	iammw "gochen-iam/middleware"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
-	"gochen/auth"
+	auth "gochen/auth/core"
 	"gochen/db/orm"
 	"gochen/errors"
 )

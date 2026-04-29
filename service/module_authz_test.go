@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	iammw "gochen-iam/middleware"
-	"gochen/auth"
+	auth "gochen/auth/core"
 )
 
 func TestSyncRequiredPermissionCatalog_RegistersDefinitionMetadata(t *testing.T) {

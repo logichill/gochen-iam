@@ -5,7 +5,8 @@ import (
 	"database/sql"
 	"testing"
 
-	"gochen/auth"
+	iamentity "gochen-iam/entity"
+	auth "gochen/auth/core"
 	"gochen/contextx"
 	"gochen/db"
 	"gochen/db/orm"
@@ -32,6 +33,7 @@ type capturingModel struct {
 	lastFirstOpts    orm.QueryOptions
 
 	lastAssociation *capturingAssociation
+	savedEntity     any
 }
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
@@ -49,7 +51,10 @@ func (m *capturingModel) Create(context.Context, ...any) error {
 	m.createCalls++
 	return nil
 }
-func (m *capturingModel) Save(context.Context, any, ...orm.QueryOption) error { return nil }
+func (m *capturingModel) Save(_ context.Context, entity any, _ ...orm.QueryOption) error {
+	m.savedEntity = entity
+	return nil
+}
 func (m *capturingModel) UpdateValues(context.Context, map[string]any, ...orm.QueryOption) error {
 	return nil
 }
@@ -189,6 +194,47 @@ func TestUserRepo_Get_FiltersByTenantFromPrincipal(t *testing.T) {
 	requireCondition(t, where, "tenant_id = ?", "tenant-a")
 	requireCondition(t, where, "id = ?", int64(7))
 	requireCondition(t, where, "deleted_at IS NULL")
+}
+
+func TestUserRepo_Update_StripsAssociationsBeforeSave(t *testing.T) {
+	o := &fakeOrm{
+		baseModel:    &capturingModel{},
+		sessionModel: &capturingModel{},
+	}
+	r, err := NewUserRepository(o)
+	if err != nil {
+		t.Fatalf("NewUserRepository: %v", err)
+	}
+
+	user := &iamentity.User{
+		TenantID:       "tenant-a",
+		HomeTenantID:   "tenant-a",
+		HomeScopeID:    1,
+		ManagedScopeID: 1,
+		OwnerID:        "tenant:tenant-a",
+		Username:       "admin",
+		Email:          "admin@example.com",
+		Password:       "hashed",
+		Groups:         []iamentity.Group{{}},
+		Roles:          []iamentity.Role{{}},
+	}
+	user.SetID(7)
+
+	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
+	if err := r.Update(ctx, user); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	saved, ok := o.baseModel.savedEntity.(*iamentity.User)
+	if !ok || saved == nil {
+		t.Fatalf("expected saved user entity, got %#v", o.baseModel.savedEntity)
+	}
+	if saved == user {
+		t.Fatal("expected update to save a detached copy")
+	}
+	if saved.Groups != nil || saved.Roles != nil {
+		t.Fatalf("expected associations stripped before save, got groups=%v roles=%v", saved.Groups, saved.Roles)
+	}
 }
 
 func requireCondition(t *testing.T, conditions []orm.Condition, expr string, wantArgs ...any) {

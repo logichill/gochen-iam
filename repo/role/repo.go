@@ -8,8 +8,8 @@ import (
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
 	appcrud "gochen/app/crud"
-	"gochen/auth"
 	"gochen/auth/access"
+	auth "gochen/auth/core"
 	"gochen/db/orm"
 	"gochen/db/orm/repo"
 	"gochen/db/query"
@@ -116,7 +116,18 @@ func (r *RoleRepo) Update(ctx context.Context, role *iamentity.Role) error {
 	if role.NamespaceScopeID == 0 {
 		role.NamespaceScopeID = managedScopeFromContext(ctx)
 	}
-	return r.Repo.Update(ctx, role)
+	return r.Repo.Update(ctx, roleWithoutAssociations(role))
+}
+
+func roleWithoutAssociations(role *iamentity.Role) *iamentity.Role {
+	if role == nil {
+		return nil
+	}
+	clone := *role
+	clone.NamespaceScope = nil
+	clone.Users = nil
+	clone.Groups = nil
+	return &clone
 }
 
 func (r *RoleRepo) CreateWithConstraint(ctx context.Context, role *iamentity.Role, guard iamaccess.WriteConstraint) error {

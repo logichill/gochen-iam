@@ -1,13 +1,11 @@
 package middleware
 
 import (
-	"context"
 	iamauth "gochen-iam/auth"
-	"gochen/auth"
+	authhttp "gochen/auth/adapters/http"
 	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"
-	"strings"
 )
 
 type permissionChecker struct{}
@@ -111,7 +109,7 @@ func PermissionMiddleware(required PermissionSpec) httpx.Middleware {
 		requiredPermission = mergePermissionDefinition(requiredPermission, enriched)
 	}
 
-	base := httpx.PermissionMiddleware(permissionChecker{}, requiredPermission.Code)
+	base := authhttp.PermissionMiddleware(permissionSpecFromDefinition(requiredPermission))
 	return func(ctx httpx.IContext, next func() error) error {
 		reqCtx := ctx.RequestContext()
 		if reqCtx == nil || GetUserID(reqCtx) == 0 {
@@ -126,15 +124,16 @@ func PermissionMiddleware(required PermissionSpec) httpx.Middleware {
 		called := false
 		err := base(ctx, func() error {
 			called = true
-			if err := bindPermissionRuntime(ctx, requiredPermission); err != nil {
-				return err
-			}
 			return next()
 		})
 		if err != nil && !called {
+			reason := "权限不足"
+			if errors.Is(err, errors.Unauthorized) {
+				reason = "用户未认证"
+			}
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision:   "deny",
-				Reason:     "权限不足",
+				Reason:     reason,
 				Permission: requiredPermission.Code,
 			})
 		}
@@ -142,39 +141,28 @@ func PermissionMiddleware(required PermissionSpec) httpx.Middleware {
 	}
 }
 
-func bindPermissionRuntime(ctx httpx.IContext, requiredPermission PermissionDefinition) error {
-	if ctx == nil {
-		return errors.NewCode(errors.InvalidInput, "http context cannot be nil")
+func permissionSpecFromDefinition(def PermissionDefinition) PermissionSpec {
+	spec := PermissionCode(def.Code)
+	if def.Name != "" {
+		spec = spec.Label(def.Name)
 	}
-	reqCtx := ctx.RequestContext()
-	if reqCtx == nil {
-		return errors.NewCode(errors.InvalidInput, "request context cannot be nil")
+	if def.Description != "" {
+		spec = spec.Desc(def.Description)
 	}
-
-	var runtimeCtx context.Context = reqCtx
-	if permissionRequiresHighRiskRuntime(requiredPermission) {
-		derived, err := auth.WithHighRiskAuthorization(runtimeCtx)
-		if err != nil {
-			return err
+	if len(def.Scopes) > 0 {
+		scopes := make([]ScopeType, 0, len(def.Scopes))
+		for _, scope := range def.Scopes {
+			scopes = append(scopes, ScopeType(scope))
 		}
-		runtimeCtx = derived
+		spec = spec.Scope(scopes...)
 	}
-
-	derived, _, err := auth.BindAuthzEvalContextOrEmpty(runtimeCtx)
-	if err != nil {
-		return err
+	if def.BuiltinOnly {
+		spec = spec.Builtin()
 	}
-	ctx.SetContext(reqCtx.WithContext(derived))
-	return nil
-}
-
-func permissionRequiresHighRiskRuntime(requiredPermission PermissionDefinition) bool {
-	switch strings.ToLower(strings.TrimSpace(requiredPermission.RiskLevel)) {
-	case string(RiskLevelHigh), string(RiskLevelCritical):
-		return true
-	default:
-		return false
+	if def.RiskLevel != "" {
+		spec = spec.Risk(RiskLevel(def.RiskLevel))
 	}
+	return spec
 }
 
 // AdminOnlyMiddleware 要求当前 active scope 具备管理员级全量权限。

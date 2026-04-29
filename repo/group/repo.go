@@ -8,8 +8,8 @@ import (
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
 	appcrud "gochen/app/crud"
-	"gochen/auth"
 	"gochen/auth/access"
+	auth "gochen/auth/core"
 	"gochen/db/orm"
 	"gochen/db/orm/repo"
 	domaincrud "gochen/domain/crud"
@@ -125,7 +125,7 @@ func (r *GroupRepo) Update(ctx context.Context, group *iamentity.Group) (err err
 		}
 		pathChanged := current.Path != group.Path || current.Level != group.Level || int64PtrValue(current.ParentID) != int64PtrValue(group.ParentID)
 
-		if err := r.Repo.Update(txCtx, group); err != nil {
+		if err := r.Repo.Update(txCtx, groupWithoutAssociations(group)); err != nil {
 			return err
 		}
 		if pathChanged {
@@ -137,6 +137,18 @@ func (r *GroupRepo) Update(ctx context.Context, group *iamentity.Group) (err err
 		}
 		return nil
 	})
+}
+
+func groupWithoutAssociations(group *iamentity.Group) *iamentity.Group {
+	if group == nil {
+		return nil
+	}
+	clone := *group
+	clone.Parent = nil
+	clone.Children = nil
+	clone.Users = nil
+	clone.DefaultRoles = nil
+	return &clone
 }
 
 func (r *GroupRepo) CountByManagedScopeID(ctx context.Context, scopeID int64) (int64, error) {

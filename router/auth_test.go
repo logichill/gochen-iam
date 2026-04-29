@@ -11,7 +11,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
-	"gochen/auth"
+	auth "gochen/auth/core"
 	"gochen/contextx"
 	"gochen/errors"
 	nethttp "gochen/httpx/nethttp"

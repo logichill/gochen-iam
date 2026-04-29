@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	iamauth "gochen-iam/auth"
-	"gochen/auth"
+	auth "gochen/auth/core"
 	"gochen/contextx"
 	"gochen/errors"
 	nethttp "gochen/httpx/nethttp"

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	iamauth "gochen-iam/auth"
-	"gochen/auth"
+	auth "gochen/auth/core"
 	"gochen/contextx"
 )
 

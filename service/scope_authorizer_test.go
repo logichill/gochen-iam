@@ -10,7 +10,7 @@ import (
 	scoperepo "gochen-iam/repo/scope"
 	tenantrepo "gochen-iam/repo/tenant"
 	"gochen-iam/tenant"
-	"gochen/auth"
+	auth "gochen/auth/core"
 	"gochen/contextx"
 	"gochen/domain/crud"
 	"gochen/errors"

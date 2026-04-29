@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	iamauth "gochen-iam/auth"
-	"gochen/auth"
+	auth "gochen/auth/core"
 	"gochen/contextx"
 	"gochen/httpx/nethttp"
 )
