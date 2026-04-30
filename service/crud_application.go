@@ -6,7 +6,7 @@ import (
 	iamaccess "gochen-iam/access"
 	appcrud "gochen/app/crud"
 	appaccess "gochen/auth/access"
-	domain "gochen/domain"
+	"gochen/domain"
 	"gochen/errors"
 )
 

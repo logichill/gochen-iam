@@ -7,7 +7,7 @@ import (
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
 	rolesvc "gochen-iam/service/role"
-	restapi "gochen/api/restapi"
+	"gochen/api/restapi"
 	appcrud "gochen/app/crud"
 	auth "gochen/auth/core"
 	"gochen/db/query"

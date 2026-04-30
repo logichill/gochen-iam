@@ -9,7 +9,7 @@ import (
 	auth "gochen/auth/core"
 	"gochen/contextx"
 	"gochen/errors"
-	nethttp "gochen/httpx/nethttp"
+	"gochen/httpx/nethttp"
 )
 
 func newTestHTTPContext(t *testing.T, method, path string) *nethttp.Context {

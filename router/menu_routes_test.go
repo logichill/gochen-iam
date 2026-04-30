@@ -6,7 +6,7 @@ import (
 
 	iamentity "gochen-iam/entity"
 	menusvc "gochen-iam/service/menu"
-	httpx "gochen/httpx"
+	"gochen/httpx"
 )
 
 type menuRouteTestRepo struct{}

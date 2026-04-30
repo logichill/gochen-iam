@@ -10,8 +10,8 @@ import (
 	"gochen-iam/tenant"
 	auth "gochen/auth/core"
 	"gochen/contextx"
-	httpx "gochen/httpx"
-	nethttp "gochen/httpx/nethttp"
+	"gochen/httpx"
+	"gochen/httpx/nethttp"
 )
 
 func newTenantGuardRequestContext(t *testing.T, tenantID string) httpx.IRequestContext {

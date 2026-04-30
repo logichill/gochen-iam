@@ -14,7 +14,7 @@ import (
 	auth "gochen/auth/core"
 	"gochen/contextx"
 	"gochen/errors"
-	nethttp "gochen/httpx/nethttp"
+	"gochen/httpx/nethttp"
 )
 
 type routerFixedAuthContextResolver struct {

@@ -10,7 +10,7 @@ import (
 	scoperepo "gochen-iam/repo/scope"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	restapi "gochen/api/restapi"
+	"gochen/api/restapi"
 	appcrud "gochen/app/crud"
 	auth "gochen/auth/core"
 	"gochen/db/query"
