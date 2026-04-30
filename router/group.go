@@ -8,7 +8,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
-	"gochen/api/restapi"
+	"gochen/api/rest"
 	appcrud "gochen/app/crud"
 	auth "gochen/auth/core"
 	"gochen/db/query"
@@ -72,17 +72,17 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create group crud application").WithContext("route", "iam.group")
 	}
 
-	builder, err := restapi.NewApiBuilder(
+	builder, err := rest.NewApiBuilder[*iamentity.Group, int64](
 		appService,
-		restapi.WithQuerySchema[*iamentity.Group, int64](groupQuerySchema),
-		restapi.WithAuthorization[*iamentity.Group, int64](gr.authorizer, restapi.CRUDPermissions{
+		rest.WithQuerySchema[*iamentity.Group, int64](groupQuerySchema),
+		rest.WithAuthorization[*iamentity.Group, int64](gr.authorizer, rest.CRUDPermissions{
 			List:   svc.GroupPermissionSet.Code(iammw.ActionRead),
 			Get:    svc.GroupPermissionSet.Code(iammw.ActionRead),
 			Create: svc.GroupPermissionSet.Code(iammw.ActionWrite),
 			Update: svc.GroupPermissionSet.Code(iammw.ActionWrite),
 			Delete: svc.GroupPermissionSet.Code(iammw.ActionDelete),
 		}),
-		restapi.WithHooks[*iamentity.Group, int64](func(h *appcrud.Hooks[*iamentity.Group, int64]) {
+		rest.WithHooks[*iamentity.Group, int64](func(h *appcrud.Hooks[*iamentity.Group, int64]) {
 			*h = *newGroupCRUDHooks(gr.groupRepo)
 		}),
 	)
@@ -93,7 +93,7 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create group api builder").WithContext("route", "iam.group")
 	}
 	if err := builder.
-		Route(func(cfg *restapi.RouteConfig[int64]) {
+		Route(func(cfg *rest.RouteConfig[int64]) {
 			cfg.EnableBatch = false
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10

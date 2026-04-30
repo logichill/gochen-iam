@@ -7,7 +7,7 @@ import (
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
 	rolesvc "gochen-iam/service/role"
-	"gochen/api/restapi"
+	"gochen/api/rest"
 	appcrud "gochen/app/crud"
 	auth "gochen/auth/core"
 	"gochen/db/query"
@@ -81,17 +81,17 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create role crud application").WithContext("route", "iam.role")
 	}
 
-	builder, err := restapi.NewApiBuilder(
+	builder, err := rest.NewApiBuilder[*iamentity.Role, int64](
 		appService,
-		restapi.WithQuerySchema[*iamentity.Role, int64](roleQuerySchema),
-		restapi.WithAuthorization[*iamentity.Role, int64](rr.authorizer, restapi.CRUDPermissions{
+		rest.WithQuerySchema[*iamentity.Role, int64](roleQuerySchema),
+		rest.WithAuthorization[*iamentity.Role, int64](rr.authorizer, rest.CRUDPermissions{
 			List:   svc.RolePermissionSet.Code(iammw.ActionRead),
 			Get:    svc.RolePermissionSet.Code(iammw.ActionRead),
 			Create: svc.RolePermissionSet.Code(iammw.ActionWrite),
 			Update: svc.RolePermissionSet.Code(iammw.ActionWrite),
 			Delete: svc.RolePermissionSet.Code(iammw.ActionDelete),
 		}),
-		restapi.WithHooks[*iamentity.Role, int64](func(h *appcrud.Hooks[*iamentity.Role, int64]) {
+		rest.WithHooks[*iamentity.Role, int64](func(h *appcrud.Hooks[*iamentity.Role, int64]) {
 			*h = *newScopeBackedRoleCRUDHooks(rr.roleRepo, rr.scopeAuthorizer, rr.governance)
 		}),
 	)
@@ -102,7 +102,7 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create role api builder").WithContext("route", "iam.role")
 	}
 	if err := builder.
-		Route(func(cfg *restapi.RouteConfig[int64]) {
+		Route(func(cfg *rest.RouteConfig[int64]) {
 			cfg.EnableBatch = false
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10

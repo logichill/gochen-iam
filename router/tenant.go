@@ -10,7 +10,7 @@ import (
 	scoperepo "gochen-iam/repo/scope"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	"gochen/api/restapi"
+	"gochen/api/rest"
 	appcrud "gochen/app/crud"
 	auth "gochen/auth/core"
 	"gochen/db/query"
@@ -83,21 +83,21 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	// - QuerySchema 为空；
 	// - Allowed* 也为空；
 	// - builder 会直接基于 Tenant struct 自动推导查询 schema。
-	builder, err := restapi.NewApiBuilder(
+	builder, err := rest.NewApiBuilder[*iamentity.Tenant, int64](
 		appService,
-		restapi.WithAuthorization[*iamentity.Tenant, int64](tr.authorizer, restapi.CRUDPermissions{
+		rest.WithAuthorization[*iamentity.Tenant, int64](tr.authorizer, rest.CRUDPermissions{
 			List:   svc.TenantPermissionSet.Code(iammw.ActionRead),
 			Get:    svc.TenantPermissionSet.Code(iammw.ActionRead),
 			Create: svc.TenantPermissionSet.Code(iammw.ActionWrite),
 			Update: svc.TenantPermissionSet.Code(iammw.ActionWrite),
 			Delete: svc.TenantPermissionSet.Code(iammw.ActionDelete),
 		}),
-		func(builder *restapi.ApiBuilder[*iamentity.Tenant, int64]) {
-			builder.Route(func(cfg *restapi.RouteConfig[int64]) {
+		func(builder *rest.ApiBuilder[*iamentity.Tenant, int64]) {
+			builder.Route(func(cfg *rest.RouteConfig[int64]) {
 				cfg.ResponseWrapper = tr.wrapTenantResponse
 			})
 		},
-		restapi.WithHooks[*iamentity.Tenant, int64](func(h *appcrud.Hooks[*iamentity.Tenant, int64]) {
+		rest.WithHooks[*iamentity.Tenant, int64](func(h *appcrud.Hooks[*iamentity.Tenant, int64]) {
 			*h = *TenantHooksForTenant(tr.tenantRepo, tr.scopeAuthorizer, tr.deleteGovernance)
 		}),
 	)
@@ -108,7 +108,7 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create tenant api builder").WithContext("route", "iam.tenant")
 	}
 	if err := builder.
-		Route(func(cfg *restapi.RouteConfig[int64]) {
+		Route(func(cfg *rest.RouteConfig[int64]) {
 			cfg.EnableBatch = false
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10

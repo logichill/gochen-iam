@@ -4,7 +4,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	menusvc "gochen-iam/service/menu"
-	"gochen/api/restapi"
+	"gochen/api/rest"
 	auth "gochen/auth/core"
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
@@ -63,9 +63,9 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create menu crud application").WithContext("route", "iam.menu")
 	}
 
-	builderOptions := []restapi.Option[*iamentity.MenuItem, int64]{}
+	builderOptions := []rest.Option[*iamentity.MenuItem, int64]{}
 	if mr.authorizer != nil {
-		builderOptions = append(builderOptions, restapi.WithAuthorization[*iamentity.MenuItem, int64](mr.authorizer, restapi.CRUDPermissions{
+		builderOptions = append(builderOptions, rest.WithAuthorization[*iamentity.MenuItem, int64](mr.authorizer, rest.CRUDPermissions{
 			List:   iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionRead).Code,
 			Get:    iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionRead).Code,
 			Create: iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionWrite).Code,
@@ -73,7 +73,7 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 			Delete: iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionWrite).Code,
 		}))
 	}
-	builder, err := restapi.NewApiBuilder(menuCRUD, builderOptions...)
+	builder, err := rest.NewApiBuilder[*iamentity.MenuItem, int64](menuCRUD, builderOptions...)
 	if err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create menu api builder").WithContext("route", "iam.menu")
@@ -81,7 +81,7 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create menu api builder").WithContext("route", "iam.menu")
 	}
 	if err := builder.
-		Route(func(cfg *restapi.RouteConfig[int64]) {
+		Route(func(cfg *rest.RouteConfig[int64]) {
 			cfg.EnableBatch = false
 			cfg.EnablePagination = false
 			if cfg.Authorization != nil {

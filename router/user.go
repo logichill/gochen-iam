@@ -6,7 +6,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	iamsvc "gochen-iam/service"
-	"gochen/api/restapi"
+	"gochen/api/rest"
 	appcrud "gochen/app/crud"
 	auth "gochen/auth/core"
 	"gochen/db/query"
@@ -72,17 +72,17 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create user crud application").WithContext("route", "iam.user")
 	}
 
-	builder, err := restapi.NewApiBuilder(
+	builder, err := rest.NewApiBuilder[*iamentity.User, int64](
 		appService,
-		restapi.WithQuerySchema[*iamentity.User, int64](userQuerySchema),
-		restapi.WithAuthorization[*iamentity.User, int64](ur.authorizer, restapi.CRUDPermissions{
+		rest.WithQuerySchema[*iamentity.User, int64](userQuerySchema),
+		rest.WithAuthorization[*iamentity.User, int64](ur.authorizer, rest.CRUDPermissions{
 			List:   iamsvc.UserPermissionSet.Code(iammw.ActionRead),
 			Get:    iamsvc.UserPermissionSet.Code(iammw.ActionRead),
 			Create: iamsvc.UserPermissionSet.Code(iammw.ActionWrite),
 			Update: iamsvc.UserPermissionSet.Code(iammw.ActionWrite),
 			Delete: iamsvc.UserPermissionSet.Code(iammw.ActionDelete),
 		}),
-		restapi.WithHooks[*iamentity.User, int64](func(h *appcrud.Hooks[*iamentity.User, int64]) {
+		rest.WithHooks[*iamentity.User, int64](func(h *appcrud.Hooks[*iamentity.User, int64]) {
 			*h = *TenantHooksForUser(ur.userRepo)
 		}),
 	)
@@ -94,7 +94,7 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 
 	if err := builder.
-		Route(func(cfg *restapi.RouteConfig[int64]) {
+		Route(func(cfg *rest.RouteConfig[int64]) {
 			cfg.EnableBatch = false
 			cfg.EnablePagination = true
 			cfg.DefaultPageSize = 10
