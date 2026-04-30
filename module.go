@@ -17,8 +17,8 @@ import (
 	tenantsvc "gochen-iam/service/tenant"
 	usersvc "gochen-iam/service/user"
 	"gochen-iam/tenant"
-	"gochen/boot"
 	"gochen/errors"
+	"gochen/host"
 	"gochen/host/module"
 	"gochen/httpx"
 )
@@ -29,47 +29,46 @@ func NewModule() (module.IModule, error) {
 	if err := iamservice.InstallIAMPermissionCatalog(); err != nil {
 		return nil, err
 	}
-	return boot.BuildModule(
-		boot.Module("iam").
-			Name("IAM").
-			PermissionDefinitions(iamservice.IAMAuthzPermissionDefinitions()...).
-			ResourceResolver(iamservice.IAMResourceResolvers()...).
-			Provide(
-				// Repos
-				tenantrepo.NewTenantRepository,
-				userrepo.NewUserRepository,
-				grouprepo.NewGroupRepository,
-				rolerepo.NewRoleRepository,
-				scoperepo.NewScopeRepository,
-				menurepo.NewMenuItemRepository,
-				// Services
-				iamservice.NewScopeAuthorizer,
-				iamservice.NewAuthContextResolver,
-				iamservice.InstallAuthContextResolver,
-				iamservice.NewIAMAuthorizer,
-				tenantsvc.NewTenantService,
-				scopesvc.NewScopeService,
-				usersvc.NewUserService,
-				groupsvc.NewGroupService,
-				rolesvc.NewRoleService,
-				menusvc.NewMenuService,
-			).
-			RouteRegistrar(
-				iamrouter.NewAuthRoutes,
-				iamrouter.NewUserRoutes,
-				iamrouter.NewRoleRoutes,
-				iamrouter.NewGroupRoutes,
-				iamrouter.NewTenantRoutes,
-				iamrouter.NewScopeRoutes,
-				iamrouter.NewMenuRoutes,
-				NewAuthConfigValidator,
-			).
-			// IAM 模块既包含匿名可访问的登录/注册端点，也包含需要鉴权的管理端点。
-			// 使用 OptionalAuthMiddleware 统一解析 token（若存在），供后续 PermissionMiddleware 等使用。
-			Middleware(
-				iammw.OptionalAuthMiddleware(nil),
-			),
-	), nil
+	return host.Module("iam").
+		Name("IAM").
+		PermissionDefinitions(iamservice.IAMAuthzPermissionDefinitions()...).
+		ResourceResolver(iamservice.IAMResourceResolvers()...).
+		Provide(
+			// Repos
+			tenantrepo.NewTenantRepository,
+			userrepo.NewUserRepository,
+			grouprepo.NewGroupRepository,
+			rolerepo.NewRoleRepository,
+			scoperepo.NewScopeRepository,
+			menurepo.NewMenuItemRepository,
+			// Services
+			iamservice.NewScopeAuthorizer,
+			iamservice.NewAuthContextResolver,
+			iamservice.InstallAuthContextResolver,
+			iamservice.NewIAMAuthorizer,
+			tenantsvc.NewTenantService,
+			scopesvc.NewScopeService,
+			usersvc.NewUserService,
+			groupsvc.NewGroupService,
+			rolesvc.NewRoleService,
+			menusvc.NewMenuService,
+		).
+		RouteRegistrar(
+			iamrouter.NewAuthRoutes,
+			iamrouter.NewUserRoutes,
+			iamrouter.NewRoleRoutes,
+			iamrouter.NewGroupRoutes,
+			iamrouter.NewTenantRoutes,
+			iamrouter.NewScopeRoutes,
+			iamrouter.NewMenuRoutes,
+			NewAuthConfigValidator,
+		).
+		// IAM 模块既包含匿名可访问的登录/注册端点，也包含需要鉴权的管理端点。
+		// 使用 OptionalAuthMiddleware 统一解析 token（若存在），供后续 PermissionMiddleware 等使用。
+		Middleware(
+			iammw.OptionalAuthMiddleware(nil),
+		).
+		Build()
 }
 
 // authConfigValidator 在启动期对鉴权配置做 fail-fast 校验。
