@@ -9,7 +9,6 @@ import (
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 	"gochen/httpx"
-	"gochen/httpx/nethttp"
 )
 
 // MenuRoutes 菜单路由注册器。
@@ -21,7 +20,6 @@ type MenuRoutes struct {
 	menuService *menusvc.MenuService
 	menuRepo    domaincrud.IRepository[*iamentity.MenuItem, int64]
 	authorizer  auth.IAuthorizer
-	utils       *nethttp.Utils
 }
 
 // NewMenuRoutes 创建菜单路由注册器。
@@ -34,7 +32,6 @@ func NewMenuRoutes(
 		menuService: menuService,
 		menuRepo:    menuRepo,
 		authorizer:  authorizer,
-		utils:       &nethttp.Utils{},
 	}
 }
 
@@ -138,7 +135,7 @@ func (mr *MenuRoutes) syncMenuItems(ctx httpx.IContext) error {
 
 // restoreMenuItem 处理恢复菜单请求。
 func (mr *MenuRoutes) restoreMenuItem(ctx httpx.IContext) error {
-	id, err := mr.utils.ParseID(ctx, "id")
+	id, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -151,7 +148,7 @@ func (mr *MenuRoutes) restoreMenuItem(ctx httpx.IContext) error {
 
 // purgeMenuItem 处理硬删除菜单请求。
 func (mr *MenuRoutes) purgeMenuItem(ctx httpx.IContext) error {
-	id, err := mr.utils.ParseID(ctx, "id")
+	id, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -173,7 +170,7 @@ func (mr *MenuRoutes) unpublishMenuItem(ctx httpx.IContext) error {
 
 // setMenuPublished 统一处理菜单发布状态切换。
 func (mr *MenuRoutes) setMenuPublished(ctx httpx.IContext, published bool) error {
-	id, err := mr.utils.ParseID(ctx, "id")
+	id, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}

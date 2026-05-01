@@ -12,7 +12,6 @@ import (
 	"gochen/db/query"
 	"gochen/errors"
 	"gochen/httpx"
-	"gochen/httpx/nethttp"
 )
 
 type userQueryFields struct {
@@ -30,7 +29,6 @@ var userQuerySchema = query.MustInferQuerySchema[userQueryFields](nil)
 // UserRoutes 用户路由注册器
 type UserRoutes struct {
 	userService IUserService
-	utils       *nethttp.Utils
 	userRepo    iamsvc.IScopedResourceContextRepository[*iamentity.User, int64]
 	authorizer  auth.IAuthorizer
 }
@@ -43,7 +41,6 @@ func NewUserRoutes(
 ) *UserRoutes {
 	return &UserRoutes{
 		userService: userService,
-		utils:       &nethttp.Utils{},
 		userRepo:    userRepo,
 		authorizer:  authorizer,
 	}
@@ -170,7 +167,7 @@ func (ur *UserRoutes) setupSelfUserRoutes(userGroup httpx.IRouteGroup) {
 // 用户状态管理处理器
 func (ur *UserRoutes) activateUser(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -188,7 +185,7 @@ func (ur *UserRoutes) activateUser(ctx httpx.IContext) error {
 // deactivateUser 处理deactivate用户。
 func (ur *UserRoutes) deactivateUser(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -206,7 +203,7 @@ func (ur *UserRoutes) deactivateUser(ctx httpx.IContext) error {
 // lockUser 处理lock用户。
 func (ur *UserRoutes) lockUser(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -224,7 +221,7 @@ func (ur *UserRoutes) lockUser(ctx httpx.IContext) error {
 // unlockUser 处理unlock用户。
 func (ur *UserRoutes) unlockUser(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -242,7 +239,7 @@ func (ur *UserRoutes) unlockUser(ctx httpx.IContext) error {
 // 用户角色管理处理器
 func (ur *UserRoutes) getUserRoles(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -260,7 +257,7 @@ func (ur *UserRoutes) getUserRoles(ctx httpx.IContext) error {
 // getUserRoleBindings 获取用户直接角色绑定。
 func (ur *UserRoutes) getUserRoleBindings(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -280,7 +277,7 @@ func (ur *UserRoutes) getUserRoleBindings(ctx httpx.IContext) error {
 // assignUserRole 分配用户角色。
 func (ur *UserRoutes) assignUserRole(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -313,12 +310,12 @@ func (ur *UserRoutes) assignUserRoleBinding(ctx httpx.IContext) error {
 // removeUserRole 移除用户角色。
 func (ur *UserRoutes) removeUserRole(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
 
-	roleID, err := ur.utils.ParseID(ctx, "role")
+	roleID, err := httpx.ParseInt64Param(ctx, "role")
 	if err != nil {
 		return err
 	}
@@ -336,12 +333,12 @@ func (ur *UserRoutes) removeUserRole(ctx httpx.IContext) error {
 // removeUserRoleBinding 按 binding id 移除用户角色绑定。
 func (ur *UserRoutes) removeUserRoleBinding(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
 
-	bindingID, err := ur.utils.ParseID(ctx, "binding")
+	bindingID, err := httpx.ParseInt64Param(ctx, "binding")
 	if err != nil {
 		return err
 	}
@@ -359,7 +356,7 @@ func (ur *UserRoutes) removeUserRoleBinding(ctx httpx.IContext) error {
 // 用户组织管理处理器
 func (ur *UserRoutes) getUserGroups(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -377,7 +374,7 @@ func (ur *UserRoutes) getUserGroups(ctx httpx.IContext) error {
 // assignUserToGroup 分配用户到分组。
 func (ur *UserRoutes) assignUserToGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -406,12 +403,12 @@ func (ur *UserRoutes) assignUserToGroup(ctx httpx.IContext) error {
 // removeUserFromGroupByUser 移除用户从分组按用户。
 func (ur *UserRoutes) removeUserFromGroupByUser(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
 
-	groupID, err := ur.utils.ParseID(ctx, "group")
+	groupID, err := httpx.ParseInt64Param(ctx, "group")
 	if err != nil {
 		return err
 	}
@@ -429,7 +426,7 @@ func (ur *UserRoutes) removeUserFromGroupByUser(ctx httpx.IContext) error {
 // 用户权限处理器
 func (ur *UserRoutes) getUserPermissions(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -448,7 +445,7 @@ func (ur *UserRoutes) getUserPermissions(ctx httpx.IContext) error {
 // checkUserPermission 处理check用户权限。
 func (ur *UserRoutes) checkUserPermission(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	userID, err := ur.utils.ParseID(ctx, "id")
+	userID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}

@@ -14,7 +14,6 @@ import (
 	"gochen/db/query"
 	"gochen/errors"
 	"gochen/httpx"
-	"gochen/httpx/nethttp"
 )
 
 type groupQueryFields struct {
@@ -32,7 +31,6 @@ var groupQuerySchema = query.MustInferQuerySchema[groupQueryFields](nil)
 // GroupRoutes 组织路由注册器
 type GroupRoutes struct {
 	groupService IGroupService
-	utils        *nethttp.Utils
 	groupRepo    svc.IScopedResourceContextRepository[*iamentity.Group, int64]
 	authorizer   auth.IAuthorizer
 }
@@ -45,7 +43,6 @@ func NewGroupRoutes(
 ) *GroupRoutes {
 	return &GroupRoutes{
 		groupService: groupService,
-		utils:        &nethttp.Utils{},
 		groupRepo:    groupRepo,
 		authorizer:   authorizer,
 	}
@@ -208,7 +205,7 @@ func (gr *GroupRoutes) getGroupsByLevel(ctx httpx.IContext) error {
 // 组织成员管理处理器
 func (gr *GroupRoutes) getGroupUsers(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	groupID, err := gr.utils.ParseID(ctx, "id")
+	groupID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -227,7 +224,7 @@ func (gr *GroupRoutes) getGroupUsers(ctx httpx.IContext) error {
 // addUserToGroup 添加用户到分组。
 func (gr *GroupRoutes) addUserToGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	groupID, err := gr.utils.ParseID(ctx, "id")
+	groupID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -256,12 +253,12 @@ func (gr *GroupRoutes) addUserToGroup(ctx httpx.IContext) error {
 // removeUserFromGroup 移除用户从分组。
 func (gr *GroupRoutes) removeUserFromGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	groupID, err := gr.utils.ParseID(ctx, "id")
+	groupID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
 
-	userID, err := gr.utils.ParseID(ctx, "user")
+	userID, err := httpx.ParseInt64Param(ctx, "user")
 	if err != nil {
 		return err
 	}
@@ -279,7 +276,7 @@ func (gr *GroupRoutes) removeUserFromGroup(ctx httpx.IContext) error {
 // batchAddUsersToGroup 处理批量AddUsers到分组。
 func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	groupID, err := gr.utils.ParseID(ctx, "id")
+	groupID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -318,7 +315,7 @@ func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IContext) error {
 // 组织角色管理处理器
 func (gr *GroupRoutes) getGroupRoles(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	groupID, err := gr.utils.ParseID(ctx, "id")
+	groupID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -337,7 +334,7 @@ func (gr *GroupRoutes) getGroupRoles(ctx httpx.IContext) error {
 // addGroupRole 添加分组角色。
 func (gr *GroupRoutes) addGroupRole(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	groupID, err := gr.utils.ParseID(ctx, "id")
+	groupID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -366,12 +363,12 @@ func (gr *GroupRoutes) addGroupRole(ctx httpx.IContext) error {
 // removeGroupRole 移除分组角色。
 func (gr *GroupRoutes) removeGroupRole(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	groupID, err := gr.utils.ParseID(ctx, "id")
+	groupID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
 
-	roleID, err := gr.utils.ParseID(ctx, "role")
+	roleID, err := httpx.ParseInt64Param(ctx, "role")
 	if err != nil {
 		return err
 	}

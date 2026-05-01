@@ -10,13 +10,11 @@ import (
 	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"
-	"gochen/httpx/nethttp"
 )
 
 // AuthRoutes 认证路由注册器
 type AuthRoutes struct {
 	userService IUserService
-	utils       *nethttp.Utils
 	authConfig  *iammw.AuthConfig
 }
 
@@ -24,7 +22,6 @@ type AuthRoutes struct {
 func NewAuthRoutes(userService IUserService) *AuthRoutes {
 	return &AuthRoutes{
 		userService: userService,
-		utils:       &nethttp.Utils{},
 		authConfig:  iammw.DefaultAuthConfig(),
 	}
 }

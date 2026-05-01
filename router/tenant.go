@@ -16,13 +16,11 @@ import (
 	"gochen/db/query"
 	"gochen/errors"
 	"gochen/httpx"
-	"gochen/httpx/nethttp"
 )
 
 // TenantRoutes 租户路由注册器
 type TenantRoutes struct {
 	tenantService    ITenantService
-	utils            *nethttp.Utils
 	tenantRepo       svc.IResourceContextRepository[*iamentity.Tenant, int64]
 	scopeAuthorizer  *svc.ScopeAuthorizer
 	userRepo         *userrepo.UserRepo
@@ -47,7 +45,6 @@ func NewTenantRoutes(
 	deleteGovernance := newTenantDeleteGovernance(userRepo, groupRepo, roleRepo, scopeRepo)
 	return &TenantRoutes{
 		tenantService:    tenantService,
-		utils:            &nethttp.Utils{},
 		tenantRepo:       tenantRepo,
 		scopeAuthorizer:  scopeAuthorizer,
 		userRepo:         userRepo,
@@ -217,7 +214,7 @@ func (tr *TenantRoutes) toTenantListItem(tenant *iamentity.Tenant) svc.TenantLis
 // activateTenant 启用租户
 func (tr *TenantRoutes) activateTenant(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	id, err := tr.utils.ParseID(ctx, "id")
+	id, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -235,7 +232,7 @@ func (tr *TenantRoutes) activateTenant(ctx httpx.IContext) error {
 // deactivateTenant 禁用租户
 func (tr *TenantRoutes) deactivateTenant(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	id, err := tr.utils.ParseID(ctx, "id")
+	id, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -253,7 +250,7 @@ func (tr *TenantRoutes) deactivateTenant(ctx httpx.IContext) error {
 // repairTenantRootScope 修复租户 root scope。
 func (tr *TenantRoutes) repairTenantRootScope(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	id, err := tr.utils.ParseID(ctx, "id")
+	id, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}

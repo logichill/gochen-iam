@@ -8,21 +8,18 @@ import (
 	scopesvc "gochen-iam/service/scope"
 	"gochen/errors"
 	"gochen/httpx"
-	"gochen/httpx/nethttp"
 )
 
 // ScopeRoutes 授权域治理路由。
 type ScopeRoutes struct {
 	scopeRepo    *scoperepo.ScopeRepo
 	scopeService *scopesvc.ScopeService
-	utils        *nethttp.Utils
 }
 
 func NewScopeRoutes(scopeRepo *scoperepo.ScopeRepo, scopeService *scopesvc.ScopeService) *ScopeRoutes {
 	return &ScopeRoutes{
 		scopeRepo:    scopeRepo,
 		scopeService: scopeService,
-		utils:        &nethttp.Utils{},
 	}
 }
 
@@ -80,7 +77,7 @@ func (sr *ScopeRoutes) listScopes(ctx httpx.IContext) error {
 }
 
 func (sr *ScopeRoutes) getScopeVisibility(ctx httpx.IContext) error {
-	scopeID, err := sr.utils.ParseID(ctx, "id")
+	scopeID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -125,7 +122,7 @@ func (sr *ScopeRoutes) updateScope(ctx httpx.IContext) error {
 	if sr.scopeService == nil {
 		return errors.NewCode(errors.Internal, "scope service is not configured")
 	}
-	scopeID, err := sr.utils.ParseID(ctx, "id")
+	scopeID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -144,7 +141,7 @@ func (sr *ScopeRoutes) activateScope(ctx httpx.IContext) error {
 	if sr.scopeService == nil {
 		return errors.NewCode(errors.Internal, "scope service is not configured")
 	}
-	scopeID, err := sr.utils.ParseID(ctx, "id")
+	scopeID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -161,7 +158,7 @@ func (sr *ScopeRoutes) deactivateScope(ctx httpx.IContext) error {
 	if sr.scopeService == nil {
 		return errors.NewCode(errors.Internal, "scope service is not configured")
 	}
-	scopeID, err := sr.utils.ParseID(ctx, "id")
+	scopeID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -178,7 +175,7 @@ func (sr *ScopeRoutes) deleteScope(ctx httpx.IContext) error {
 	if sr.scopeService == nil {
 		return errors.NewCode(errors.Internal, "scope service is not configured")
 	}
-	scopeID, err := sr.utils.ParseID(ctx, "id")
+	scopeID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -194,7 +191,7 @@ func (sr *ScopeRoutes) repairScope(ctx httpx.IContext) error {
 	if sr.scopeService == nil {
 		return errors.NewCode(errors.Internal, "scope service is not configured")
 	}
-	scopeID, err := sr.utils.ParseID(ctx, "id")
+	scopeID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}

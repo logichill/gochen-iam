@@ -13,7 +13,6 @@ import (
 	"gochen/db/query"
 	"gochen/errors"
 	"gochen/httpx"
-	"gochen/httpx/nethttp"
 )
 
 type roleQueryFields struct {
@@ -31,7 +30,6 @@ var roleQuerySchema = query.MustInferQuerySchema[roleQueryFields](nil)
 // RoleRoutes 角色路由注册器
 type RoleRoutes struct {
 	roleService     IRoleService
-	utils           *nethttp.Utils
 	roleRepo        svc.IScopedResourceContextRepository[*iamentity.Role, int64]
 	scopeAuthorizer *svc.ScopeAuthorizer
 	authorizer      auth.IAuthorizer
@@ -51,7 +49,6 @@ func NewRoleRoutes(
 	}
 	return &RoleRoutes{
 		roleService:     roleService,
-		utils:           &nethttp.Utils{},
 		roleRepo:        roleRepo,
 		scopeAuthorizer: scopeAuthorizer,
 		authorizer:      authorizer,
@@ -166,7 +163,7 @@ func (rr *RoleRoutes) setupRoleCustomRoutes(roleGroup httpx.IRouteGroup) {
 // 角色权限管理处理器
 func (rr *RoleRoutes) getRolePermissions(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	roleID, err := rr.utils.ParseID(ctx, "id")
+	roleID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -185,7 +182,7 @@ func (rr *RoleRoutes) getRolePermissions(ctx httpx.IContext) error {
 // addRolePermission 添加角色权限。
 func (rr *RoleRoutes) addRolePermission(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	roleID, err := rr.utils.ParseID(ctx, "id")
+	roleID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -214,7 +211,7 @@ func (rr *RoleRoutes) addRolePermission(ctx httpx.IContext) error {
 // removeRolePermission 移除角色权限。
 func (rr *RoleRoutes) removeRolePermission(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	roleID, err := rr.utils.ParseID(ctx, "id")
+	roleID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -238,7 +235,7 @@ func (rr *RoleRoutes) removeRolePermission(ctx httpx.IContext) error {
 // 角色用户管理处理器
 func (rr *RoleRoutes) getRoleUsers(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	roleID, err := rr.utils.ParseID(ctx, "id")
+	roleID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -257,7 +254,7 @@ func (rr *RoleRoutes) getRoleUsers(ctx httpx.IContext) error {
 // assignRoleToUsers 分配角色到Users。
 func (rr *RoleRoutes) assignRoleToUsers(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	roleID, err := rr.utils.ParseID(ctx, "id")
+	roleID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -295,12 +292,12 @@ func (rr *RoleRoutes) assignRoleToUsers(ctx httpx.IContext) error {
 // removeRoleFromUser 移除角色从用户。
 func (rr *RoleRoutes) removeRoleFromUser(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	roleID, err := rr.utils.ParseID(ctx, "id")
+	roleID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
 
-	userID, err := rr.utils.ParseID(ctx, "user")
+	userID, err := httpx.ParseInt64Param(ctx, "user")
 	if err != nil {
 		return err
 	}
@@ -318,7 +315,7 @@ func (rr *RoleRoutes) removeRoleFromUser(ctx httpx.IContext) error {
 // 角色操作处理器
 func (rr *RoleRoutes) activateRole(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	roleID, err := rr.utils.ParseID(ctx, "id")
+	roleID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -336,7 +333,7 @@ func (rr *RoleRoutes) activateRole(ctx httpx.IContext) error {
 // deactivateRole 处理deactivate角色。
 func (rr *RoleRoutes) deactivateRole(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	roleID, err := rr.utils.ParseID(ctx, "id")
+	roleID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
@@ -354,7 +351,7 @@ func (rr *RoleRoutes) deactivateRole(ctx httpx.IContext) error {
 // cloneRole 复制角色。
 func (rr *RoleRoutes) cloneRole(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	roleID, err := rr.utils.ParseID(ctx, "id")
+	roleID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
 		return err
 	}
