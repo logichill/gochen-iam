@@ -2,7 +2,7 @@ package middleware
 
 import (
 	iamauth "gochen-iam/auth"
-	authhttp "gochen/auth/adapters/http"
+	"gochen/auth/http"
 	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"

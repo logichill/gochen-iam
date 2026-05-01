@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 )
 
 type requiredPermissionMeta struct {

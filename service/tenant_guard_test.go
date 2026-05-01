@@ -8,7 +8,7 @@ import (
 	iamauth "gochen-iam/auth"
 	iammw "gochen-iam/middleware"
 	"gochen-iam/tenant"
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 	"gochen/contextx"
 	"gochen/httpx"
 	"gochen/httpx/nethttp"

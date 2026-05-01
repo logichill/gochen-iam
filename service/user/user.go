@@ -21,7 +21,7 @@ import (
 	userrepo "gochen-iam/repo/user"
 
 	svc "gochen-iam/service"
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 	"gochen/errors"
 	"gochen/logging"
 )

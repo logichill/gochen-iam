@@ -8,7 +8,7 @@ import (
 	iamsvc "gochen-iam/service"
 	"gochen/api/rest"
 	appcrud "gochen/app/crud"
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 	"gochen/db/query"
 	"gochen/errors"
 	"gochen/httpx"

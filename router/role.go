@@ -9,7 +9,7 @@ import (
 	rolesvc "gochen-iam/service/role"
 	"gochen/api/rest"
 	appcrud "gochen/app/crud"
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 	"gochen/db/query"
 	"gochen/errors"
 	"gochen/httpx"

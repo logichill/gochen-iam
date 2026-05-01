@@ -11,7 +11,7 @@ import (
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 	"gochen/contextx"
 
 	"gorm.io/driver/sqlite"

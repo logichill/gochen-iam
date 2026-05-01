@@ -16,7 +16,7 @@ import (
 	tenantrepo "gochen-iam/repo/tenant"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 	"gochen/errors"
 
 	"gorm.io/driver/sqlite"

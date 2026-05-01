@@ -7,8 +7,8 @@ import (
 
 	iamaccess "gochen-iam/access"
 	iamauth "gochen-iam/auth"
+	auth "gochen/auth"
 	"gochen/auth/access"
-	auth "gochen/auth/core"
 	"gochen/errors"
 )
 
@@ -63,7 +63,7 @@ func NewEntityWriteConstraint(ctx context.Context, kind string, entity tenantVer
 	} else if resourceKindUsesManagedScope(kind) {
 		resource.ManagedScopeID = managedScopeIDFromContext(ctx)
 	}
-	return iamaccess.NewWriteConstraint(auth.AllowDecision(resource).WriteConstraint(), access.ConstraintMetadata{}), nil
+	return iamaccess.NewWriteConstraint(access.WriteConstraintFromDecision(auth.AllowDecision(resource)), access.ConstraintMetadata{}), nil
 }
 
 // NewPlatformCreateConstraint 为 platform-scoped 资源创建显式写约束。
@@ -110,7 +110,7 @@ func newWriteConstraint(ctx context.Context, kind, tenantID, resourceID, revisio
 	if resourceKindUsesManagedScope(kind) {
 		resource.ManagedScopeID = managedScopeIDFromContext(ctx)
 	}
-	return iamaccess.NewWriteConstraint(auth.AllowDecision(resource).WriteConstraint(), access.ConstraintMetadata{}), nil
+	return iamaccess.NewWriteConstraint(access.WriteConstraintFromDecision(auth.AllowDecision(resource)), access.ConstraintMetadata{}), nil
 }
 
 func newPlatformWriteConstraint(kind, resourceID, revision string) (WriteConstraint, error) {
@@ -126,7 +126,7 @@ func newPlatformWriteConstraint(kind, resourceID, revision string) (WriteConstra
 		GlobalScope: true,
 		Revision:    revision,
 	}
-	return iamaccess.NewWriteConstraint(auth.AllowDecision(resource).WriteConstraint(), access.ConstraintMetadata{}), nil
+	return iamaccess.NewWriteConstraint(access.WriteConstraintFromDecision(auth.AllowDecision(resource)), access.ConstraintMetadata{}), nil
 }
 
 func tenantOwnerID(tenantID string) string {

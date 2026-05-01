@@ -9,7 +9,7 @@ import (
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 	"gochen/errors"
 	"gochen/validate"
 )

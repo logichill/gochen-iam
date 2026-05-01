@@ -15,7 +15,7 @@ import (
 	tenantrepo "gochen-iam/repo/tenant"
 	userrepo "gochen-iam/repo/user"
 	"gochen-iam/tenant"
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 	"gochen/contextx"
 	"gochen/domain/crud"
 

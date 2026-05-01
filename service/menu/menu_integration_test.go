@@ -11,7 +11,7 @@ import (
 	iammw "gochen-iam/middleware"
 	menurepo "gochen-iam/repo/menu"
 	svc "gochen-iam/service"
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 	"gochen/errors"
 
 	"gorm.io/driver/sqlite"

@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	iamauth "gochen-iam/auth"
+	auth "gochen/auth"
 	"gochen/auth/access"
-	auth "gochen/auth/core"
 	"gochen/domain"
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"

@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	iamauth "gochen-iam/auth"
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"

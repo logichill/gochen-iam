@@ -1,6 +1,6 @@
 package middleware
 
-import auth "gochen/auth/core"
+import auth "gochen/auth"
 
 type Resource string
 

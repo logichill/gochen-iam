@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	iamentity "gochen-iam/entity"
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 	"gochen/contextx"
 	"gochen/db"
 	"gochen/db/orm"

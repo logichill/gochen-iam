@@ -12,7 +12,7 @@ import (
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
 	appcrud "gochen/app/crud"
-	auth "gochen/auth/core"
+	auth "gochen/auth"
 	"gochen/db/query"
 	"gochen/errors"
 	"gochen/logging"
