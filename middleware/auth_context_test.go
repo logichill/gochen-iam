@@ -9,13 +9,13 @@ import (
 	iamauth "gochen-iam/auth"
 	auth "gochen/auth"
 	"gochen/contextx"
-	"gochen/httpx/nethttp"
+	"gochen/httpx"
 )
 
 func TestInjectClaimsRequestContext_BindsPrincipalAndLegacyHelpers(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
 
-	reqCtx, err := nethttp.NewRequestContext(context.Background())
+	reqCtx, err := httpx.NewRequestContext(context.Background())
 	require.NoError(t, err)
 
 	bound, err := InjectClaimsRequestContext(reqCtx, "tenant-b", &JWTClaims{

@@ -2,12 +2,13 @@ package auth
 
 import (
 	"context"
-	"gochen/httpx/nethttp"
 	"testing"
+
+	"gochen/httpx"
 )
 
 func TestWithPermissions_InjectsPermissionSet(t *testing.T) {
-	ctx, err := nethttp.NewRequestContext(context.Background())
+	ctx, err := httpx.NewRequestContext(context.Background())
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}

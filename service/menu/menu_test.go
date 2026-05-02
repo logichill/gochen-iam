@@ -8,7 +8,7 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen/contextx"
 	"gochen/domain/crud"
-	"gochen/httpx/nethttp"
+	"gochen/httpx"
 )
 
 func TestBuildMenuTree_NoContext_ShowsOnlyUnrestricted(t *testing.T) {
@@ -51,7 +51,7 @@ func TestBuildMenuTree_WithPermissions_AnyAllAndParentRetention(t *testing.T) {
 		},
 	}
 
-	reqCtx, err := nethttp.NewRequestContext(context.Background())
+	reqCtx, err := httpx.NewRequestContext(context.Background())
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestBuildMenuTree_TenantOverride_AppliesAndFilters(t *testing.T) {
 		{Entity: crud.Entity[int64]{ID: 1}, Code: "root", Title: "Root", Published: true},
 	}
 
-	reqCtx, err := nethttp.NewRequestContext(context.Background())
+	reqCtx, err := httpx.NewRequestContext(context.Background())
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
