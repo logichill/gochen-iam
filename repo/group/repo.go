@@ -4,12 +4,10 @@ import (
 	"context"
 
 	iamaccess "gochen-iam/access"
-	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
+	scoperesolver "gochen-iam/repo/internal/scope"
 	appcrud "gochen/app/crud"
-	auth "gochen/auth"
-	"gochen/auth/access"
 	"gochen/db/orm"
 	"gochen/db/orm/repo"
 	domaincrud "gochen/domain/crud"
@@ -85,7 +83,7 @@ func (r *GroupRepo) Create(ctx context.Context, group *iamentity.Group) (err err
 		return errors.NewCode(errors.InvalidInput, "group cannot be nil")
 	}
 	if group.ManagedScopeID == 0 {
-		group.ManagedScopeID = managedScopeFromContext(ctx)
+		group.ManagedScopeID = scoperesolver.ResolveManagedScopeID(ctx)
 	}
 	if group.OwnerID == "" {
 		group.OwnerID = tenantOwnerID(group.TenantID)
@@ -110,7 +108,7 @@ func (r *GroupRepo) Update(ctx context.Context, group *iamentity.Group) (err err
 		return errors.NewCode(errors.InvalidInput, "group cannot be nil")
 	}
 	if group.ManagedScopeID == 0 {
-		group.ManagedScopeID = managedScopeFromContext(ctx)
+		group.ManagedScopeID = scoperesolver.ResolveManagedScopeID(ctx)
 	}
 	if group.OwnerID == "" {
 		group.OwnerID = tenantOwnerID(group.TenantID)
@@ -170,32 +168,6 @@ func (r *GroupRepo) CountByManagedScopeID(ctx context.Context, scopeID int64) (i
 		return 0, errors.Wrap(err, errors.Database, "统计组织 managed scope 引用失败")
 	}
 	return count, nil
-}
-
-func managedScopeFromContext(ctx context.Context) int64 {
-	if scopeID := iamauth.ActiveScopeIDFromContext(ctx); scopeID > 0 {
-		return scopeID
-	}
-	if scope, ok := auth.DataScopeFromContext(ctx); ok {
-		if scope.ActiveScopeID > 0 {
-			return scope.ActiveScopeID
-		}
-		if len(scope.VisibleScopeIDs) == 1 {
-			return scope.VisibleScopeIDs[0]
-		}
-	}
-	if scope, ok := access.DataScopeFromContext(ctx); ok {
-		if scope.ActiveScopeID > 0 {
-			return scope.ActiveScopeID
-		}
-		if len(scope.VisibleScopeIDs) == 1 {
-			return scope.VisibleScopeIDs[0]
-		}
-	}
-	if principal, ok := auth.PrincipalFromContext(ctx); ok && principal.ActiveScopeID > 0 {
-		return principal.ActiveScopeID
-	}
-	return 0
 }
 
 func tenantOwnerID(tenantID string) string {

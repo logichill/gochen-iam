@@ -4,12 +4,11 @@ import (
 	"context"
 
 	iamaccess "gochen-iam/access"
-	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
+	scoperesolver "gochen-iam/repo/internal/scope"
 	appcrud "gochen/app/crud"
 	auth "gochen/auth"
-	"gochen/auth/access"
 	"gochen/db/orm"
 	"gochen/db/orm/repo"
 	"gochen/db/query"
@@ -95,7 +94,7 @@ func (r *RoleRepo) Create(ctx context.Context, role *iamentity.Role) error {
 		role.OwnerID = tenantOwnerID(role.TenantID)
 	}
 	if role.NamespaceScopeID == 0 {
-		role.NamespaceScopeID = managedScopeFromContext(ctx)
+		role.NamespaceScopeID = scoperesolver.ResolveManagedScopeID(ctx)
 	}
 	return r.Repo.Create(ctx, role)
 }
@@ -114,7 +113,7 @@ func (r *RoleRepo) Update(ctx context.Context, role *iamentity.Role) error {
 		role.OwnerID = tenantOwnerID(role.TenantID)
 	}
 	if role.NamespaceScopeID == 0 {
-		role.NamespaceScopeID = managedScopeFromContext(ctx)
+		role.NamespaceScopeID = scoperesolver.ResolveManagedScopeID(ctx)
 	}
 	return r.Repo.Update(ctx, roleWithoutAssociations(role))
 }
@@ -366,7 +365,7 @@ func (r *RoleRepo) AssignToUser(ctx context.Context, roleID, userID int64) error
 		return errors.Wrap(err, errors.Database, "初始化 user_role_bindings 模型失败")
 	}
 	grantScopeID := role.NamespaceScopeID
-	if override := managedScopeFromContext(ctx); override > 0 {
+	if override := scoperesolver.ResolveManagedScopeID(ctx); override > 0 {
 		grantScopeID = override
 	}
 	if err := model.Create(ctx, &iamentity.UserRoleBinding{
@@ -765,32 +764,6 @@ func (r *RoleRepo) hydrateRoleScopes(ctx context.Context, roles []*iamentity.Rol
 		role.NamespaceScope = &scope
 	}
 	return roles, nil
-}
-
-func managedScopeFromContext(ctx context.Context) int64 {
-	if scopeID := iamauth.ActiveScopeIDFromContext(ctx); scopeID > 0 {
-		return scopeID
-	}
-	if scope, ok := auth.DataScopeFromContext(ctx); ok {
-		if scope.ActiveScopeID > 0 {
-			return scope.ActiveScopeID
-		}
-		if len(scope.VisibleScopeIDs) == 1 {
-			return scope.VisibleScopeIDs[0]
-		}
-	}
-	if scope, ok := access.DataScopeFromContext(ctx); ok {
-		if scope.ActiveScopeID > 0 {
-			return scope.ActiveScopeID
-		}
-		if len(scope.VisibleScopeIDs) == 1 {
-			return scope.VisibleScopeIDs[0]
-		}
-	}
-	if principal, ok := auth.PrincipalFromContext(ctx); ok && principal.ActiveScopeID > 0 {
-		return principal.ActiveScopeID
-	}
-	return 0
 }
 
 func tenantOwnerID(tenantID string) string {

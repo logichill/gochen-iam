@@ -5,12 +5,10 @@ import (
 	"time"
 
 	iamaccess "gochen-iam/access"
-	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
+	scoperesolver "gochen-iam/repo/internal/scope"
 	appcrud "gochen/app/crud"
-	auth "gochen/auth"
-	"gochen/auth/access"
 	"gochen/db/orm"
 	"gochen/db/orm/repo"
 	"gochen/db/query"
@@ -112,7 +110,7 @@ func (r *UserRepo) Create(ctx context.Context, u *iamentity.User) error {
 		u.HomeTenantID = u.TenantID
 	}
 	if u.ManagedScopeID == 0 {
-		u.ManagedScopeID = managedScopeFromContext(ctx)
+		u.ManagedScopeID = scoperesolver.ResolveManagedScopeID(ctx)
 	}
 	if u.HomeScopeID == 0 {
 		u.HomeScopeID = u.ManagedScopeID
@@ -142,7 +140,7 @@ func (r *UserRepo) Update(ctx context.Context, u *iamentity.User) error {
 		u.HomeTenantID = u.TenantID
 	}
 	if u.ManagedScopeID == 0 {
-		u.ManagedScopeID = managedScopeFromContext(ctx)
+		u.ManagedScopeID = scoperesolver.ResolveManagedScopeID(ctx)
 	}
 	if u.HomeScopeID == 0 {
 		u.HomeScopeID = u.ManagedScopeID
@@ -624,36 +622,10 @@ func (r *UserRepo) AssignRole(ctx context.Context, userID, roleID int64) error {
 		return err
 	}
 	grantScopeID := role.NamespaceScopeID
-	if override := managedScopeFromContext(ctx); override > 0 {
+	if override := scoperesolver.ResolveManagedScopeID(ctx); override > 0 {
 		grantScopeID = override
 	}
 	return r.assignRoleAtScope(ctx, userID, roleID, grantScopeID, false)
-}
-
-func managedScopeFromContext(ctx context.Context) int64 {
-	if scopeID := iamauth.ActiveScopeIDFromContext(ctx); scopeID > 0 {
-		return scopeID
-	}
-	if scope, ok := auth.DataScopeFromContext(ctx); ok {
-		if scope.ActiveScopeID > 0 {
-			return scope.ActiveScopeID
-		}
-		if len(scope.VisibleScopeIDs) == 1 {
-			return scope.VisibleScopeIDs[0]
-		}
-	}
-	if scope, ok := access.DataScopeFromContext(ctx); ok {
-		if scope.ActiveScopeID > 0 {
-			return scope.ActiveScopeID
-		}
-		if len(scope.VisibleScopeIDs) == 1 {
-			return scope.VisibleScopeIDs[0]
-		}
-	}
-	if principal, ok := auth.PrincipalFromContext(ctx); ok && principal.ActiveScopeID > 0 {
-		return principal.ActiveScopeID
-	}
-	return 0
 }
 
 func tenantOwnerID(tenantID string) string {
