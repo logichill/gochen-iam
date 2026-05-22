@@ -113,7 +113,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
 		ActiveScopeID:   1,
 		VisibleScopeIDs: []int64{1, 2, 3},
-		Mode:            auth.ScopeModeManagedScopes,
+		Mode:            auth.ScopeModeScoped,
 	})
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)

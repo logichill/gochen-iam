@@ -35,7 +35,7 @@ func BindTenantContext(ctx context.Context, tenantID string) (context.Context, e
 			return nil, err
 		}
 	}
-	if scope, ok := auth.DataScopeFromContext(derived); ok && scope.Mode == auth.ScopeModeManagedScopes {
+	if scope, ok := auth.DataScopeFromContext(derived); ok && scope.Mode == auth.ScopeModeScoped {
 		derived, err = auth.WithDataScope(derived, auth.DataScope{Mode: auth.ScopeModeGlobal})
 		if err != nil {
 			return nil, err

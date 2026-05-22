@@ -91,7 +91,7 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		}),
 		func(builder *rest.ApiBuilder[*iamentity.Tenant, int64]) {
 			builder.Route(func(cfg *rest.RouteConfig[int64]) {
-				cfg.ResponseWrapper = tr.wrapTenantResponse
+				cfg.Response.ResponseWrapper = tr.wrapTenantResponse
 			})
 		},
 		rest.WithHooks[*iamentity.Tenant, int64](func(h *appcrud.Hooks[*iamentity.Tenant, int64]) {
@@ -106,10 +106,10 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 	if err := builder.
 		Route(func(cfg *rest.RouteConfig[int64]) {
-			cfg.EnableBatch = false
-			cfg.EnablePagination = true
-			cfg.DefaultPageSize = 10
-			cfg.MaxPageSize = 100
+			cfg.Routing.EnableBatch = false
+			cfg.Query.EnablePagination = true
+			cfg.Query.DefaultPageSize = 10
+			cfg.Query.MaxPageSize = 100
 			if cfg.Authorization != nil {
 				cfg.Authorization.Consistency = auth.ConsistencyModeStrong
 				cfg.Authorization.HighRisk = true

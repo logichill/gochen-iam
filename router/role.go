@@ -100,10 +100,10 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 	if err := builder.
 		Route(func(cfg *rest.RouteConfig[int64]) {
-			cfg.EnableBatch = false
-			cfg.EnablePagination = true
-			cfg.DefaultPageSize = 10
-			cfg.MaxPageSize = 1000
+			cfg.Routing.EnableBatch = false
+			cfg.Query.EnablePagination = true
+			cfg.Query.DefaultPageSize = 10
+			cfg.Query.MaxPageSize = 1000
 			if cfg.Authorization != nil {
 				cfg.Authorization.Consistency = auth.ConsistencyModeStrong
 				cfg.Authorization.HighRisk = true

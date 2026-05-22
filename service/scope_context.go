@@ -32,7 +32,7 @@ func BindVisibleScopeContext(ctx context.Context, activeScopeID int64, visibleSc
 	return auth.WithDataScope(boundCtx, auth.DataScope{
 		ActiveScopeID:   activeScopeID,
 		VisibleScopeIDs: visibleScopeIDs,
-		Mode:            auth.ScopeModeManagedScopes,
+		Mode:            auth.ScopeModeScoped,
 	})
 }
 

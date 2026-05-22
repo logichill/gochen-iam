@@ -79,8 +79,8 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 	if err := builder.
 		Route(func(cfg *rest.RouteConfig[int64]) {
-			cfg.EnableBatch = false
-			cfg.EnablePagination = false
+			cfg.Routing.EnableBatch = false
+			cfg.Query.EnablePagination = false
 			if cfg.Authorization != nil {
 				cfg.Authorization.Consistency = auth.ConsistencyModeStrong
 				cfg.Authorization.HighRisk = true

@@ -86,7 +86,7 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
 		ActiveScopeID:   1,
 		VisibleScopeIDs: []int64{1},
-		Mode:            auth.ScopeModeManagedScopes,
+		Mode:            auth.ScopeModeScoped,
 	})
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)
@@ -213,7 +213,7 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
 		ActiveScopeID:   1,
 		VisibleScopeIDs: []int64{1},
-		Mode:            auth.ScopeModeManagedScopes,
+		Mode:            auth.ScopeModeScoped,
 	})
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)

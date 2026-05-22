@@ -121,7 +121,7 @@ func setupValidatorTest(t *testing.T) *validatorTestEnv {
 	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
 		ActiveScopeID:   rootScope.ID,
 		VisibleScopeIDs: []int64{rootScope.ID},
-		Mode:            auth.ScopeModeManagedScopes,
+		Mode:            auth.ScopeModeScoped,
 	})
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)

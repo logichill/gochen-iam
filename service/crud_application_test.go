@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
-	appaccess "gochen/auth/access"
+	appaccess "gochen/domain/access"
 )
 
 type crudApplicationRepoStub struct {

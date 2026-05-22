@@ -49,7 +49,7 @@ func bindTenantScopedContext(t *testing.T, tenantID string, activeScopeID int64,
 		ctx, err = auth.WithDataScope(ctx, auth.DataScope{
 			ActiveScopeID:   activeScopeID,
 			VisibleScopeIDs: []int64{activeScopeID},
-			Mode:            auth.ScopeModeManagedScopes,
+			Mode:            auth.ScopeModeScoped,
 		})
 		if err != nil {
 			t.Fatalf("WithDataScope: %v", err)
@@ -131,7 +131,7 @@ func TestLoadTenantBoundResource_RebindsResolvedManagedScopeBoundary(t *testing.
 	if scope.ActiveScopeID != 19 || len(scope.VisibleScopeIDs) != 1 || scope.VisibleScopeIDs[0] != 19 {
 		t.Fatalf("expected rebound resource managed scope 19, got %+v", scope)
 	}
-	if scope.Mode != auth.ScopeModeManagedScopes {
+	if scope.Mode != auth.ScopeModeScoped {
 		t.Fatalf("expected managed scope mode, got %q", scope.Mode)
 	}
 
@@ -257,7 +257,7 @@ func TestBindTenantContext_PreservesSameTenantScopedContext(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected data scope on tenant context")
 	}
-	if scope.Mode != auth.ScopeModeManagedScopes || scope.ActiveScopeID != 7 {
+	if scope.Mode != auth.ScopeModeScoped || scope.ActiveScopeID != 7 {
 		t.Fatalf("expected scoped data scope preserved, got %+v", scope)
 	}
 }

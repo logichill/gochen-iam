@@ -6,8 +6,8 @@ import (
 
 	iamauth "gochen-iam/auth"
 	auth "gochen/auth"
-	"gochen/auth/access"
 	"gochen/domain"
+	"gochen/domain/access"
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 )
@@ -83,7 +83,7 @@ func clearBoundScopeContext(ctx context.Context) (context.Context, error) {
 	if err != nil {
 		return nil, err
 	}
-	if scope, ok := auth.DataScopeFromContext(boundCtx); ok && scope.Mode == auth.ScopeModeManagedScopes {
+	if scope, ok := auth.DataScopeFromContext(boundCtx); ok && scope.Mode == auth.ScopeModeScoped {
 		return auth.WithDataScope(boundCtx, auth.DataScope{Mode: auth.ScopeModeGlobal})
 	}
 	return boundCtx, nil

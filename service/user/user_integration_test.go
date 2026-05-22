@@ -3,9 +3,11 @@ package user_test
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
+	iamaccess "gochen-iam/access"
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	grouprepo "gochen-iam/repo/group"
@@ -20,6 +22,7 @@ import (
 
 	auth "gochen/auth"
 	"gochen/contextx"
+	appaccess "gochen/domain/access"
 	"gochen/errors"
 
 	"gorm.io/driver/sqlite"
@@ -131,7 +134,7 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
 		ActiveScopeID:   rootScope.ID,
 		VisibleScopeIDs: []int64{rootScope.ID},
-		Mode:            auth.ScopeModeManagedScopes,
+		Mode:            auth.ScopeModeScoped,
 	})
 	if err != nil {
 		t.Fatalf("bind tenant root scope: %v", err)
@@ -962,6 +965,95 @@ func TestUserServiceAssignRole(t *testing.T) {
 	if len(roles) > 0 && roles[0].Name != "test_role" {
 		t.Errorf("expected role name test_role, got %s", roles[0].Name)
 	}
+}
+
+func TestUserRepoAssignRoleWithConstraint_AllowsSameTenantDifferentManagedScopes(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, &svc.RegisterRequest{
+		Username: "scopedroleuser",
+		Email:    "scopedrole@example.com",
+		Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+
+	rootScope, err := env.scopeRepo.Get(env.backgroundCtx, env.rootScopeID)
+	if err != nil {
+		t.Fatalf("get root scope: %v", err)
+	}
+	childScope := &iamentity.Scope{
+		Key:      "tenant:test-tenant:child",
+		Name:     "Child Scope",
+		Type:     "department",
+		ParentID: &rootScope.ID,
+		Path:     iamentity.ScopePathFor(rootScope.Path, "child"),
+		Depth:    rootScope.Depth + 1,
+		Status:   iamentity.ScopeStatusActive,
+	}
+	scopeGuard, err := svc.NewPlatformCreateConstraint(env.backgroundCtx, svc.ScopeResourceKind)
+	if err != nil {
+		t.Fatalf("NewPlatformCreateConstraint: %v", err)
+	}
+	if err := env.scopeRepo.CreateWithConstraint(env.backgroundCtx, childScope, scopeGuard); err != nil {
+		t.Fatalf("create child scope: %v", err)
+	}
+
+	role := &iamentity.Role{
+		TenantID:         env.tenantID,
+		OwnerID:          svc.TenantOwnerID(env.tenantID),
+		NamespaceScopeID: childScope.ID,
+		Name:             "child_scope_role",
+		Description:      "child scope role",
+		Permissions:      iamentity.PermissionArray([]string{"api:test:read"}),
+		Status:           svc.RoleStatusActive,
+	}
+	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
+		t.Fatalf("create child scope role: %v", err)
+	}
+
+	guard := iamaccess.NewWriteConstraint(appaccess.WriteConstraint{
+		Resources: []appaccess.ResourceConstraint{
+			{
+				Kind:           svc.UserResourceKind,
+				ResourceID:     guardID(user.GetID()),
+				ManagedScopeID: user.ManagedScopeID,
+				TenantID:       env.tenantID,
+			},
+			{
+				Kind:           svc.RoleResourceKind,
+				ResourceID:     guardID(role.GetID()),
+				ManagedScopeID: role.NamespaceScopeID,
+				TenantID:       env.tenantID,
+			},
+		},
+	}, appaccess.ConstraintMetadata{})
+
+	if err := env.userRepo.AssignRoleWithConstraint(env.backgroundCtx, user.GetID(), role.GetID(), guard); err != nil {
+		t.Fatalf("AssignRoleWithConstraint: %v", err)
+	}
+
+	bindings, err := env.userRepo.ListRoleBindings(env.backgroundCtx, user.GetID())
+	if err != nil {
+		t.Fatalf("ListRoleBindings: %v", err)
+	}
+	if len(bindings) != 1 {
+		t.Fatalf("expected 1 role binding, got %d", len(bindings))
+	}
+	if bindings[0].RoleID != role.GetID() {
+		t.Fatalf("expected role %d, got %d", role.GetID(), bindings[0].RoleID)
+	}
+
+	guard.Resources[1].TenantID = "other-tenant"
+	if err := env.userRepo.AssignRoleWithConstraint(env.backgroundCtx, user.GetID(), role.GetID(), guard); !errors.Is(err, errors.Forbidden) {
+		t.Fatalf("expected cross-tenant guard to be forbidden, got %v", err)
+	}
+}
+
+func guardID(id int64) string {
+	return strconv.FormatInt(id, 10)
 }
 
 // TestUserServiceAssignToGroup 测试加入组织

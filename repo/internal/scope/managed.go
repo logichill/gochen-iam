@@ -5,7 +5,7 @@ import (
 
 	iamauth "gochen-iam/auth"
 	auth "gochen/auth"
-	"gochen/auth/access"
+	"gochen/domain/access"
 )
 
 // ResolveManagedScopeID resolves the scope used for managed-scope writes.

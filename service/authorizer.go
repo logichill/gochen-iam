@@ -9,8 +9,8 @@ import (
 	iammw "gochen-iam/middleware"
 	"gochen-iam/tenant"
 	auth "gochen/auth"
-	appaccess "gochen/auth/access"
 	"gochen/contextx"
+	appaccess "gochen/domain/access"
 	"gochen/errors"
 )
 
@@ -56,7 +56,7 @@ func AuthorizeWriteConstraint(ctx context.Context, authorizer auth.IAuthorizer, 
 	if err := decision.RequireAllow(); err != nil {
 		return WriteConstraint{}, err
 	}
-	return iamaccess.NewWriteConstraint(schemaSafeWriteConstraint(decision), appaccess.ConstraintMetadataFromDecision(decision)), nil
+	return iamaccess.NewWriteConstraint(schemaSafeWriteConstraint(decision), auth.ConstraintMetadataFromDecision(decision)), nil
 }
 
 // AuthorizeCreateConstraint 为 create 路径构造写入约束。
@@ -153,7 +153,7 @@ func normalizeIAMAuthorizedResources(ctx context.Context, resources []auth.Resou
 }
 
 func schemaSafeWriteConstraint(decision auth.AuthzDecision) appaccess.WriteConstraint {
-	constraint := appaccess.WriteConstraintFromDecision(decision)
+	constraint := auth.WriteConstraintFromDecision(decision)
 	for i := range constraint.Resources {
 		if !resourceKindUsesManagedScope(constraint.Resources[i].Kind) {
 			// 平台级资源显式标记 GlobalScope，避免与"未填充 ManagedScopeID"语义混淆。

@@ -3,9 +3,10 @@ package guard
 import (
 	"context"
 	"strconv"
+	"strings"
 
 	iamaccess "gochen-iam/access"
-	"gochen/auth/access"
+	"gochen/domain/access"
 	"gochen/errors"
 )
 
@@ -34,6 +35,31 @@ func RequireSameTenant(resources ...iamaccess.ResourceConstraint) error {
 	if len(resources) <= 1 {
 		return nil
 	}
+	tenantID := ""
+	hasTenantBoundary := false
+	for _, resource := range resources {
+		current := strings.TrimSpace(resource.TenantID)
+		if current == "" {
+			continue
+		}
+		if tenantID == "" {
+			tenantID = current
+			hasTenantBoundary = true
+			continue
+		}
+		if current != tenantID {
+			return errors.NewCode(errors.Forbidden, "write constraint resources must belong to the same tenant")
+		}
+	}
+	if hasTenantBoundary {
+		for _, resource := range resources {
+			if strings.TrimSpace(resource.TenantID) == "" {
+				return errors.NewCode(errors.Forbidden, "write constraint resources must include tenant boundary")
+			}
+		}
+		return nil
+	}
+
 	first := resources[0].ManagedScopeID
 	if first == 0 {
 		return nil
@@ -67,6 +93,6 @@ func BindContext(ctx context.Context, constraint iamaccess.WriteConstraint) cont
 	return access.WithDataScope(ctx, access.DataScope{
 		ActiveScopeID:   resource.ManagedScopeID,
 		VisibleScopeIDs: []int64{resource.ManagedScopeID},
-		Mode:            access.DataScopeModeManagedScopes,
+		Mode:            access.ScopeModeScoped,
 	})
 }

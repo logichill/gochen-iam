@@ -63,7 +63,7 @@ func InjectClaimsRequestContext(
 		baseCtx, err = auth.WithDataScope(baseCtx, auth.DataScope{
 			ActiveScopeID:   runtime.ActiveScopeID,
 			VisibleScopeIDs: runtime.VisibleScopeIDs,
-			Mode:            auth.ScopeModeManagedScopes,
+			Mode:            auth.ScopeModeScoped,
 		})
 		if err != nil {
 			return nil, err
