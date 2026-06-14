@@ -12,10 +12,15 @@ import (
 	"gochen/httpx/nethttp"
 )
 
-func newTestHTTPContext(t *testing.T, method, path string) *nethttp.Context {
+func newTestHTTPContext(t *testing.T, method, path string, headers ...map[string]string) *nethttp.Context {
 	t.Helper()
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(method, "http://example.com"+path, nil)
+	for _, h := range headers {
+		for k, v := range h {
+			r.Header.Set(k, v)
+		}
+	}
 	ctx, err := nethttp.NewBaseContext(w, r)
 	if err != nil {
 		t.Fatalf("NewBaseContext failed: %v", err)
@@ -43,8 +48,7 @@ func TestOptionalAuthMiddleware_InvalidToken_Returns401(t *testing.T) {
 	RegisterRequiredPermissions("api:iam:test")
 
 	mw := OptionalAuthMiddleware(&AuthConfig{SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer "})
-	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
-	ctx.Request().Header.Set("Authorization", "Bearer invalid-token")
+	ctx := newTestHTTPContext(t, "GET", "/api/v1/users", map[string]string{"Authorization": "Bearer invalid-token"})
 
 	if err := mw(ctx, func() error { return nil }); !errors.Is(err, errors.Unauthorized) {
 		t.Fatalf("expected unauthorized error, got %v", err)
@@ -95,8 +99,7 @@ func TestOptionalAuthMiddleware_RequiresTenantHeaderInTenantMode(t *testing.T) {
 		ContextResolver: fixedAuthContextResolver{kind: "tenant"},
 	})
 
-	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
-	ctx.Request().Header.Set("Authorization", "Bearer "+token)
+	ctx := newTestHTTPContext(t, "GET", "/api/v1/users", map[string]string{"Authorization": "Bearer " + token})
 
 	if err := mw(ctx, func() error { return nil }); !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
@@ -123,9 +126,7 @@ func TestOptionalAuthMiddleware_BindsTenantAndPrincipalFromToken(t *testing.T) {
 		ContextResolver: fixedAuthContextResolver{kind: "platform"},
 	})
 
-	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
-	ctx.Request().Header.Set("Authorization", "Bearer "+token)
-	ctx.Request().Header.Set("X-Tenant-ID", "tenant-b")
+	ctx := newTestHTTPContext(t, "GET", "/api/v1/users", map[string]string{"Authorization": "Bearer " + token, "X-Tenant-ID": "tenant-b"})
 
 	called := false
 	err = mw(ctx, func() error {
@@ -184,9 +185,7 @@ func TestAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
 		ContextResolver: fixedAuthContextResolver{kind: "platform"},
 	})
 
-	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
-	ctx.Request().Header.Set("Authorization", "Bearer "+token)
-	ctx.Request().Header.Set("X-Tenant-ID", "tenant-b")
+	ctx := newTestHTTPContext(t, "GET", "/api/v1/users", map[string]string{"Authorization": "Bearer " + token, "X-Tenant-ID": "tenant-b"})
 
 	called := false
 	err = mw(ctx, func() error {
@@ -230,8 +229,7 @@ func TestAuthMiddleware_GlobalWildcardPassesPermissionMiddleware(t *testing.T) {
 		ContextResolver: fixedAuthContextResolver{kind: "platform"},
 	})
 
-	ctx := newTestHTTPContext(t, "GET", "/api/v1/tasks")
-	ctx.Request().Header.Set("Authorization", "Bearer "+token)
+	ctx := newTestHTTPContext(t, "GET", "/api/v1/tasks", map[string]string{"Authorization": "Bearer " + token})
 
 	called := false
 	err = mw(ctx, func() error {

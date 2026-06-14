@@ -3,6 +3,7 @@ package menu
 import (
 	"context"
 	"sort"
+	"strings"
 	"time"
 
 	iamentity "gochen-iam/entity"
@@ -1056,20 +1057,22 @@ func filterMenuTreeRec(nodes []*MenuNode, reqCtx httpx.IRequestContext, visited 
 
 // evaluateMenuVisibility 判断单个菜单节点在当前请求上下文中是否可见。
 func evaluateMenuVisibility(n *MenuNode, reqCtx httpx.IRequestContext) bool {
+	allOf := compactPermissionCodes(n.AllOfPermissions)
+	anyOf := compactPermissionCodes(n.AnyOfPermissions)
 	// 没有上下文时：仅显示无权限约束的菜单
 	if reqCtx == nil {
-		return len(n.AnyOfPermissions) == 0 && len(n.AllOfPermissions) == 0
+		return len(anyOf) == 0 && len(allOf) == 0
 	}
 
 	// all_of_permissions：必须全部满足
-	for _, p := range n.AllOfPermissions {
+	for _, p := range allOf {
 		if !iammw.HasPermission(reqCtx, p) {
 			return false
 		}
 	}
 	// any_of_permissions：至少一个满足
-	if len(n.AnyOfPermissions) > 0 {
-		for _, p := range n.AnyOfPermissions {
+	if len(anyOf) > 0 {
+		for _, p := range anyOf {
 			if iammw.HasPermission(reqCtx, p) {
 				return true
 			}
@@ -1077,4 +1080,18 @@ func evaluateMenuVisibility(n *MenuNode, reqCtx httpx.IRequestContext) bool {
 		return false
 	}
 	return true
+}
+
+func compactPermissionCodes(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	return out
 }

@@ -68,7 +68,12 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	adminGroup := tenantGroup.Group("")
 	adminGroup.Use(iammw.PlatformScopeMiddleware())
 
-	appService, err := appcrud.NewApplication(tr.tenantRepo, nil, nil)
+	scopedRepo, ok := tr.tenantRepo.(svc.IScopedResourceContextRepository[*iamentity.Tenant, int64])
+	if !ok {
+		return errors.NewCode(errors.Unsupported, "tenant repository must support scoped query and write constraints").
+			WithContext("route", "iam.tenant")
+	}
+	appService, err := svc.NewCRUDApplication[*iamentity.Tenant, int64](scopedRepo, scopedRepo)
 	if err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create tenant crud application").WithContext("route", "iam.tenant")

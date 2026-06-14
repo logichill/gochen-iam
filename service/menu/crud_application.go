@@ -54,6 +54,14 @@ func (a *CRUDApplication) Delete(ctx context.Context, id int64) error {
 	return a.menuService.DeleteEntity(ctx, id)
 }
 
+// ValidateWriteConstraintSupport 声明菜单 CRUD 适配器自身负责显式写约束。
+func (a *CRUDApplication) ValidateWriteConstraintSupport() error {
+	if a == nil || a.menuService == nil {
+		return errors.NewCode(errors.InvalidInput, "menu service cannot be nil")
+	}
+	return nil
+}
+
 // CreateWithConstraint 在显式 guard 下创建菜单。
 func (a *CRUDApplication) CreateWithConstraint(
 	ctx context.Context,

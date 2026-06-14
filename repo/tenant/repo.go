@@ -42,6 +42,11 @@ func (r *TenantRepo) UpdateWithConstraint(ctx context.Context, t *iamentity.Tena
 	return r.Repo.UpdateWithConstraint(assocguard.BindContext(ctx, guard), t, guard.Unwrap())
 }
 
+// DeleteWithConstraint 在显式写边界下删除租户。
+func (r *TenantRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
+	return r.Repo.DeleteWithConstraint(assocguard.BindContext(ctx, guard), id, guard.Unwrap())
+}
+
 // Get 根据ID获取租户（过滤软删记录）
 func (r *TenantRepo) Get(ctx context.Context, id int64) (*iamentity.Tenant, error) {
 	model, err := r.ModelFor(ctx)

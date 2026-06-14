@@ -75,6 +75,17 @@ func TestBuildMenuTree_WithPermissions_AnyAllAndParentRetention(t *testing.T) {
 	}
 }
 
+func TestBuildMenuTree_IgnoresBlankPermissionDebris(t *testing.T) {
+	items := []*iamentity.MenuItem{
+		{Entity: crud.Entity[int64]{ID: 1}, Code: "root", Title: "Root", Published: true, AllOfPermissions: iamentity.StringArray{"   "}},
+	}
+
+	tree := buildMenuTree(items, nil)
+	if len(tree) != 1 || tree[0].Code != "root" {
+		t.Fatalf("expected blank permission debris not to hide menu, got %#v", tree)
+	}
+}
+
 func TestBuildMenuTree_TenantOverride_AppliesAndFilters(t *testing.T) {
 	items := []*iamentity.MenuItem{
 		{Entity: crud.Entity[int64]{ID: 1}, Code: "root", Title: "Root", Published: true},

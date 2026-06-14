@@ -29,12 +29,20 @@ func HasAnyRole(ctx httpx.IRequestContext, required ...string) bool {
 	if len(required) == 0 {
 		return true
 	}
+	if ctx == nil {
+		return false
+	}
 	roles := Roles(ctx)
 	if len(roles) == 0 {
 		return false
 	}
 	for _, need := range required {
+		need = strings.TrimSpace(need)
+		if need == "" {
+			continue
+		}
 		for _, r := range roles {
+			r = strings.TrimSpace(r)
 			if strings.EqualFold(r, need) {
 				return true
 			}
@@ -53,8 +61,9 @@ func RequireAnyRole(ctx httpx.IRequestContext, required ...string) error {
 
 // HasPermission 判断是否拥有指定权限
 func HasPermission(ctx httpx.IRequestContext, permission string) bool {
+	permission = strings.TrimSpace(permission)
 	if permission == "" {
-		return true
+		return false
 	}
 	if principal, ok := auth.PrincipalFromContext(ctx); ok && principal.AllowsPermission(permission) {
 		return true

@@ -305,13 +305,22 @@ func TestHasAnyRole(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
-	ctx = auth.WithRoles(ctx, []string{"user"})
+	ctx = auth.WithRoles(ctx, []string{" user "})
 
 	if !HasAnyRole(ctx, "user") {
 		t.Error("expected HasAnyRole(user)=true")
 	}
+	if !HasAnyRole(ctx, " user ") {
+		t.Error("expected HasAnyRole to trim required roles")
+	}
 	if HasAnyRole(ctx, "admin") {
 		t.Error("expected HasAnyRole(admin)=false")
+	}
+	if HasAnyRole(ctx, "   ") {
+		t.Error("expected blank required role to be ignored and fail closed")
+	}
+	if HasAnyRole(nil, "user") {
+		t.Error("expected nil ctx to fail closed")
 	}
 	if !HasAnyRole(ctx) {
 		t.Error("expected HasAnyRole()=true when no role required")

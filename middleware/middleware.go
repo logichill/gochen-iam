@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"strings"
+
 	iamauth "gochen-iam/auth"
 	"gochen/auth/http"
 	"gochen/contextx"
@@ -21,7 +23,7 @@ func (permissionChecker) HasPermission(ctx httpx.IContext, permission string) bo
 // HasAnyPermission 判断Any权限。
 func (permissionChecker) HasAnyPermission(ctx httpx.IContext, permissions []string) bool {
 	if len(permissions) == 0 {
-		return true
+		return false
 	}
 	if ctx == nil {
 		return false
@@ -31,6 +33,9 @@ func (permissionChecker) HasAnyPermission(ctx httpx.IContext, permissions []stri
 		return false
 	}
 	for _, p := range permissions {
+		if strings.TrimSpace(p) == "" {
+			continue
+		}
 		if HasPermission(reqCtx, p) {
 			return true
 		}
@@ -47,6 +52,9 @@ func (permissionChecker) HasRole(ctx httpx.IContext, role string) bool {
 }
 
 // HasAnyRole 判断Any角色。
+//
+// 约定：空角色列表表示调用方未声明角色约束，按 fail-open 处理；
+// 空权限列表仍按 fail-closed 处理，避免权限配置缺失时意外放行。
 func (permissionChecker) HasAnyRole(ctx httpx.IContext, roles []string) bool {
 	if len(roles) == 0 {
 		return true

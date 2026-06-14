@@ -36,3 +36,28 @@ func TestInjectClaimsRequestContext_BindsPrincipalAndLegacyHelpers(t *testing.T)
 	require.True(t, HasPermission(bound, "api:user:manage"))
 	require.True(t, HasPermission(bound, "api:any:thing"))
 }
+
+func TestPermissionChecker_EmptyPermissionsFailClosed(t *testing.T) {
+	reqCtx, err := httpx.NewRequestContext(context.Background())
+	require.NoError(t, err)
+	reqCtx = iamauth.WithPermissions(reqCtx, []string{"api:user:manage"})
+	ctx := requestContextOnly{reqCtx: reqCtx}
+	checker := permissionChecker{}
+
+	require.False(t, HasPermission(reqCtx, ""))
+	require.False(t, HasPermission(reqCtx, "   "))
+	require.False(t, checker.HasAnyPermission(ctx, nil))
+	require.False(t, checker.HasAnyPermission(ctx, []string{""}))
+	require.False(t, checker.HasAnyPermission(ctx, []string{"   "}))
+	require.True(t, checker.HasAnyPermission(ctx, []string{"api:user:manage"}))
+	require.True(t, checker.HasAnyPermission(ctx, []string{"", "api:user:manage"}))
+}
+
+type requestContextOnly struct {
+	httpx.IContext
+	reqCtx httpx.IRequestContext
+}
+
+func (c requestContextOnly) RequestContext() httpx.IRequestContext {
+	return c.reqCtx
+}

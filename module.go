@@ -1,6 +1,8 @@
 package iam
 
 import (
+	"context"
+
 	iammw "gochen-iam/middleware"
 	grouprepo "gochen-iam/repo/group"
 	menurepo "gochen-iam/repo/menu"
@@ -17,19 +19,18 @@ import (
 	tenantsvc "gochen-iam/service/tenant"
 	usersvc "gochen-iam/service/user"
 	"gochen-iam/tenant"
+	auth "gochen/auth"
 	"gochen/errors"
 	"gochen/host"
 	"gochen/host/module"
+	"gochen/host/module/runtimecap"
 	"gochen/httpx"
 )
 
 // NewModule 创建 IAM 领域模块
 func NewModule() (module.IModule, error) {
 	tenant.InstallTenantResolver()
-	if err := iamservice.InstallIAMPermissionCatalog(); err != nil {
-		return nil, err
-	}
-	return host.Module("iam").
+	base, err := host.Module("iam").
 		Name("IAM").
 		PermissionDefinitions(iamservice.IAMAuthzPermissionDefinitions()...).
 		ResourceResolver(iamservice.IAMResourceResolvers()...).
@@ -69,6 +70,39 @@ func NewModule() (module.IModule, error) {
 			iammw.OptionalAuthMiddleware(nil),
 		).
 		Build()
+	if err != nil {
+		return nil, err
+	}
+	return &iamModule{IModule: base}, nil
+}
+
+type iamModule struct {
+	module.IModule
+}
+
+func (m *iamModule) Init(opts module.ModuleInitOptions) error {
+	if err := iamservice.InstallIAMPermissionCatalog(runtimecap.AuthzRegistryFrom(opts)); err != nil {
+		return err
+	}
+	return m.IModule.Init(opts)
+}
+
+func (m *iamModule) RegisterRoutes(ctx context.Context) error {
+	if routeModule, ok := m.IModule.(interface {
+		RegisterRoutes(context.Context) error
+	}); ok {
+		return routeModule.RegisterRoutes(ctx)
+	}
+	return nil
+}
+
+func (m *iamModule) AuthzRegistration() auth.ModuleRegistration {
+	if provider, ok := m.IModule.(interface {
+		AuthzRegistration() auth.ModuleRegistration
+	}); ok {
+		return provider.AuthzRegistration()
+	}
+	return auth.ModuleRegistration{}
 }
 
 // authConfigValidator 在启动期对鉴权配置做 fail-fast 校验。

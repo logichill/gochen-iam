@@ -4,11 +4,19 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	auth "gochen/auth"
+	"gochen/errors"
 )
 
+type moduleCatalogSyncRegistry interface {
+	InstallModuleCatalogSync(auth.ModuleCatalogSyncFunc) error
+}
+
 // InstallIAMPermissionCatalog 安装 IAM 严格权限目录。
-func InstallIAMPermissionCatalog() error {
-	if err := auth.InstallModuleCatalogSync(SyncRequiredPermissionCatalog); err != nil {
+func InstallIAMPermissionCatalog(registry moduleCatalogSyncRegistry) error {
+	if registry == nil {
+		return errors.NewCode(errors.InvalidInput, "authz registry is nil")
+	}
+	if err := registry.InstallModuleCatalogSync(SyncRequiredPermissionCatalog); err != nil {
 		return err
 	}
 	iammw.RegisterRequiredPermissionDefinitions(IAMPermissionDefinitions...)

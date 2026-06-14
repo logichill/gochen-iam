@@ -106,11 +106,16 @@ func (s *authRoutesUserServiceStub) UserProfile(context.Context, int64) (*iament
 	return nil, nil
 }
 
-func newAuthJSONContext(t *testing.T, path string, body string) *nethttp.Context {
+func newAuthJSONContext(t *testing.T, path string, body string, headers ...map[string]string) *nethttp.Context {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "http://example.com"+path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	for _, h := range headers {
+		for k, v := range h {
+			req.Header.Set(k, v)
+		}
+	}
 	ctx, err := nethttp.NewBaseContext(rec, req)
 	if err != nil {
 		t.Fatalf("NewBaseContext: %v", err)
@@ -141,8 +146,7 @@ func TestAuthRoutesRefreshTokenUsesTenantHeaderAndScopeClaims(t *testing.T) {
 		t.Fatalf("GenerateToken: %v", err)
 	}
 
-	ctx := newAuthJSONContext(t, "/api/v1/auth/refresh", `{"token":"`+token+`"}`)
-	ctx.Request().Header.Set("X-Tenant-ID", "tenant-b")
+	ctx := newAuthJSONContext(t, "/api/v1/auth/refresh", `{"token":"`+token+`"}`, map[string]string{"X-Tenant-ID": "tenant-b"})
 
 	if err := routes.refreshToken(ctx); err != nil {
 		t.Fatalf("refreshToken: %v", err)
@@ -179,8 +183,7 @@ func TestAuthRoutesRefreshTokenFallsBackToInstalledResolver(t *testing.T) {
 		t.Fatalf("GenerateToken: %v", err)
 	}
 
-	ctx := newAuthJSONContext(t, "/api/v1/auth/refresh", `{"token":"`+token+`"}`)
-	ctx.Request().Header.Set("X-Tenant-ID", "tenant-b")
+	ctx := newAuthJSONContext(t, "/api/v1/auth/refresh", `{"token":"`+token+`"}`, map[string]string{"X-Tenant-ID": "tenant-b"})
 
 	if err := routes.refreshToken(ctx); err != nil {
 		t.Fatalf("refreshToken: %v", err)
@@ -203,8 +206,7 @@ func TestAuthRoutesRegister_UsesTenantFromHeaderWhenRequired(t *testing.T) {
 	routes := NewAuthRoutes(service)
 	routes.authConfig = &iammw.AuthConfig{RequireTenant: true, TenantHeader: "X-Tenant-ID"}
 
-	ctx := newAuthJSONContext(t, "/api/v1/auth/register", `{"username":"tester","email":"tester@example.com","password":"secret123"}`)
-	ctx.Request().Header.Set("X-Tenant-ID", "tenant-a")
+	ctx := newAuthJSONContext(t, "/api/v1/auth/register", `{"username":"tester","email":"tester@example.com","password":"secret123"}`, map[string]string{"X-Tenant-ID": "tenant-a"})
 
 	if err := routes.register(ctx); err != nil {
 		t.Fatalf("register: %v", err)
@@ -235,8 +237,7 @@ func TestAuthRoutesLogin_ReturnsActivationToken(t *testing.T) {
 	routes := NewAuthRoutes(service)
 	routes.authConfig = &iammw.AuthConfig{SecretKey: "test-secret", ActivationTTL: time.Hour, RequireTenant: true, TenantHeader: "X-Tenant-ID"}
 
-	ctx := newAuthJSONContext(t, "/api/v1/auth/login", `{"username":"tester","password":"secret123"}`)
-	ctx.Request().Header.Set("X-Tenant-ID", "tenant-a")
+	ctx := newAuthJSONContext(t, "/api/v1/auth/login", `{"username":"tester","password":"secret123"}`, map[string]string{"X-Tenant-ID": "tenant-a"})
 	if err := routes.login(ctx); err != nil {
 		t.Fatalf("login: %v", err)
 	}

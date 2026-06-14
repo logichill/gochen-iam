@@ -4,6 +4,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"gochen/domain"
@@ -106,6 +107,21 @@ func (m *MenuItem) Validate() error {
 	case MenuTypeGroup, MenuTypePage, MenuTypeLink:
 	default:
 		return errors.NewCode(errors.Validation, "menu type is invalid")
+	}
+	if err := validateMenuPermissionArray(m.AnyOfPermissions, "any_of_permissions"); err != nil {
+		return err
+	}
+	if err := validateMenuPermissionArray(m.AllOfPermissions, "all_of_permissions"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateMenuPermissionArray(values StringArray, field string) error {
+	for _, value := range values {
+		if strings.TrimSpace(value) == "" {
+			return errors.NewCode(errors.Validation, field+" contains blank permission")
+		}
 	}
 	return nil
 }

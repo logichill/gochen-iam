@@ -101,7 +101,7 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 				cfg.Authorization.HighRisk = true
 			}
 		}).
-		Build(userGroup); err != nil {
+		Build(adminGroup); err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("build user crud routes").WithContext("route", "iam.user")
 		}

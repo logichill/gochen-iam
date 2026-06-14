@@ -612,7 +612,8 @@ func (r *RoleRepo) RoleUsageStats(ctx context.Context) ([]map[string]interface{}
 
 		var rows []roleCount
 		if err := userRoleModel.Find(ctx, &rows,
-			orm.WithSelect("role_id", "COUNT(*) as count"),
+			orm.WithSelect("role_id"),
+			orm.WithSelectExprUnsafe("COUNT(*) as count"),
 			orm.WithWhere("role_id IN ?", ids),
 			orm.WithWhere("status = ?", "active"),
 			orm.WithGroupBy("role_id"),
@@ -635,7 +636,8 @@ func (r *RoleRepo) RoleUsageStats(ctx context.Context) ([]map[string]interface{}
 		}
 		rows = nil
 		if err := groupRoleModel.Find(ctx, &rows,
-			orm.WithSelect("role_id", "COUNT(*) as count"),
+			orm.WithSelect("role_id"),
+			orm.WithSelectExprUnsafe("COUNT(*) as count"),
 			orm.WithWhere("role_id IN ?", ids),
 			orm.WithGroupBy("role_id"),
 		); err != nil {
