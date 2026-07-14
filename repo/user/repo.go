@@ -8,7 +8,7 @@ import (
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
 	scoperesolver "gochen-iam/repo/internal/scope"
-	appcrud "gochen/app/crud"
+	iamtenant "gochen-iam/tenant"
 	"gochen/db/orm"
 	"gochen/db/orm/repo"
 	"gochen/db/query"
@@ -48,7 +48,7 @@ func (r *UserRepo) tenantScopedQuery(ctx context.Context) (*repo.ScopedQuery, er
 	if err != nil {
 		return nil, err
 	}
-	tenantID, err := appcrud.ResolveTenantID(ctx)
+	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func NewUserRepository(o orm.IOrm) (*UserRepo, error) {
 
 // Create 覆盖通用创建，省略非表字段（version/created_by/updated_by/deleted_by）
 func (r *UserRepo) Create(ctx context.Context, u *iamentity.User) error {
-	tenantID, err := appcrud.ResolveTenantID(ctx)
+	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 	if err == nil {
 		if u.TenantID == "" {
 			u.TenantID = tenantID
@@ -127,7 +127,7 @@ func (r *UserRepo) Create(ctx context.Context, u *iamentity.User) error {
 
 // Update 覆盖通用更新，省略非表字段
 func (r *UserRepo) Update(ctx context.Context, u *iamentity.User) error {
-	tenantID, err := appcrud.ResolveTenantID(ctx)
+	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 	if err != nil {
 		return err
 	}

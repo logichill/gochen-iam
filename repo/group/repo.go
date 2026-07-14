@@ -7,6 +7,7 @@ import (
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
 	scoperesolver "gochen-iam/repo/internal/scope"
+	iamtenant "gochen-iam/tenant"
 	appcrud "gochen/app/crud"
 	"gochen/db/orm"
 	"gochen/db/orm/repo"
@@ -31,7 +32,7 @@ func (r *GroupRepo) tenantScopedQuery(ctx context.Context) (*repo.ScopedQuery, e
 	if err != nil {
 		return nil, err
 	}
-	tenantID, err := appcrud.ResolveTenantID(ctx)
+	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}

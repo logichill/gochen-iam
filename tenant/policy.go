@@ -2,7 +2,6 @@ package tenant
 
 import (
 	"context"
-	appcrud "gochen/app/crud"
 	"gochen/contextx"
 	"gochen/errors"
 	"os"
@@ -26,9 +25,16 @@ type Policy struct {
 	SingleTenantID string
 }
 
-// InstallTenantResolver 由组合根显式安装 CRUD tenant 解析策略。
-func InstallTenantResolver() {
-	appcrud.SetTenantResolver(appcrud.TenantResolverFunc(ResolveTenantIDForFramework))
+// Resolver 为仓储和框架 tenant wrapper 提供无全局状态的上下文解析策略。
+type Resolver struct{}
+
+// ResolveTenantID 从请求上下文解析 tenant；IAM 模式归一化由入口服务负责。
+func (Resolver) ResolveTenantID(ctx context.Context) (string, error) {
+	tenantID := strings.TrimSpace(contextx.TenantID(ctx))
+	if tenantID == "" {
+		return "", errors.NewCode(errors.InvalidInput, "tenant ID is required in context")
+	}
+	return tenantID, nil
 }
 
 func singlePolicy() Policy {
@@ -66,18 +72,6 @@ func ResolveTenantID(ctx context.Context) (string, error) {
 	tenantID := strings.TrimSpace(contextx.TenantID(ctx))
 	if tenantID == "" {
 		return "", errors.NewCode(errors.Validation, "tenant_id is required")
-	}
-	return tenantID, nil
-}
-
-func ResolveTenantIDForFramework(ctx context.Context) (string, error) {
-	policy := Current()
-	if policy.IsSingle() {
-		return policy.SingleTenantID, nil
-	}
-	tenantID := strings.TrimSpace(contextx.TenantID(ctx))
-	if tenantID == "" {
-		return "", errors.NewCode(errors.InvalidInput, "tenant ID is required in context")
 	}
 	return tenantID, nil
 }

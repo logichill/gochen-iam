@@ -8,6 +8,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
+	iamtenant "gochen-iam/tenant"
 	"gochen/api/rest"
 	appcrud "gochen/app/crud"
 	auth "gochen/auth"
@@ -399,7 +400,7 @@ func newGroupCRUDHooks(repo svc.IResourceContextRepository[*iamentity.Group, int
 	return &appcrud.Hooks[*iamentity.Group, int64]{
 		BeforeCreate: func(ctx context.Context, group *iamentity.Group) error {
 			// 1. 租户隔离：从上下文注入 tenant_id
-			tenantID, err := appcrud.ResolveTenantID(ctx)
+			tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 			if err != nil {
 				return err
 			}

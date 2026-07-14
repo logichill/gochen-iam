@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	appcrud "gochen/app/crud"
+	"gochen/contextx"
 	"gochen/errors"
 )
 
@@ -102,25 +102,16 @@ func TestResolveRequestTenantID_RequestHeaderWins(t *testing.T) {
 	}
 }
 
-func TestInstallTenantResolverRequiresExplicitOptIn(t *testing.T) {
-	t.Setenv(EnvTenantMode, string(ModeSingle))
-	t.Setenv(EnvSingleTenantID, "single-tenant")
-
-	appcrud.SetTenantResolver(nil)
-	defer appcrud.SetTenantResolver(nil)
-
-	_, err := appcrud.ResolveTenantID(context.Background())
-	if !errors.Is(err, errors.InvalidInput) {
-		t.Fatalf("expected default resolver InvalidInput before install, got %v", err)
-	}
-
-	InstallTenantResolver()
-
-	tenantID, err := appcrud.ResolveTenantID(context.Background())
+func TestResolverUsesContextTenant(t *testing.T) {
+	ctx, err := contextx.WithTenantID(context.Background(), "context-tenant")
 	if err != nil {
-		t.Fatalf("ResolveTenantID after install: %v", err)
+		t.Fatalf("WithTenantID: %v", err)
 	}
-	if tenantID != "single-tenant" {
-		t.Fatalf("expected single-tenant, got %s", tenantID)
+	tenantID, err := (Resolver{}).ResolveTenantID(ctx)
+	if err != nil {
+		t.Fatalf("Resolver.ResolveTenantID: %v", err)
+	}
+	if tenantID != "context-tenant" {
+		t.Fatalf("expected context-tenant, got %s", tenantID)
 	}
 }

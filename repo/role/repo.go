@@ -7,7 +7,7 @@ import (
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
 	scoperesolver "gochen-iam/repo/internal/scope"
-	appcrud "gochen/app/crud"
+	iamtenant "gochen-iam/tenant"
 	auth "gochen/auth"
 	"gochen/db/orm"
 	"gochen/db/orm/repo"
@@ -33,7 +33,7 @@ func (r *RoleRepo) tenantScopedQuery(ctx context.Context) (*repo.ScopedQuery, er
 	if err != nil {
 		return nil, err
 	}
-	tenantID, err := appcrud.ResolveTenantID(ctx)
+	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +80,7 @@ func NewRoleRepository(o orm.IOrm) (*RoleRepo, error) {
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供
 
 func (r *RoleRepo) Create(ctx context.Context, role *iamentity.Role) error {
-	tenantID, err := appcrud.ResolveTenantID(ctx)
+	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 	if err == nil {
 		if role.TenantID == "" {
 			role.TenantID = tenantID
@@ -100,7 +100,7 @@ func (r *RoleRepo) Create(ctx context.Context, role *iamentity.Role) error {
 }
 
 func (r *RoleRepo) Update(ctx context.Context, role *iamentity.Role) error {
-	tenantID, err := appcrud.ResolveTenantID(ctx)
+	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 	if err != nil {
 		return err
 	}
