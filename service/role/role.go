@@ -18,6 +18,7 @@ import (
 	"gochen/errors"
 	"gochen/eventing"
 	"gochen/eventing/bus"
+	"gochen/ident"
 	"gochen/logging"
 )
 
@@ -25,14 +26,15 @@ var errBatchAssignRoleRollback = stdErrors.New("rollback batch assign role")
 
 // RoleService 角色服务
 type RoleService struct {
-	roleRepo        *rolerepo.RoleRepo
-	userRepo        *userrepo.UserRepo
-	groupRepo       *grouprepo.GroupRepo
-	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      auth.IAuthorizer
-	eventBus        bus.IEventBus
-	logger          logging.ILogger
-	governance      *Governance
+	roleRepo         *rolerepo.RoleRepo
+	userRepo         *userrepo.UserRepo
+	groupRepo        *grouprepo.GroupRepo
+	scopeAuthorizer  *svc.ScopeAuthorizer
+	authorizer       auth.IAuthorizer
+	eventBus         bus.IEventBus
+	eventIDGenerator ident.IGenerator[string]
+	logger           logging.ILogger
+	governance       *Governance
 }
 
 // NewRoleService 创建角色服务实例
@@ -45,14 +47,15 @@ func NewRoleService(
 	eventBus bus.IEventBus,
 ) *RoleService {
 	return &RoleService{
-		roleRepo:        roleRepo,
-		userRepo:        userRepo,
-		groupRepo:       groupRepo,
-		scopeAuthorizer: scopeAuthorizer,
-		authorizer:      authorizer,
-		eventBus:        eventBus,
-		logger:          logging.ComponentLogger("iam.service.role"),
-		governance:      NewGovernance(roleRepo, userRepo, scopeAuthorizer),
+		roleRepo:         roleRepo,
+		userRepo:         userRepo,
+		groupRepo:        groupRepo,
+		scopeAuthorizer:  scopeAuthorizer,
+		authorizer:       authorizer,
+		eventBus:         eventBus,
+		eventIDGenerator: eventing.DefaultEventIDGenerator(),
+		logger:           logging.ComponentLogger("iam.service.role"),
+		governance:       NewGovernance(roleRepo, userRepo, scopeAuthorizer),
 	}
 }
 
@@ -707,7 +710,11 @@ func (s *RoleService) publishUserRoleAssignedEvent(ctx context.Context, userID i
 		AssignedAt: time.Now(),
 	}
 
-	evt := eventing.NewEvent(userID, "user", payload.GetType(), 1, payload)
+	evt, err := eventing.NewEvent(s.eventIDGenerator, userID, "user", payload.GetType(), 1, payload)
+	if err != nil {
+		s.logger.Warn(ctx, "[RoleService] 生成 UserRoleAssigned 事件失败", logging.Error(err), logging.Int64("user_id", userID))
+		return
+	}
 	if err := s.eventBus.PublishEvent(ctx, evt); err != nil {
 		s.logger.Warn(ctx, "[RoleService] 发布 UserRoleAssigned 事件失败",
 			logging.Error(err),
@@ -730,7 +737,11 @@ func (s *RoleService) publishUserRoleRemovedEvent(ctx context.Context, userID, r
 		RemovedAt: time.Now(),
 	}
 
-	evt := eventing.NewEvent(userID, "user", payload.GetType(), 1, payload)
+	evt, err := eventing.NewEvent(s.eventIDGenerator, userID, "user", payload.GetType(), 1, payload)
+	if err != nil {
+		s.logger.Warn(ctx, "[RoleService] 生成 UserRoleRemoved 事件失败", logging.Error(err), logging.Int64("user_id", userID))
+		return
+	}
 	if err := s.eventBus.PublishEvent(ctx, evt); err != nil {
 		s.logger.Warn(ctx, "[RoleService] 发布 UserRoleRemoved 事件失败",
 			logging.Error(err),
