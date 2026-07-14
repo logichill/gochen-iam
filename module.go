@@ -18,7 +18,6 @@ import (
 	scopesvc "gochen-iam/service/scope"
 	tenantsvc "gochen-iam/service/tenant"
 	usersvc "gochen-iam/service/user"
-	"gochen-iam/tenant"
 	auth "gochen/auth"
 	"gochen/errors"
 	"gochen/host"
@@ -29,7 +28,6 @@ import (
 
 // NewModule 创建 IAM 领域模块
 func NewModule() (module.IModule, error) {
-	tenant.InstallTenantResolver()
 	base, err := host.Module("iam").
 		Name("IAM").
 		PermissionDefinitions(iamservice.IAMAuthzPermissionDefinitions()...).
@@ -44,7 +42,7 @@ func NewModule() (module.IModule, error) {
 			menurepo.NewMenuItemRepository,
 			// Services
 			iamservice.NewScopeAuthorizer,
-			iamservice.NewAuthContextResolver,
+			newAuthContextResolver,
 			iamservice.InstallAuthContextResolver,
 			iamservice.NewIAMAuthorizer,
 			tenantsvc.NewTenantService,
@@ -74,6 +72,13 @@ func NewModule() (module.IModule, error) {
 		return nil, err
 	}
 	return &iamModule{IModule: base}, nil
+}
+
+// newAuthContextResolver binds the resolver to IAM's single authoritative user
+// service. Keeping the concrete dependency here avoids ambiguous automatic
+// interface adaptation during module registration.
+func newAuthContextResolver(scopeAuthorizer *iamservice.ScopeAuthorizer, userService *usersvc.UserService) *iamservice.AuthContextResolver {
+	return iamservice.NewAuthContextResolver(scopeAuthorizer, userService)
 }
 
 type iamModule struct {

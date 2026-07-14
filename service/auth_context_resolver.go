@@ -19,9 +19,10 @@ const AuthContextResolverCacheTTL = 30 * time.Second
 
 // AuthContextResolver 将 access token claims 还原为运行时可消费的 scope 边界。
 type AuthContextResolver struct {
-	scopeAuthorizer *ScopeAuthorizer
-	cacheTTL        time.Duration
-	now             func() time.Time
+	scopeAuthorizer      *ScopeAuthorizer
+	authSnapshotProvider AuthSnapshotProvider
+	cacheTTL             time.Duration
+	now                  func() time.Time
 
 	mu    sync.RWMutex
 	cache map[string]authContextCacheEntry
@@ -32,26 +33,44 @@ type authContextCacheEntry struct {
 	expiresAt time.Time
 }
 
+// AuthSnapshotProvider 返回用户在目标授权域下的当前授权快照。
+type AuthSnapshotProvider interface {
+	AuthSnapshot(ctx context.Context, userID, activeScopeID int64) (*ActiveScopeSession, error)
+}
+
 // AuthContextResolverInstaller 仅用于把 resolver 注册进 middleware 运行时。
 type AuthContextResolverInstaller struct{}
 
-func NewAuthContextResolver(scopeAuthorizer *ScopeAuthorizer) *AuthContextResolver {
+func NewAuthContextResolver(scopeAuthorizer *ScopeAuthorizer, authSnapshotProvider AuthSnapshotProvider) *AuthContextResolver {
 	resolver := &AuthContextResolver{
-		scopeAuthorizer: scopeAuthorizer,
-		cacheTTL:        AuthContextResolverCacheTTL,
-		now:             time.Now,
-		cache:           make(map[string]authContextCacheEntry),
+		scopeAuthorizer:      scopeAuthorizer,
+		authSnapshotProvider: authSnapshotProvider,
+		cacheTTL:             AuthContextResolverCacheTTL,
+		now:                  time.Now,
+		cache:                make(map[string]authContextCacheEntry),
 	}
 	iammw.InstallAuthContextResolver(resolver)
 	return resolver
 }
 
 func (r *AuthContextResolver) ResolveAuthContext(ctx context.Context, claims *iammw.JWTClaims) (*iammw.ResolvedAuthContext, error) {
-	if claims == nil || claims.ActiveScopeID <= 0 {
+	if claims == nil || claims.UserID <= 0 || claims.ActiveScopeID <= 0 {
 		return nil, errors.NewCode(errors.Unauthorized, "active scope is required")
 	}
-	if r == nil || r.scopeAuthorizer == nil {
-		return nil, errors.NewCode(errors.InvalidInput, "scope authorizer is required")
+	if r == nil || r.scopeAuthorizer == nil || r.authSnapshotProvider == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "auth context resolver dependencies are required")
+	}
+
+	snapshot, err := r.authSnapshotProvider.AuthSnapshot(ctx, claims.UserID, claims.ActiveScopeID)
+	if err != nil {
+		return nil, err
+	}
+	if snapshot == nil || snapshot.UserID != claims.UserID || snapshot.ActiveScopeID != claims.ActiveScopeID {
+		return nil, errors.NewCode(errors.Unauthorized, "access token authorization is invalid")
+	}
+	if strings.TrimSpace(snapshot.BindingVersion) != strings.TrimSpace(claims.BindingVersion) ||
+		!samePermissionSet(snapshot.Permissions, claims.Permissions) {
+		return nil, errors.NewCode(errors.Unauthorized, "access token authorization is stale")
 	}
 
 	cacheKey := authContextCacheKey(claims.ActiveScopeID, claims.BindingVersion)
@@ -78,6 +97,30 @@ func (r *AuthContextResolver) ResolveAuthContext(ctx context.Context, claims *ia
 	cloned := resolved
 	cloned.VisibleScopeIDs = append([]int64(nil), resolved.VisibleScopeIDs...)
 	return &cloned, nil
+}
+
+func samePermissionSet(left, right []string) bool {
+	leftSet := make(map[string]struct{}, len(left))
+	for _, permission := range left {
+		if permission = strings.TrimSpace(permission); permission != "" {
+			leftSet[permission] = struct{}{}
+		}
+	}
+	rightSet := make(map[string]struct{}, len(right))
+	for _, permission := range right {
+		if permission = strings.TrimSpace(permission); permission != "" {
+			rightSet[permission] = struct{}{}
+		}
+	}
+	if len(leftSet) != len(rightSet) {
+		return false
+	}
+	for permission := range leftSet {
+		if _, ok := rightSet[permission]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *AuthContextResolver) loadCached(key string) (iammw.ResolvedAuthContext, bool) {
