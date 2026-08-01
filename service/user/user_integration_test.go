@@ -749,6 +749,282 @@ func TestUserServiceGetUserPermissionsRequiresActiveUser(t *testing.T) {
 	}
 }
 
+func TestUserServiceSingleTenantUsesOneRootScopeForRBAC(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+	t.Setenv("IAM_TENANT_MODE", "single")
+	t.Setenv("IAM_SINGLE_TENANT_ID", env.tenantID)
+
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, &svc.RegisterRequest{
+		Username: "single_rbac_user",
+		Email:    "single-rbac@example.com",
+		Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+	directRole := env.createTestRole(t, "single_direct", []string{"api:single:direct"})
+	groupRole := env.createTestRole(t, "single_group", []string{"api:single:group"})
+	if err := env.userService.AssignRole(env.backgroundCtx, user.GetID(), directRole.GetID()); err != nil {
+		t.Fatalf("assign direct role: %v", err)
+	}
+	bindings, err := env.userRepo.ListRoleBindings(env.backgroundCtx, user.GetID())
+	if err != nil {
+		t.Fatalf("list direct role bindings: %v", err)
+	}
+	if len(bindings) != 1 || bindings[0].GrantScopeID != env.rootScopeID {
+		t.Fatalf("expected direct role binding at tenant root %d, got %#v", env.rootScopeID, bindings)
+	}
+	group := env.createTestGroup(t, "single_group", nil)
+	if err := env.groupService.AddGroupRole(env.backgroundCtx, group.GetID(), groupRole.GetID()); err != nil {
+		t.Fatalf("assign group role: %v", err)
+	}
+	if err := env.userService.AssignToGroup(env.backgroundCtx, user.GetID(), group.GetID()); err != nil {
+		t.Fatalf("assign user to group: %v", err)
+	}
+	bindings, err = env.userRepo.ListRoleBindings(env.backgroundCtx, user.GetID())
+	if err != nil {
+		t.Fatalf("list role bindings after group assignment: %v", err)
+	}
+	for _, binding := range bindings {
+		if binding.GrantScopeID != env.rootScopeID {
+			t.Fatalf("expected all direct bindings at tenant root %d, got %#v", env.rootScopeID, bindings)
+		}
+	}
+
+	authResult, err := env.userService.Authenticate(env.backgroundCtx, env.tenantID, &svc.AuthenticateRequest{
+		Username: "single_rbac_user",
+		Password: "password123",
+	})
+	if err != nil {
+		if appErr, ok := err.(*errors.AppError); ok {
+			t.Fatalf("authenticate: %v details=%v", err, appErr.Details())
+		}
+		t.Fatalf("authenticate: %v", err)
+	}
+	if len(authResult.AvailableScopes) != 1 {
+		t.Fatalf("expected exactly one available scope, got %#v", authResult.AvailableScopes)
+	}
+	option := authResult.AvailableScopes[0]
+	if option.ScopeID != env.rootScopeID || option.ScopeKind != iamentity.ScopeTypeTenant {
+		t.Fatalf("expected tenant root scope %d, got %#v", env.rootScopeID, option)
+	}
+	assertStringContains(t, option.RoleNames, directRole.Name)
+	assertStringContains(t, option.RoleNames, groupRole.Name)
+	assertStringContains(t, option.Permissions, "api:single:direct")
+	assertStringContains(t, option.Permissions, "api:single:group")
+
+	session, err := env.userService.ActivateScope(env.backgroundCtx, user.GetID(), env.rootScopeID)
+	if err != nil {
+		t.Fatalf("activate root scope: %v", err)
+	}
+	if session.BindingVersion != authResult.BindingVersion {
+		t.Fatalf("binding version changed without authorization changes: %q != %q", session.BindingVersion, authResult.BindingVersion)
+	}
+}
+
+func TestUserServiceAuthSnapshotQueryCountIsBounded(t *testing.T) {
+	for _, mode := range []string{"tenant", "single"} {
+		t.Run(mode, func(t *testing.T) {
+			var baseline int
+			for _, bindingCount := range []int{1, 10, 100} {
+				t.Run(strconv.Itoa(bindingCount), func(t *testing.T) {
+					env := setupUserServiceTest(t)
+					defer env.teardown(t)
+					t.Setenv("IAM_TENANT_MODE", mode)
+					t.Setenv("IAM_SINGLE_TENANT_ID", env.tenantID)
+
+					user := &iamentity.User{
+						TenantID:       env.tenantID,
+						HomeTenantID:   env.tenantID,
+						HomeScopeID:    env.rootScopeID,
+						ManagedScopeID: env.rootScopeID,
+						OwnerID:        svc.TenantOwnerID(env.tenantID),
+						Username:       "bounded_query_user",
+						Email:          "bounded-query@example.com",
+						Password:       "password-hash",
+						Status:         svc.UserStatusActive,
+					}
+					if err := env.userRepo.Create(env.backgroundCtx, user); err != nil {
+						t.Fatalf("create user: %v", err)
+					}
+					for i := 0; i < bindingCount; i++ {
+						directRole := env.createTestRole(t, "bounded_direct_"+strconv.Itoa(i), []string{"api:bounded:direct:" + strconv.Itoa(i)})
+						if err := env.db.Create(&iamentity.UserRoleBinding{
+							UserID:       user.GetID(),
+							RoleID:       directRole.GetID(),
+							GrantScopeID: env.rootScopeID,
+							Status:       "active",
+						}).Error; err != nil {
+							t.Fatalf("create direct role binding %d: %v", i, err)
+						}
+
+						groupRole := env.createTestRole(t, "bounded_group_"+strconv.Itoa(i), []string{"api:bounded:group:" + strconv.Itoa(i)})
+						group := &iamentity.Group{
+							TenantID:       env.tenantID,
+							ManagedScopeID: env.rootScopeID,
+							OwnerID:        svc.TenantOwnerID(env.tenantID),
+							Name:           "bounded_group_" + strconv.Itoa(i),
+							ParentKey:      0,
+							Level:          1,
+						}
+						if err := env.db.Create(group).Error; err != nil {
+							t.Fatalf("create group %d: %v", i, err)
+						}
+						if err := env.db.Exec("INSERT INTO group_roles (group_id, role_id) VALUES (?, ?)", group.GetID(), groupRole.GetID()).Error; err != nil {
+							t.Fatalf("create group role %d: %v", i, err)
+						}
+						if err := env.db.Exec("INSERT INTO user_groups (user_id, group_id) VALUES (?, ?)", user.GetID(), group.GetID()).Error; err != nil {
+							t.Fatalf("create user group %d: %v", i, err)
+						}
+					}
+
+					queryCount := 0
+					if err := env.db.Callback().Query().Before("gorm:query").Register("test:auth_snapshot_query_count", func(*gorm.DB) {
+						queryCount++
+					}); err != nil {
+						t.Fatalf("register query counter: %v", err)
+					}
+					snapshot, err := env.userService.AuthSnapshot(env.backgroundCtx, user.GetID(), env.rootScopeID)
+					if err != nil {
+						t.Fatalf("auth snapshot: %v", err)
+					}
+					if len(snapshot.RoleNames) != 2*bindingCount {
+						t.Fatalf("role count = %d, want %d", len(snapshot.RoleNames), 2*bindingCount)
+					}
+					if baseline == 0 {
+						baseline = queryCount
+					}
+					if queryCount != baseline {
+						t.Fatalf("query count = %d for %d direct and group bindings, want constant %d", queryCount, bindingCount, baseline)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestUserServiceSingleTenantProjectsAncestorGrantIntoRootScope(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+	t.Setenv("IAM_TENANT_MODE", "single")
+	t.Setenv("IAM_SINGLE_TENANT_ID", env.tenantID)
+
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, &svc.RegisterRequest{
+		Username: "single_platform_admin",
+		Email:    "single-platform-admin@example.com",
+		Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+	platformScope, err := iamservice.NewScopeAuthorizer(env.scopeRepo, env.tenantRepo).EnsurePlatformScope(env.backgroundCtx)
+	if err != nil {
+		t.Fatalf("ensure platform scope: %v", err)
+	}
+	platformRole := &iamentity.Role{
+		TenantID:         env.tenantID,
+		OwnerID:          "platform",
+		NamespaceScopeID: platformScope.ID,
+		Name:             "single_platform_admin",
+		Description:      "single 模式平台祖先域角色",
+		Permissions:      iamentity.PermissionArray{"*:*:*"},
+		Status:           svc.RoleStatusActive,
+	}
+	if err := env.roleRepo.Create(env.backgroundCtx, platformRole); err != nil {
+		t.Fatalf("create platform role: %v", err)
+	}
+	binding := &iamentity.UserRoleBinding{
+		UserID:       user.GetID(),
+		RoleID:       platformRole.GetID(),
+		GrantScopeID: platformScope.ID,
+		Status:       "active",
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+	if err := env.db.Create(binding).Error; err != nil {
+		t.Fatalf("seed platform binding: %v", err)
+	}
+
+	authResult, err := env.userService.Authenticate(env.backgroundCtx, env.tenantID, &svc.AuthenticateRequest{
+		Username: "single_platform_admin",
+		Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("authenticate: %v", err)
+	}
+	if len(authResult.AvailableScopes) != 1 || authResult.AvailableScopes[0].ScopeID != env.rootScopeID {
+		t.Fatalf("expected one tenant root scope, got %#v", authResult.AvailableScopes)
+	}
+	assertStringContains(t, authResult.AvailableScopes[0].RoleNames, platformRole.Name)
+	assertStringContains(t, authResult.AvailableScopes[0].Permissions, "*:*:*")
+
+	details, err := env.userService.UserRoleBindings(env.backgroundCtx, user.GetID())
+	if err != nil {
+		t.Fatalf("list projected binding: %v", err)
+	}
+	if len(details) != 1 || details[0].BindingID != binding.ID || details[0].RoleName != platformRole.Name {
+		t.Fatalf("expected projected platform binding to remain manageable, got %#v", details)
+	}
+	if err := env.userService.RemoveRoleBinding(env.backgroundCtx, user.GetID(), binding.ID); err != nil {
+		t.Fatalf("remove projected binding: %v", err)
+	}
+	remaining, err := env.userRepo.ListRoleBindings(env.backgroundCtx, user.GetID())
+	if err != nil {
+		t.Fatalf("list remaining bindings: %v", err)
+	}
+	if len(remaining) != 0 {
+		t.Fatalf("expected projected binding removal, got %#v", remaining)
+	}
+}
+
+func TestUserServiceSingleTenantRejectsExplicitOrExistingNonCoveringGrant(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+	t.Setenv("IAM_TENANT_MODE", "single")
+	t.Setenv("IAM_SINGLE_TENANT_ID", env.tenantID)
+
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, &svc.RegisterRequest{
+		Username: "single_invalid_grant",
+		Email:    "single-invalid-grant@example.com",
+		Password: "password123",
+	})
+	if err != nil {
+		t.Fatalf("register user: %v", err)
+	}
+	role := env.createTestRole(t, "single_invalid_grant_role", []string{"api:single:test"})
+	nonRootScopeID := env.rootScopeID + 1000
+	if err := env.userService.AssignRoleBinding(env.backgroundCtx, user.GetID(), role.GetID(), &nonRootScopeID); !errors.Is(err, errors.InvalidInput) {
+		t.Fatalf("expected explicit non-root grant to fail, got %v", err)
+	}
+	if err := env.userService.AssignRole(env.backgroundCtx, user.GetID(), role.GetID()); err != nil {
+		t.Fatalf("assign root role: %v", err)
+	}
+	if result := env.db.Model(&iamentity.UserRoleBinding{}).
+		Where("user_id = ? AND role_id = ?", user.GetID(), role.GetID()).
+		Update("grant_scope_id", nonRootScopeID); result.Error != nil {
+		t.Fatalf("move binding to non-root scope: %v", result.Error)
+	}
+
+	_, err = env.userService.Authenticate(env.backgroundCtx, env.tenantID, &svc.AuthenticateRequest{
+		Username: "single_invalid_grant",
+		Password: "password123",
+	})
+	if !errors.Is(err, errors.Conflict) {
+		t.Fatalf("expected existing non-covering binding to fail closed, got %v", err)
+	}
+}
+
+func assertStringContains(t *testing.T, values []string, want string) {
+	t.Helper()
+	for _, value := range values {
+		if value == want {
+			return
+		}
+	}
+	t.Fatalf("expected %q in %v", want, values)
+}
+
 // TestUserServiceChangePassword 测试修改密码
 func TestUserServiceChangePassword(t *testing.T) {
 	env := setupUserServiceTest(t)

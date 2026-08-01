@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -20,10 +21,31 @@ type AuthRoutes struct {
 
 // NewAuthRoutes 创建认证路由注册器
 func NewAuthRoutes(userService IUserService) *AuthRoutes {
+	return NewAuthRoutesWithConfig(userService, nil)
+}
+
+// NewAuthRoutesWithConfig 使用统一认证配置创建认证路由注册器。
+func NewAuthRoutesWithConfig(userService IUserService, config *iammw.AuthConfig) *AuthRoutes {
+	if config == nil {
+		config = iammw.DefaultAuthConfig()
+	}
 	return &AuthRoutes{
 		userService: userService,
-		authConfig:  iammw.DefaultAuthConfig(),
+		authConfig:  config,
 	}
+}
+
+func authRequestContext(ctx httpx.IContext) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	if reqCtx := ctx.RequestContext(); reqCtx != nil {
+		return reqCtx
+	}
+	if req := ctx.Request(); req != nil {
+		return req.Context()
+	}
+	return context.Background()
 }
 
 // RegisterRoutes 注册路由。
@@ -32,12 +54,21 @@ func (ar *AuthRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	authGroup.POST("/register", ar.register)
 	authGroup.POST("/login", ar.login)
+	authGroup.GET("/csrf", ar.csrfToken)
 	authGroup.POST("/activate-scope", ar.activateScope)
 	authGroup.POST("/logout", ar.logout)
 	authGroup.POST("/refresh", ar.refreshToken)
 	authGroup.POST("/forgot-password", ar.forgotPassword)
 	authGroup.POST("/reset-password", ar.resetPassword)
 	return nil
+}
+
+func (ar *AuthRoutes) csrfToken(ctx httpx.IContext) error {
+	token := iammw.EnsureCSRFCookie(ctx, ar.authConfig)
+	if token == "" {
+		return errors.NewCode(errors.Unsupported, "cookie authentication is disabled")
+	}
+	return httpx.WriteSuccess(ctx, map[string]string{"csrf_token": token})
 }
 
 // Name 获取注册器名称
@@ -203,16 +234,19 @@ func (ar *AuthRoutes) activateScope(ctx httpx.IContext) error {
 		return errors.NewCode(errors.Forbidden, "授权绑定已变化，请重新登录")
 	}
 
-	token, err := iammw.GenerateToken(
+	token, err := iammw.GenerateTokenWithTTL(
 		session.UserID,
 		session.ActiveScopeID,
 		session.BindingVersion,
 		session.Permissions,
 		ar.authConfig.SecretKey,
+		ar.authConfig.AccessTokenTTL,
 	)
 	if err != nil {
 		return err
 	}
+	iammw.WriteAccessTokenCookie(ctx, token, ar.authConfig)
+	iammw.WriteCSRFCookie(ctx, ar.authConfig)
 
 	return httpx.WriteSuccess(ctx, map[string]any{
 		"user_id":         session.UserID,
@@ -228,6 +262,27 @@ func (ar *AuthRoutes) activateScope(ctx httpx.IContext) error {
 
 // logout 处理logout。
 func (ar *AuthRoutes) logout(ctx httpx.IContext) error {
+	token := iammw.ExtractAccessToken(ctx, ar.authConfig)
+	if token != "" {
+		claims, err := iammw.ValidateAccessToken(authRequestContext(ctx), token, ar.authConfig)
+		if err != nil {
+			if !errors.Is(err, errors.Unauthorized) {
+				return err
+			}
+		} else {
+			if err := iammw.EnforceCSRFDoubleSubmit(ctx, ar.authConfig); err != nil {
+				return err
+			}
+			if strings.TrimSpace(claims.ID) == "" || claims.ExpiresAt == nil {
+				return errors.NewCode(errors.Unauthorized, "token 不支持安全退出")
+			}
+			if err := iammw.RevokeAccessTokenJTI(authRequestContext(ctx), ar.authConfig, claims.ID, claims.ExpiresAt.Time); err != nil {
+				return err
+			}
+		}
+	}
+	iammw.ClearAccessTokenCookie(ctx, ar.authConfig)
+	iammw.ClearCSRFCookie(ctx, ar.authConfig)
 	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"message": "logged_out",
 	})
@@ -236,20 +291,25 @@ func (ar *AuthRoutes) logout(ctx httpx.IContext) error {
 // refreshToken 处理refresh令牌。
 func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 	var req struct {
-		Token string `json:"token" binding:"required"`
+		Token string `json:"token"`
 	}
-	if err := ctx.BindJSON(&req); err != nil {
-		return err
+	// Body token is optional when the HttpOnly access cookie is present.
+	_ = ctx.BindJSON(&req)
+	token := strings.TrimSpace(req.Token)
+	if token == "" {
+		token = iammw.ExtractAccessToken(ctx, ar.authConfig)
 	}
-	if req.Token == "" {
-		err := errors.NewCode(errors.Validation, "token is required")
-		return err
+	if token == "" {
+		return errors.NewCode(errors.Validation, "token is required")
 	}
 
 	// 1) 验证旧 token
-	claims, err := iammw.ParseToken(req.Token, ar.authConfig.SecretKey)
+	claims, err := iammw.ValidateAccessToken(authRequestContext(ctx), token, ar.authConfig)
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(claims.ID) == "" || claims.ExpiresAt == nil {
+		return errors.NewCode(errors.Unauthorized, "token 不支持安全轮转")
 	}
 
 	reqCtx := ctx.RequestContext()
@@ -268,16 +328,31 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 		return err
 	}
 
-	newToken, err := iammw.GenerateToken(
+	newToken, err := iammw.GenerateTokenWithTTL(
 		authSnapshot.UserID,
 		authSnapshot.ActiveScopeID,
 		authSnapshot.BindingVersion,
 		authSnapshot.Permissions,
 		ar.authConfig.SecretKey,
+		ar.authConfig.AccessTokenTTL,
 	)
 	if err != nil {
 		return err
 	}
+	// 在吊销旧 token 前再次校验，避免快照读取期间已被其他请求轮转。
+	claims, err = iammw.ValidateAccessToken(authRequestContext(ctx), token, ar.authConfig)
+	if err != nil {
+		return err
+	}
+	consumed, err := iammw.ConsumeAccessTokenJTI(authRequestContext(ctx), ar.authConfig, claims.ID, claims.ExpiresAt.Time)
+	if err != nil {
+		return err
+	}
+	if !consumed {
+		return errors.NewCode(errors.Unauthorized, "token 已被轮转")
+	}
+	iammw.WriteAccessTokenCookie(ctx, newToken, ar.authConfig)
+	iammw.WriteCSRFCookie(ctx, ar.authConfig)
 
 	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"token": newToken,

@@ -69,6 +69,9 @@ func BindResourceContext(ctx context.Context, resource access.ResourceBoundary) 
 }
 
 func tenantIDFromBoundary(resource access.ResourceBoundary) string {
+	if tenantID := strings.TrimSpace(resource.TenantID); tenantID != "" {
+		return tenantID
+	}
 	ownerID := strings.TrimSpace(resource.OwnerID)
 	if strings.HasPrefix(ownerID, tenantOwnerPrefix) {
 		return strings.TrimSpace(strings.TrimPrefix(ownerID, tenantOwnerPrefix))

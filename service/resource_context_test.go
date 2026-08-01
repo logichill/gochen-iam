@@ -88,6 +88,28 @@ func TestLoadTenantBoundResource_BindsResolvedTenantContext(t *testing.T) {
 	}
 }
 
+func TestLoadTenantBoundResource_UsesStructuredTenantForPlatformOwnedResource(t *testing.T) {
+	repo := &tenantBoundUserRepoStub{
+		resource: access.ResourceBoundary{TenantID: "tenant-b", OwnerID: "platform"},
+		entity:   &iamentity.User{TenantID: "tenant-b", OwnerID: "platform"},
+	}
+	repo.entity.SetID(8)
+
+	entity, tenantCtx, err := LoadTenantBoundResource(context.Background(), repo, 8)
+	if err != nil {
+		t.Fatalf("LoadTenantBoundResource: %v", err)
+	}
+	if entity.GetID() != 8 {
+		t.Fatalf("expected entity id 8, got %d", entity.GetID())
+	}
+	if got := contextx.TenantID(repo.getCtx); got != "tenant-b" {
+		t.Fatalf("expected repo get tenant-b, got %q", got)
+	}
+	if got := contextx.TenantID(tenantCtx); got != "tenant-b" {
+		t.Fatalf("expected returned ctx tenant-b, got %q", got)
+	}
+}
+
 func TestLoadTenantBoundResource_WithoutTenantBoundaryKeepsOriginalContext(t *testing.T) {
 	repo := &tenantBoundUserRepoStub{
 		resource: access.ResourceBoundary{},

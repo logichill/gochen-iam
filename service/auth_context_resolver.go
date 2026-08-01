@@ -7,7 +7,9 @@ import (
 	"sync"
 	"time"
 
+	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
+	iamtenant "gochen-iam/tenant"
 	"gochen/errors"
 )
 
@@ -88,6 +90,12 @@ func (r *AuthContextResolver) ResolveAuthContext(ctx context.Context, claims *ia
 	if err != nil {
 		return nil, err
 	}
+	if iamtenant.Current().IsSingle() && scope.Type == iamentity.ScopeTypeTenant {
+		visibleScopeIDs, err = r.includeSingleTenantPlatformScope(ctx, scope, visibleScopeIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
 	resolved := iammw.ResolvedAuthContext{
 		ActiveScopeID:   scope.ID,
 		ActiveScopeKind: scope.Type,
@@ -97,6 +105,29 @@ func (r *AuthContextResolver) ResolveAuthContext(ctx context.Context, claims *ia
 	cloned := resolved
 	cloned.VisibleScopeIDs = append([]int64(nil), resolved.VisibleScopeIDs...)
 	return &cloned, nil
+}
+
+func (r *AuthContextResolver) includeSingleTenantPlatformScope(
+	ctx context.Context,
+	scope *iamentity.Scope,
+	visibleScopeIDs []int64,
+) ([]int64, error) {
+	if scope == nil || scope.ParentID == nil || *scope.ParentID <= 0 {
+		return nil, errors.NewCode(errors.Internal, "single tenant root scope parent is missing")
+	}
+	parent, err := r.scopeAuthorizer.Scope(ctx, *scope.ParentID)
+	if err != nil {
+		return nil, errors.Wrap(err, errors.Internal, "resolve single tenant root scope parent failed")
+	}
+	if parent == nil || parent.Type != iamentity.ScopeTypePlatform {
+		return nil, errors.NewCode(errors.Internal, "single tenant root scope parent must be platform")
+	}
+	for _, scopeID := range visibleScopeIDs {
+		if scopeID == parent.ID {
+			return visibleScopeIDs, nil
+		}
+	}
+	return append(visibleScopeIDs, parent.ID), nil
 }
 
 func samePermissionSet(left, right []string) bool {

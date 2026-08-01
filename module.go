@@ -2,6 +2,7 @@ package iam
 
 import (
 	"context"
+	"strings"
 
 	iammw "gochen-iam/middleware"
 	grouprepo "gochen-iam/repo/group"
@@ -18,7 +19,9 @@ import (
 	scopesvc "gochen-iam/service/scope"
 	tenantsvc "gochen-iam/service/tenant"
 	usersvc "gochen-iam/service/user"
+	iamtenant "gochen-iam/tenant"
 	auth "gochen/auth"
+	"gochen/db"
 	"gochen/errors"
 	"gochen/host"
 	"gochen/host/module"
@@ -26,8 +29,23 @@ import (
 	"gochen/httpx"
 )
 
-// NewModule 创建 IAM 领域模块
-func NewModule() (module.IModule, error) {
+// NewModule 使用应用主数据库装配 IAM 领域模块。
+func NewModule(database db.IDatabase) (module.IModule, error) {
+	store, err := iammw.NewDatabaseRevokedTokenStore(database)
+	if err != nil {
+		return nil, err
+	}
+	if err := iammw.InstallDefaultRevokedTokenStore(store); err != nil {
+		return nil, err
+	}
+	authConfig := iammw.DefaultAuthConfig()
+	authConfig.RevokedTokenStore = store
+	authRoutesProvider := func(userService iamrouter.IUserService) *iamrouter.AuthRoutes {
+		return iamrouter.NewAuthRoutesWithConfig(userService, authConfig)
+	}
+	authConfigValidatorProvider := func(resolver *iamservice.AuthContextResolver) *authConfigValidator {
+		return newAuthConfigValidator(resolver, authConfig)
+	}
 	base, err := host.Module("iam").
 		Name("IAM").
 		PermissionDefinitions(iamservice.IAMAuthzPermissionDefinitions()...).
@@ -53,25 +71,53 @@ func NewModule() (module.IModule, error) {
 			menusvc.NewMenuService,
 		).
 		RouteRegistrar(
-			iamrouter.NewAuthRoutes,
+			authRoutesProvider,
 			iamrouter.NewUserRoutes,
 			iamrouter.NewRoleRoutes,
 			iamrouter.NewGroupRoutes,
 			iamrouter.NewTenantRoutes,
 			iamrouter.NewScopeRoutes,
 			iamrouter.NewMenuRoutes,
-			NewAuthConfigValidator,
+			authConfigValidatorProvider,
 		).
 		// IAM 模块既包含匿名可访问的登录/注册端点，也包含需要鉴权的管理端点。
 		// 使用 OptionalAuthMiddleware 统一解析 token（若存在），供后续 PermissionMiddleware 等使用。
 		Middleware(
-			iammw.OptionalAuthMiddleware(nil),
+			iamModuleAuthMiddleware(authConfig),
 		).
 		Build()
 	if err != nil {
 		return nil, err
 	}
 	return &iamModule{IModule: base}, nil
+}
+
+func iamModuleAuthMiddleware(authConfig *iammw.AuthConfig) httpx.Middleware {
+	authMiddleware := iammw.OptionalAuthMiddleware(authConfig)
+	return func(ctx httpx.IContext, next func() error) error {
+		if ctx != nil && isIAMAnonymousAuthPath(ctx.Path()) {
+			return next()
+		}
+		return authMiddleware(ctx, next)
+	}
+}
+
+func isIAMAnonymousAuthPath(path string) bool {
+	path = strings.TrimSuffix(strings.TrimSpace(path), "/")
+	for _, suffix := range []string{
+		"/auth/login",
+		"/auth/csrf",
+		"/auth/register",
+		"/auth/activate-scope",
+		"/auth/forgot-password",
+		"/auth/reset-password",
+		"/auth/logout",
+	} {
+		if strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // newAuthContextResolver binds the resolver to IAM's single authoritative user
@@ -110,23 +156,34 @@ func (m *iamModule) AuthzRegistration() auth.ModuleRegistration {
 	return auth.ModuleRegistration{}
 }
 
+// PublicFeatures 声明前端可在登录前读取的 IAM 部署模式。
+func (m *iamModule) PublicFeatures() []module.PublicFeature {
+	return []module.PublicFeature{{Key: "tenant_mode", Value: string(iamtenant.Current().Mode)}}
+}
+
 // authConfigValidator 在启动期对鉴权配置做 fail-fast 校验。
 //
 // 说明：
 // - ValidateAuthConfig 负责校验 JWT 密钥与生产环境安全约束（如禁止 query token）；
 // - 将其放到模块启动链路里，避免仅靠运行期“带 token 的请求”才暴露配置错误。
-type authConfigValidator struct{}
+type authConfigValidator struct {
+	config *iammw.AuthConfig
+}
 
 // NewAuthConfigValidator 创建鉴权配置Validator。
 //
 // 通过显式依赖 AuthContextResolver，确保 access token 运行时 resolver 在模块启动期完成安装。
 func NewAuthConfigValidator(_ *iamservice.AuthContextResolver) *authConfigValidator {
-	return &authConfigValidator{}
+	return &authConfigValidator{config: iammw.DefaultAuthConfig()}
+}
+
+func newAuthConfigValidator(_ *iamservice.AuthContextResolver, config *iammw.AuthConfig) *authConfigValidator {
+	return &authConfigValidator{config: config}
 }
 
 // RegisterRoutes 注册路由集合。
 func (v *authConfigValidator) RegisterRoutes(httpx.IRouteGroup) error {
-	if err := iammw.ValidateAuthConfig(nil); err != nil {
+	if err := iammw.ValidateAuthConfig(v.config); err != nil {
 		return errors.Wrap(err, errors.Internal, "auth config validation failed")
 	}
 	return nil

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	iamauth "gochen-iam/auth"
+	"gochen-iam/tenant"
 	"gochen/auth/http"
 	"gochen/contextx"
 	"gochen/errors"
@@ -193,6 +194,9 @@ func PlatformScopeMiddleware() httpx.Middleware {
 		reqCtx := ctx.RequestContext()
 		if reqCtx == nil || GetUserID(reqCtx) == 0 {
 			return errors.NewCode(errors.Unauthorized, "用户未认证")
+		}
+		if tenant.Current().IsSingle() {
+			return next()
 		}
 		if iamauth.ActiveScopeKind(reqCtx) != string(ScopePlatform) {
 			return errors.NewCode(errors.Forbidden, "当前授权域不是 platform")

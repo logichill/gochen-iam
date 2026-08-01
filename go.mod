@@ -4,6 +4,7 @@ go 1.26.0
 
 require (
 	github.com/golang-jwt/jwt/v4 v4.5.2
+	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.9.0
 	gochen v0.0.0
 	golang.org/x/crypto v0.47.0
@@ -17,7 +18,6 @@ require github.com/kr/text v0.2.0 // indirect
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/mattn/go-sqlite3 v1.14.22 // indirect

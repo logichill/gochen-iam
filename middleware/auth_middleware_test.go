@@ -44,6 +44,7 @@ func TestOptionalAuthMiddleware_NoToken_PassThrough(t *testing.T) {
 }
 
 func TestOptionalAuthMiddleware_InvalidToken_Returns401(t *testing.T) {
+	t.Setenv("APP_ENV", "test")
 	resetRequiredPermissionsRegistryForTest()
 	RegisterRequiredPermissions("api:iam:test")
 
@@ -81,6 +82,7 @@ func TestOptionalAuthMiddleware_FixedModeInjectsTenantWithoutHeaderOrToken(t *te
 }
 
 func TestOptionalAuthMiddleware_RequiresTenantHeaderInTenantMode(t *testing.T) {
+	t.Setenv("APP_ENV", "test")
 	t.Setenv("IAM_TENANT_MODE", "tenant")
 
 	resetRequiredPermissionsRegistryForTest()
@@ -107,6 +109,7 @@ func TestOptionalAuthMiddleware_RequiresTenantHeaderInTenantMode(t *testing.T) {
 }
 
 func TestOptionalAuthMiddleware_BindsTenantAndPrincipalFromToken(t *testing.T) {
+	t.Setenv("APP_ENV", "test")
 	t.Setenv("IAM_TENANT_MODE", "tenant")
 
 	resetRequiredPermissionsRegistryForTest()
@@ -166,6 +169,7 @@ func TestAuthMiddleware_RequiresToken(t *testing.T) {
 }
 
 func TestAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
+	t.Setenv("APP_ENV", "test")
 	t.Setenv("IAM_TENANT_MODE", "tenant")
 
 	resetRequiredPermissionsRegistryForTest()
@@ -214,6 +218,7 @@ func TestAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
 }
 
 func TestAuthMiddleware_GlobalWildcardPassesPermissionMiddleware(t *testing.T) {
+	t.Setenv("APP_ENV", "test")
 	resetRequiredPermissionsRegistryForTest()
 	RegisterRequiredPermissions("api:task:read")
 

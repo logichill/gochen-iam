@@ -109,6 +109,115 @@ func TestGenerateAndParseActivationToken(t *testing.T) {
 	}
 }
 
+func TestAccessAndActivationTokensAreNotInterchangeable(t *testing.T) {
+	const secretKey = "test-secret-key"
+	activationToken, err := GenerateActivationToken(7, "binding-v1", []int64{11}, secretKey, time.Minute)
+	if err != nil {
+		t.Fatalf("GenerateActivationToken: %v", err)
+	}
+	if _, err := ParseToken(activationToken, secretKey); !errors.Is(err, errors.Unauthorized) {
+		t.Fatalf("activation token parsed as access token: %v", err)
+	}
+
+	accessToken, err := GenerateToken(7, 11, "binding-v1", nil, secretKey)
+	if err != nil {
+		t.Fatalf("GenerateToken: %v", err)
+	}
+	if _, err := ParseActivationToken(accessToken, secretKey); !errors.Is(err, errors.Unauthorized) {
+		t.Fatalf("access token parsed as activation token: %v", err)
+	}
+}
+
+func TestLegacyTokensWithoutTypeRemainPurposeBound(t *testing.T) {
+	const secretKey = "test-secret-key"
+	now := time.Now()
+	legacyAccess := jwt.NewWithClaims(jwt.SigningMethodHS256, &JWTClaims{
+		UserID:        7,
+		ActiveScopeID: 11,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+	})
+	legacyAccessToken, err := legacyAccess.SignedString([]byte(secretKey))
+	if err != nil {
+		t.Fatalf("sign legacy access token: %v", err)
+	}
+	if _, err := ParseToken(legacyAccessToken, secretKey); err != nil {
+		t.Fatalf("parse legacy access token: %v", err)
+	}
+	if _, err := ParseActivationToken(legacyAccessToken, secretKey); !errors.Is(err, errors.Unauthorized) {
+		t.Fatalf("legacy access token parsed as activation token: %v", err)
+	}
+
+	legacyActivation := jwt.NewWithClaims(jwt.SigningMethodHS256, &ActivationClaims{
+		UserID:          7,
+		AvailableScopes: []int64{11},
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Minute)),
+			IssuedAt:  jwt.NewNumericDate(now),
+		},
+	})
+	legacyActivationToken, err := legacyActivation.SignedString([]byte(secretKey))
+	if err != nil {
+		t.Fatalf("sign legacy activation token: %v", err)
+	}
+	if _, err := ParseActivationToken(legacyActivationToken, secretKey); err != nil {
+		t.Fatalf("parse legacy activation token: %v", err)
+	}
+	if _, err := ParseToken(legacyActivationToken, secretKey); !errors.Is(err, errors.Unauthorized) {
+		t.Fatalf("legacy activation token parsed as access token: %v", err)
+	}
+}
+
+func TestTokensWithUnknownExplicitTypeAreRejected(t *testing.T) {
+	const secretKey = "test-secret-key"
+	claims := &JWTClaims{
+		TokenType:     "unknown",
+		UserID:        7,
+		ActiveScopeID: 11,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
+		},
+	}
+	signed, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secretKey))
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+	if _, err := ParseToken(signed, secretKey); !errors.Is(err, errors.Unauthorized) {
+		t.Fatalf("unknown explicit token type should be rejected, got %v", err)
+	}
+}
+
+func TestValidateAccessTokenRequiresActiveScope(t *testing.T) {
+	token, err := GenerateToken(7, 0, "binding-v1", nil, "test-secret-key")
+	if err != nil {
+		t.Fatalf("GenerateToken: %v", err)
+	}
+	if _, err := ValidateAccessToken(t.Context(), token, &AuthConfig{SecretKey: "test-secret-key"}); !errors.Is(err, errors.Unauthorized) {
+		t.Fatalf("zero-scope access token should be rejected, got %v", err)
+	}
+}
+
+func TestParseTokenRejectsNonHS256HMAC(t *testing.T) {
+	claims := &JWTClaims{
+		TokenType:     tokenTypeAccess,
+		UserID:        7,
+		ActiveScopeID: 11,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
+	signed, err := token.SignedString([]byte("test-secret-key"))
+	if err != nil {
+		t.Fatalf("SignedString: %v", err)
+	}
+	if _, err := ParseToken(signed, "test-secret-key"); !errors.Is(err, errors.Unauthorized) {
+		t.Fatalf("HS512 token should be rejected, got %v", err)
+	}
+}
+
 func TestIsDevEnv(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -155,9 +264,17 @@ func TestValidateAuthConfig_Production_WithSecret(t *testing.T) {
 	os.Setenv("APP_ENV", "production")
 	defer os.Unsetenv("APP_ENV")
 
-	config := &AuthConfig{SecretKey: "my-secret-key"}
+	config := &AuthConfig{SecretKey: "my-secret-key", RevokedTokenStore: persistentRevokedTokenStoreStub{}}
 	if err := ValidateAuthConfig(config); err != nil {
 		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateAuthConfig_ProductionRejectsMemoryRevokedTokenStore(t *testing.T) {
+	t.Setenv("APP_ENV", "production")
+	config := &AuthConfig{SecretKey: "my-secret-key", RevokedTokenStore: newMemoryRevokedTokenStore()}
+	if err := ValidateAuthConfig(config); err == nil {
+		t.Fatal("expected production config to reject memory revoked token store")
 	}
 }
 
@@ -340,6 +457,15 @@ func TestRequireAnyRole(t *testing.T) {
 	if err := RequireAnyRole(ctx, "user"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+type persistentRevokedTokenStoreStub struct{}
+
+func (persistentRevokedTokenStoreStub) Consume(context.Context, string, time.Time) (bool, error) {
+	return true, nil
+}
+func (persistentRevokedTokenStoreStub) IsRevoked(context.Context, string) (bool, error) {
+	return false, nil
 }
 
 func TestHasPermission_WildcardPermissions(t *testing.T) {

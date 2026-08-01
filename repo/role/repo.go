@@ -166,6 +166,22 @@ func (r *RoleRepo) Get(ctx context.Context, id int64) (*iamentity.Role, error) {
 	return roles[0], nil
 }
 
+// FindByIDs 根据角色 ID 列表批量查找角色。
+func (r *RoleRepo) FindByIDs(ctx context.Context, ids []int64) ([]*iamentity.Role, error) {
+	if len(ids) == 0 {
+		return []*iamentity.Role{}, nil
+	}
+	query, err := r.tenantScopedQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var roles []*iamentity.Role
+	if err := query.Where("id IN ?", ids).Find(&roles); err != nil {
+		return nil, errors.Wrap(err, errors.Database, "批量查询角色失败")
+	}
+	return r.hydrateRoleScopes(ctx, roles)
+}
+
 // FindByName 根据角色名查找角色（租户内唯一）。
 func (r *RoleRepo) FindByName(ctx context.Context, name string) (*iamentity.Role, error) {
 	role, err := r.findOne(ctx, func(q *repo.ScopedQuery) {
@@ -329,6 +345,14 @@ func (r *RoleRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity
 
 // FindByGroupID 根据组织ID查找默认角色。
 func (r *RoleRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamentity.Role, error) {
+	return r.FindByGroupIDs(ctx, []int64{groupID})
+}
+
+// FindByGroupIDs 根据组织 ID 列表批量查找默认角色。
+func (r *RoleRepo) FindByGroupIDs(ctx context.Context, groupIDs []int64) ([]*iamentity.Role, error) {
+	if len(groupIDs) == 0 {
+		return []*iamentity.Role{}, nil
+	}
 	query, err := r.tenantScopedQuery(ctx)
 	if err != nil {
 		return nil, err
@@ -336,13 +360,25 @@ func (r *RoleRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamenti
 	var roles []*iamentity.Role
 	err = query.
 		Join(orm.InnerJoin("group_roles", "", orm.On("roles.id", "group_roles.role_id"))).
-		Where("group_roles.group_id = ?", groupID).
+		Where("group_roles.group_id IN ?", groupIDs).
 		Find(&roles)
 	if err != nil {
 		return nil, errors.Wrap(err, errors.Database, "查询组织角色失败")
 	}
 
-	return r.hydrateRoleScopes(ctx, roles)
+	uniqueRoles := make([]*iamentity.Role, 0, len(roles))
+	seen := make(map[int64]struct{}, len(roles))
+	for _, role := range roles {
+		if role == nil {
+			continue
+		}
+		if _, ok := seen[role.GetID()]; ok {
+			continue
+		}
+		seen[role.GetID()] = struct{}{}
+		uniqueRoles = append(uniqueRoles, role)
+	}
+	return r.hydrateRoleScopes(ctx, uniqueRoles)
 }
 
 // AssignToUser 将角色分配给用户
@@ -752,18 +788,35 @@ func (r *RoleRepo) hydrateRoleScopes(ctx context.Context, roles []*iamentity.Rol
 		return nil, errors.Wrap(err, errors.Database, "初始化 scopes 模型失败")
 	}
 
+	scopeIDs := make([]int64, 0, len(roles))
+	seenScopeIDs := make(map[int64]struct{}, len(roles))
 	for _, role := range roles {
 		if role == nil || role.NamespaceScopeID <= 0 {
 			continue
 		}
-		var scope iamentity.Scope
-		if err := scopeModel.First(ctx, &scope, orm.WithWhere("id = ? AND deleted_at IS NULL", role.NamespaceScopeID)); err != nil {
-			if errors.Is(err, errors.NotFound) {
-				continue
-			}
-			return nil, errors.Wrap(err, errors.Database, "查询 namespace scope 失败")
+		if _, ok := seenScopeIDs[role.NamespaceScopeID]; ok {
+			continue
 		}
-		role.NamespaceScope = &scope
+		seenScopeIDs[role.NamespaceScopeID] = struct{}{}
+		scopeIDs = append(scopeIDs, role.NamespaceScopeID)
+	}
+	if len(scopeIDs) == 0 {
+		return roles, nil
+	}
+	var scopes []*iamentity.Scope
+	if err := scopeModel.Find(ctx, &scopes, orm.WithWhere("id IN ? AND deleted_at IS NULL", scopeIDs)); err != nil {
+		return nil, errors.Wrap(err, errors.Database, "批量查询 namespace scope 失败")
+	}
+	scopeByID := make(map[int64]*iamentity.Scope, len(scopes))
+	for _, scope := range scopes {
+		if scope != nil {
+			scopeByID[scope.GetID()] = scope
+		}
+	}
+	for _, role := range roles {
+		if role != nil {
+			role.NamespaceScope = scopeByID[role.NamespaceScopeID]
+		}
 	}
 	return roles, nil
 }

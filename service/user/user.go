@@ -13,6 +13,7 @@ import (
 
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
+	"gochen-iam/tenant"
 
 	grouprepo "gochen-iam/repo/group"
 
@@ -179,8 +180,7 @@ func (s *UserService) Authenticate(ctx context.Context, tenantID string, req *sv
 		return nil, errors.NewCode(errors.Forbidden, "用户账户已被禁用")
 	}
 
-	user.UpdateLastLogin()
-	if err := s.updateUserWithGuard(tenantCtx, user); err != nil {
+	if err := s.userRepo.UpdateLastLogin(tenantCtx, user.GetID()); err != nil {
 		s.logger.Warn(ctx, "[UserService] 更新最后登录时间失败",
 			logging.Error(err),
 			logging.Int64("user_id", user.GetID()),
@@ -262,6 +262,44 @@ type authScopeAggregate struct {
 	bindingIDSet  map[int64]struct{}
 }
 
+func newAuthScopeAggregate(scopeID int64) *authScopeAggregate {
+	return &authScopeAggregate{
+		ScopeID:       scopeID,
+		roleSet:       map[string]struct{}{},
+		permissionSet: map[string]struct{}{},
+		bindingIDSet:  map[int64]struct{}{},
+	}
+}
+
+func (a *authScopeAggregate) addRole(bindingID int64, role *iamentity.Role) {
+	if a == nil || a.ScopeID <= 0 || role == nil || !role.IsActive() {
+		return
+	}
+	if bindingID > 0 {
+		if _, ok := a.bindingIDSet[bindingID]; !ok {
+			a.bindingIDSet[bindingID] = struct{}{}
+			a.BindingIDs = append(a.BindingIDs, bindingID)
+		}
+	}
+	if role.Name != "" {
+		if _, ok := a.roleSet[role.Name]; !ok {
+			a.roleSet[role.Name] = struct{}{}
+			a.RoleNames = append(a.RoleNames, role.Name)
+		}
+	}
+	for _, permission := range role.Permissions {
+		permission = strings.TrimSpace(permission)
+		if permission == "" {
+			continue
+		}
+		if _, ok := a.permissionSet[permission]; ok {
+			continue
+		}
+		a.permissionSet[permission] = struct{}{}
+		a.Permissions = append(a.Permissions, permission)
+	}
+}
+
 func (s *UserService) buildScopeSession(
 	ctx context.Context,
 	user *iamentity.User,
@@ -295,6 +333,9 @@ func (s *UserService) resolveAvailableScopes(ctx context.Context, user *iamentit
 	if user == nil {
 		return nil, "", errors.NewCode(errors.InvalidInput, "user is required")
 	}
+	if tenant.Current().IsSingle() {
+		return s.resolveSingleTenantScope(ctx, user)
+	}
 
 	aggregates := map[int64]*authScopeAggregate{}
 	addRole := func(scopeID, bindingID int64, role *iamentity.Role) {
@@ -303,78 +344,54 @@ func (s *UserService) resolveAvailableScopes(ctx context.Context, user *iamentit
 		}
 		scope := aggregates[scopeID]
 		if scope == nil {
-			scope = &authScopeAggregate{
-				ScopeID:       scopeID,
-				roleSet:       map[string]struct{}{},
-				permissionSet: map[string]struct{}{},
-				bindingIDSet:  map[int64]struct{}{},
-			}
+			scope = newAuthScopeAggregate(scopeID)
 			aggregates[scopeID] = scope
 		}
-		if bindingID > 0 {
-			if _, ok := scope.bindingIDSet[bindingID]; !ok {
-				scope.bindingIDSet[bindingID] = struct{}{}
-				scope.BindingIDs = append(scope.BindingIDs, bindingID)
-			}
-		}
-		if role.Name != "" {
-			if _, ok := scope.roleSet[role.Name]; !ok {
-				scope.roleSet[role.Name] = struct{}{}
-				scope.RoleNames = append(scope.RoleNames, role.Name)
-			}
-		}
-		for _, permission := range role.Permissions {
-			permission = strings.TrimSpace(permission)
-			if permission == "" {
-				continue
-			}
-			if _, ok := scope.permissionSet[permission]; ok {
-				continue
-			}
-			scope.permissionSet[permission] = struct{}{}
-			scope.Permissions = append(scope.Permissions, permission)
-		}
+		scope.addRole(bindingID, role)
 	}
 
 	bindings, err := s.userRepo.ListRoleBindings(ctx, user.GetID())
 	if err != nil {
 		return nil, "", err
 	}
+	roleIDs := make([]int64, 0, len(bindings))
 	for _, binding := range bindings {
-		role, err := s.roleRepo.Get(ctx, binding.RoleID)
-		if err != nil {
-			if errors.Is(err, errors.NotFound) {
-				continue
-			}
-			return nil, "", err
+		roleIDs = append(roleIDs, binding.RoleID)
+	}
+	roles, err := s.roleRepo.FindByIDs(ctx, roleIDs)
+	if err != nil {
+		return nil, "", err
+	}
+	rolesByID := make(map[int64]*iamentity.Role, len(roles))
+	for _, role := range roles {
+		if role != nil {
+			rolesByID[role.GetID()] = role
 		}
-		addRole(binding.GrantScopeID, binding.BindingID, role)
+	}
+	for _, binding := range bindings {
+		addRole(binding.GrantScopeID, binding.BindingID, rolesByID[binding.RoleID])
 	}
 
 	groups, err := s.groupRepo.FindByUserID(ctx, user.GetID())
 	if err != nil {
 		return nil, "", err
 	}
+	groupIDs := make([]int64, 0, len(groups))
 	for _, group := range groups {
-		if group == nil {
-			continue
+		if group != nil {
+			groupIDs = append(groupIDs, group.GetID())
 		}
-		roles, err := s.roleRepo.FindByGroupID(ctx, group.GetID())
-		if err != nil {
-			return nil, "", err
-		}
-		for _, role := range roles {
-			addRole(role.NamespaceScopeID, 0, role)
-		}
+	}
+	groupRoles, err := s.roleRepo.FindByGroupIDs(ctx, groupIDs)
+	if err != nil {
+		return nil, "", err
+	}
+	for _, role := range groupRoles {
+		addRole(role.NamespaceScopeID, 0, role)
 	}
 
 	if len(aggregates) == 0 && user.HomeScopeID > 0 {
-		aggregates[user.HomeScopeID] = &authScopeAggregate{
-			ScopeID:       user.HomeScopeID,
-			roleSet:       map[string]struct{}{},
-			permissionSet: map[string]struct{}{},
-			bindingIDSet:  map[int64]struct{}{},
-		}
+		aggregates[user.HomeScopeID] = newAuthScopeAggregate(user.HomeScopeID)
 	}
 
 	scopeIDs := make([]int64, 0, len(aggregates))
@@ -415,6 +432,126 @@ func (s *UserService) resolveAvailableScopes(ctx context.Context, user *iamentit
 	if len(options) == 0 {
 		return nil, "", nil
 	}
+	return options, computeBindingVersion(options), nil
+}
+
+func (s *UserService) resolveSingleTenantScope(ctx context.Context, user *iamentity.User) ([]svc.AuthScopeOption, string, error) {
+	if s.scopeAuthorizer == nil {
+		return nil, "", errors.NewCode(errors.Dependency, "single tenant authorization requires scope authorizer")
+	}
+	rootScope, err := s.scopeAuthorizer.ResolveTenantScope(ctx, user.TenantID)
+	if err != nil {
+		return nil, "", err
+	}
+	if rootScope == nil || !rootScope.IsActive() {
+		return nil, "", errors.NewCode(errors.Forbidden, "single tenant root scope is unavailable")
+	}
+	tenantGlobalCtx, err := svc.BindTenantGlobalScopeContext(ctx, user.TenantID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	aggregate := newAuthScopeAggregate(rootScope.ID)
+	bindings, err := s.userRepo.ListRoleBindings(ctx, user.GetID())
+	if err != nil {
+		return nil, "", err
+	}
+	roleIDs := make([]int64, 0, len(bindings))
+	for _, binding := range bindings {
+		roleIDs = append(roleIDs, binding.RoleID)
+	}
+	roles, err := s.roleRepo.FindByIDs(tenantGlobalCtx, roleIDs)
+	if err != nil {
+		return nil, "", err
+	}
+	rolesByID := make(map[int64]*iamentity.Role, len(roles))
+	for _, role := range roles {
+		if role != nil {
+			rolesByID[role.GetID()] = role
+		}
+	}
+	coverageByScopeID := make(map[int64]bool)
+	scopeCoversRoot := func(scopeID int64) (bool, error) {
+		if covered, ok := coverageByScopeID[scopeID]; ok {
+			return covered, nil
+		}
+		covered, err := s.scopeAuthorizer.ScopeCovers(ctx, scopeID, rootScope.ID)
+		if err != nil {
+			return false, err
+		}
+		coverageByScopeID[scopeID] = covered
+		return covered, nil
+	}
+	ensureRoleCanGrant := func(role *iamentity.Role) error {
+		if role == nil || role.NamespaceScopeID <= 0 {
+			return errors.NewCode(errors.InvalidInput, "role namespace and target scope are required")
+		}
+		allowed, err := scopeCoversRoot(role.NamespaceScopeID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return errors.NewCode(errors.Conflict, "single tenant role namespace cannot grant at tenant root scope").
+				WithContext("role_id", role.GetID())
+		}
+		return nil
+	}
+	for _, binding := range bindings {
+		role := rolesByID[binding.RoleID]
+		if role == nil || !role.IsActive() {
+			continue
+		}
+		grantCoversRoot, err := scopeCoversRoot(binding.GrantScopeID)
+		if err != nil {
+			return nil, "", err
+		}
+		if !grantCoversRoot {
+			return nil, "", errors.NewCode(errors.Conflict, "single tenant role binding must cover tenant root scope").
+				WithContext("binding_id", binding.BindingID).
+				WithContext("grant_scope_id", binding.GrantScopeID).
+				WithContext("tenant_root_scope_id", rootScope.ID)
+		}
+		if err := ensureRoleCanGrant(role); err != nil {
+			return nil, "", err
+		}
+		aggregate.addRole(binding.BindingID, role)
+	}
+
+	groups, err := s.groupRepo.FindByUserID(ctx, user.GetID())
+	if err != nil {
+		return nil, "", err
+	}
+	groupIDs := make([]int64, 0, len(groups))
+	for _, group := range groups {
+		if group != nil {
+			groupIDs = append(groupIDs, group.GetID())
+		}
+	}
+	groupRoles, err := s.roleRepo.FindByGroupIDs(tenantGlobalCtx, groupIDs)
+	if err != nil {
+		return nil, "", err
+	}
+	for _, role := range groupRoles {
+		if role == nil || !role.IsActive() {
+			continue
+		}
+		if err := ensureRoleCanGrant(role); err != nil {
+			return nil, "", err
+		}
+		aggregate.addRole(0, role)
+	}
+
+	sort.Slice(aggregate.BindingIDs, func(i, j int) bool { return aggregate.BindingIDs[i] < aggregate.BindingIDs[j] })
+	sort.Strings(aggregate.RoleNames)
+	sort.Strings(aggregate.Permissions)
+	options := []svc.AuthScopeOption{{
+		ScopeID:     rootScope.ID,
+		ScopeKey:    rootScope.Key,
+		ScopeKind:   rootScope.Type,
+		BindingIDs:  append([]int64(nil), aggregate.BindingIDs...),
+		RoleNames:   append([]string(nil), aggregate.RoleNames...),
+		Permissions: append([]string(nil), aggregate.Permissions...),
+	}}
 	return options, computeBindingVersion(options), nil
 }
 
@@ -583,11 +720,25 @@ func (s *UserService) AssignRoleBinding(ctx context.Context, userID, roleID int6
 	}
 
 	targetScopeID := role.NamespaceScopeID
-	if currentScopeID := svc.ManagedScopeIDFromContext(tenantCtx); currentScopeID > 0 {
-		targetScopeID = currentScopeID
-	}
-	if grantScopeID != nil && *grantScopeID > 0 {
-		targetScopeID = *grantScopeID
+	if tenant.Current().IsSingle() {
+		if s.scopeAuthorizer == nil {
+			return errors.NewCode(errors.Dependency, "single tenant authorization requires scope authorizer")
+		}
+		rootScope, err := s.scopeAuthorizer.ResolveTenantScope(tenantCtx, user.TenantID)
+		if err != nil {
+			return err
+		}
+		targetScopeID = rootScope.ID
+		if grantScopeID != nil && *grantScopeID > 0 && *grantScopeID != targetScopeID {
+			return errors.NewCode(errors.InvalidInput, "single tenant role binding must target tenant root scope")
+		}
+	} else {
+		if currentScopeID := svc.ManagedScopeIDFromContext(tenantCtx); currentScopeID > 0 {
+			targetScopeID = currentScopeID
+		}
+		if grantScopeID != nil && *grantScopeID > 0 {
+			targetScopeID = *grantScopeID
+		}
 	}
 	if err := s.ensureGrantScopeAllowed(tenantCtx, role, targetScopeID); err != nil {
 		return err
@@ -605,9 +756,15 @@ func (s *UserService) RemoveRole(ctx context.Context, userID, roleID int64) erro
 	if err != nil {
 		return err
 	}
-	role, err := s.roleRepo.Get(tenantCtx, roleID)
+	role, roleVisible, err := s.resolveRoleForScope(tenantCtx, user.TenantID, roleID)
 	if err != nil {
 		return err
+	}
+	if role == nil {
+		return errors.NewCode(errors.NotFound, "角色不存在")
+	}
+	if !roleVisible {
+		return errors.NewCode(errors.Forbidden, "当前 active scope 无法访问该角色，请切换到角色所属授权域后重试")
 	}
 	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iammw.ActionWrite), user, role)
 	if err != nil {
@@ -629,9 +786,15 @@ func (s *UserService) RemoveRoleBinding(ctx context.Context, userID, bindingID i
 	if err != nil {
 		return err
 	}
-	role, err := s.roleRepo.Get(tenantCtx, binding.RoleID)
+	role, roleVisible, err := s.resolveRoleForScope(tenantCtx, user.TenantID, binding.RoleID)
 	if err != nil {
 		return err
+	}
+	if role == nil {
+		return errors.NewCode(errors.NotFound, "角色不存在")
+	}
+	if !roleVisible {
+		return errors.NewCode(errors.Forbidden, "当前 active scope 无法访问该角色，请切换到角色所属授权域后重试")
 	}
 	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iammw.ActionWrite), user, role)
 	if err != nil {
@@ -744,6 +907,24 @@ func (s *UserService) ensureGrantScopeAllowed(ctx context.Context, role *iamenti
 
 func (s *UserService) ensureGrantScopeVisible(ctx context.Context, grantScopeID int64) error {
 	if grantScopeID <= 0 || s.scopeAuthorizer == nil {
+		return nil
+	}
+	if tenant.Current().IsSingle() {
+		tenantID, err := svc.TenantIDFromContext(ctx)
+		if err != nil {
+			return err
+		}
+		rootScope, err := s.scopeAuthorizer.ResolveTenantScope(ctx, tenantID)
+		if err != nil {
+			return err
+		}
+		allowed, err := s.scopeAuthorizer.ScopeCovers(ctx, grantScopeID, rootScope.ID)
+		if err != nil {
+			return err
+		}
+		if !allowed {
+			return errors.NewCode(errors.Forbidden, "目标授权域不覆盖 single tenant root scope")
+		}
 		return nil
 	}
 	if activeScopeID := svc.ManagedScopeIDFromContext(ctx); activeScopeID > 0 && activeScopeID != grantScopeID {
@@ -892,7 +1073,18 @@ func (s *UserService) resolveRoleForScope(ctx context.Context, tenantID string, 
 	}
 	role, err = s.roleRepo.Get(tenantGlobalCtx, roleID)
 	if err == nil {
-		return role, false, nil
+		if !tenant.Current().IsSingle() || role == nil || s.scopeAuthorizer == nil {
+			return role, false, nil
+		}
+		rootScope, resolveErr := s.scopeAuthorizer.ResolveTenantScope(ctx, tenantID)
+		if resolveErr != nil {
+			return nil, false, resolveErr
+		}
+		visible, coversErr := s.scopeAuthorizer.ScopeCovers(ctx, role.NamespaceScopeID, rootScope.ID)
+		if coversErr != nil {
+			return nil, false, coversErr
+		}
+		return role, visible, nil
 	}
 	if errors.Is(err, errors.NotFound) {
 		return nil, false, nil
