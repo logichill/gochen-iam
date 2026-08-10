@@ -3,12 +3,14 @@ package menu
 import (
 	"context"
 	"database/sql"
+	"gochen/testkit"
 	"reflect"
 	"testing"
 	"time"
 
 	iamentity "gochen-iam/entity"
 	"gochen/db"
+	"gochen/db/dialect"
 	"gochen/db/orm"
 )
 
@@ -31,6 +33,7 @@ func (m *capturingModel) Meta() *orm.ModelMeta { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities {
 	return nil
 }
+func (m *capturingModel) Dialect() dialect.IDialect { return dialect.New("") }
 
 func (m *capturingModel) First(ctx context.Context, dest any, opts ...orm.QueryOption) error {
 	m.firstCalls++
@@ -116,7 +119,7 @@ func TestMenuItemRepo_GetWithDeleted_UsesTxSessionModel(t *testing.T) {
 		baseModel:    &capturingModel{},
 		sessionModel: &capturingModel{},
 	}
-	r, err := NewMenuItemRepository(o)
+	r, err := NewMenuItemRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewMenuItemRepository: %v", err)
 	}
@@ -153,7 +156,7 @@ func TestMenuItemRepo_RestoreByID_UsesTxSessionModel(t *testing.T) {
 			},
 		},
 	}
-	r, err := NewMenuItemRepository(o)
+	r, err := NewMenuItemRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewMenuItemRepository: %v", err)
 	}

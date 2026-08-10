@@ -27,10 +27,17 @@ import (
 	"gochen/host/module"
 	"gochen/host/module/runtimecap"
 	"gochen/httpx"
+	"gochen/logging"
 )
 
 // NewModule 使用应用主数据库装配 IAM 领域模块。
-func NewModule(database db.IDatabase) (module.IModule, error) {
+func NewModule(
+	database db.IDatabase,
+	logger logging.ILogger,
+) (module.IModule, error) {
+	if logger == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "IAM logger is required")
+	}
 	store, err := iammw.NewDatabaseRevokedTokenStore(database)
 	if err != nil {
 		return nil, err
@@ -83,6 +90,7 @@ func NewModule(database db.IDatabase) (module.IModule, error) {
 		// IAM 模块既包含匿名可访问的登录/注册端点，也包含需要鉴权的管理端点。
 		// 使用 OptionalAuthMiddleware 统一解析 token（若存在），供后续 PermissionMiddleware 等使用。
 		Middleware(
+			iammw.AuditMiddleware(logging.ComponentLogger("iam.middleware.audit", logger), nil),
 			iamModuleAuthMiddleware(authConfig),
 		).
 		Build()

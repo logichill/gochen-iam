@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"gochen/testkit"
 	"path/filepath"
 	"testing"
 
@@ -87,11 +88,11 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 	}
 
 	ormAdapter := newScopeAuthorizerTestOrm(db)
-	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter)
+	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewScopeRepository: %v", err)
 	}
-	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter)
+	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}
@@ -186,11 +187,11 @@ func TestScopeAuthorizerRequirePermissionInTenant_DoesNotHealMissingTenantRootSc
 	}
 
 	ormAdapter := newScopeAuthorizerTestOrm(db)
-	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter)
+	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewScopeRepository: %v", err)
 	}
-	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter)
+	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}
@@ -249,11 +250,11 @@ func TestScopeAuthorizerTenantRootScopeHealth_MissingAndInconsistent(t *testing.
 	}
 
 	ormAdapter := newScopeAuthorizerTestOrm(db)
-	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter)
+	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewScopeRepository: %v", err)
 	}
-	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter)
+	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}
@@ -312,11 +313,11 @@ func TestScopeAuthorizerEnsureTenantRootScope_RepairsDriftedExistingScope(t *tes
 	}
 
 	ormAdapter := newScopeAuthorizerTestOrm(db)
-	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter)
+	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewScopeRepository: %v", err)
 	}
-	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter)
+	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}

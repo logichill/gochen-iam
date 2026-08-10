@@ -24,7 +24,7 @@ type MenuService struct {
 }
 
 // NewMenuService 创建菜单应用服务。
-func NewMenuService(menuRepo *menurepo.MenuItemRepo, authorizer *auth.Authorizer) *MenuService {
+func NewMenuService(menuRepo *menurepo.MenuItemRepo, authorizer *auth.Authorizer, logger logging.ILogger) *MenuService {
 	var authzEngine auth.IAuthorizer
 	if authorizer != nil {
 		authzEngine = authorizer
@@ -32,7 +32,7 @@ func NewMenuService(menuRepo *menurepo.MenuItemRepo, authorizer *auth.Authorizer
 	return &MenuService{
 		menuRepo:   menuRepo,
 		authorizer: authzEngine,
-		logger:     logging.ComponentLogger("iam.service.menu"),
+		logger:     logging.ComponentLogger("iam.service.menu", logger),
 	}
 }
 

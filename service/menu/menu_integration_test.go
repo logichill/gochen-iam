@@ -2,6 +2,9 @@ package menu
 
 import (
 	"context"
+	"gochen/ident"
+	"gochen/logging"
+	"gochen/testkit"
 	"path/filepath"
 	"testing"
 	"time"
@@ -40,7 +43,7 @@ func setupMenuServiceTest(t *testing.T) *menuServiceTestEnv {
 		t.Fatalf("auto migrate: %v", err)
 	}
 
-	menuRepo, err := menurepo.NewMenuItemRepository(newMenuTestOrm(db))
+	menuRepo, err := menurepo.NewMenuItemRepository(newMenuTestOrm(db), testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewMenuItemRepository: %v", err)
 	}
@@ -48,7 +51,7 @@ func setupMenuServiceTest(t *testing.T) *menuServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
+	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -67,7 +70,7 @@ func setupMenuServiceTest(t *testing.T) *menuServiceTestEnv {
 	return &menuServiceTestEnv{
 		db:            db,
 		menuRepo:      menuRepo,
-		menuService:   NewMenuService(menuRepo, authorizer),
+		menuService:   NewMenuService(menuRepo, authorizer, logging.NewNoopLogger()),
 		backgroundCtx: ctx,
 		cancelFunc:    cancel,
 	}
@@ -94,7 +97,7 @@ func TestMenuServiceCreateMenuItem_FailsClosedWithoutAuthorizer(t *testing.T) {
 	env := setupMenuServiceTest(t)
 	defer env.teardown(t)
 
-	menuService := NewMenuService(env.menuRepo, nil)
+	menuService := NewMenuService(env.menuRepo, nil, logging.NewNoopLogger())
 	_, err := menuService.CreateMenuItem(context.Background(), &CreateMenuItemRequest{
 		Code:      "root",
 		Title:     "Root",

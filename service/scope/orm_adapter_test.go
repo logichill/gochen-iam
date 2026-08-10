@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"gochen/db"
+	"gochen/db/dialect"
 	"gochen/db/orm"
 	"gochen/errors"
 
@@ -81,6 +82,10 @@ func (m *scopeTestGormModel) Capabilities() orm.Capabilities {
 		orm.CapabilityBatchWrite,
 		orm.CapabilityTransaction,
 	)
+}
+
+func (m *scopeTestGormModel) Dialect() dialect.IDialect {
+	return dialect.New(m.db.Dialector.Name())
 }
 
 func (m *scopeTestGormModel) First(ctx context.Context, dest any, opts ...orm.QueryOption) error {

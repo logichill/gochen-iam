@@ -45,6 +45,8 @@ func NewRoleService(
 	scopeAuthorizer *svc.ScopeAuthorizer,
 	authorizer *auth.Authorizer,
 	eventBus bus.IEventBus,
+	eventIDGenerator ident.IGenerator[string],
+	logger logging.ILogger,
 ) *RoleService {
 	return &RoleService{
 		roleRepo:         roleRepo,
@@ -53,8 +55,8 @@ func NewRoleService(
 		scopeAuthorizer:  scopeAuthorizer,
 		authorizer:       authorizer,
 		eventBus:         eventBus,
-		eventIDGenerator: eventing.DefaultEventIDGenerator(),
-		logger:           logging.ComponentLogger("iam.service.role"),
+		eventIDGenerator: eventIDGenerator,
+		logger:           logging.ComponentLogger("iam.service.role", logger),
 		governance:       NewGovernance(roleRepo, userRepo, scopeAuthorizer),
 	}
 }
@@ -404,7 +406,7 @@ func (s *RoleService) RoleUsers(ctx context.Context, roleID int64) ([]*iamentity
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iammw.ActionRead), role.TenantID); err != nil {
+	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionRead), role); err != nil {
 		return nil, err
 	}
 	return s.userRepo.FindByRoleID(tenantCtx, roleID)
@@ -416,7 +418,7 @@ func (s *RoleService) RoleGroups(ctx context.Context, roleID int64) ([]*iamentit
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iammw.ActionRead), role.TenantID); err != nil {
+	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.RolePermissionSet.Code(iammw.ActionRead), role); err != nil {
 		return nil, err
 	}
 	return s.groupRepo.FindByDefaultRoleID(tenantCtx, roleID)

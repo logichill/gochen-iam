@@ -12,6 +12,7 @@ import (
 	"gochen/contextx"
 	appaccess "gochen/domain/access"
 	"gochen/errors"
+	"gochen/ident"
 )
 
 const (
@@ -26,7 +27,7 @@ const (
 // NewIAMAuthorizer 创建 IAM 领域统一授权器：
 // - 标准 CRUD 通过 route/builder 自动调用；
 // - 自定义单资源/关联写路径也复用同一套 permission + tenant/scope 决策。
-func NewIAMAuthorizer(scopeAuthorizer *ScopeAuthorizer, registry *auth.Registry) (*auth.Authorizer, error) {
+func NewIAMAuthorizer(scopeAuthorizer *ScopeAuthorizer, registry *auth.Registry, idGenerator ident.IGenerator[string]) (*auth.Authorizer, error) {
 	return auth.NewAuthorizer(
 		auth.EvaluatorFunc(func(
 			ctx context.Context,
@@ -37,7 +38,24 @@ func NewIAMAuthorizer(scopeAuthorizer *ScopeAuthorizer, registry *auth.Registry)
 			return evaluateIAMAuthorization(ctx, scopeAuthorizer, principal, permission, resources)
 		}),
 		registry,
+		idGenerator,
 	)
+}
+
+// RequireAuthorization 对目标资源执行统一授权，适用于不需要写约束的读取路径。
+func RequireAuthorization(ctx context.Context, authorizer auth.IAuthorizer, permission string, targets ...any) error {
+	permission = strings.TrimSpace(permission)
+	if permission == "" {
+		return errors.NewCode(errors.InvalidInput, "permission is required")
+	}
+	if authorizer == nil {
+		return errors.NewCode(errors.InvalidInput, "authorizer is required")
+	}
+	decision, err := authorizer.Authorize(ctx, permission, targets...)
+	if err != nil {
+		return err
+	}
+	return decision.RequireAllow()
 }
 
 // AuthorizeWriteConstraint 执行统一授权，并把 allow 决策投影成显式写约束。
@@ -175,6 +193,9 @@ func resourceKindUsesManagedScope(kind string) bool {
 
 func requiresPlatformScope(resources []auth.Resource) bool {
 	for _, resource := range resources {
+		if strings.EqualFold(strings.TrimSpace(resource.OwnerID), string(iammw.ScopePlatform)) {
+			return true
+		}
 		switch strings.TrimSpace(resource.Kind) {
 		case TenantResourceKind, MenuResourceKind, ScopeResourceKind:
 			return true

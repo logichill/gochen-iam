@@ -61,11 +61,11 @@ func (r *GroupRepo) getByID(ctx context.Context, id int64) (*iamentity.Group, er
 }
 
 // NewGroupRepository 创建分组仓储。
-func NewGroupRepository(o orm.IOrm) (*GroupRepo, error) {
+func NewGroupRepository(o orm.IOrm, idGenerator ident.IGenerator[int64]) (*GroupRepo, error) {
 	base, err := repo.NewRepo(
 		o,
 		"groups",
-		repo.WithIDGenerator[*iamentity.Group](ident.DefaultInt64Generator()),
+		repo.WithIDGenerator[*iamentity.Group](idGenerator),
 		repo.WithResourceKind[*iamentity.Group, int64]("iam.group"),
 		repo.WithSoftDeleteColumns[*iamentity.Group, int64]("deleted_at", ""),
 		repo.WithAccessColumns[*iamentity.Group, int64]("managed_scope_id", "owner_id", "version"),

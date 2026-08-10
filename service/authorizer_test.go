@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"gochen/ident"
 	"testing"
 
 	iamauth "gochen-iam/auth"
@@ -16,7 +17,7 @@ func TestIAMAuthorizerCreateResourceUsesContextTenant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry)
+	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -54,7 +55,7 @@ func TestIAMAuthorizerDeniesMixedTenantResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry)
+	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -94,7 +95,7 @@ func TestIAMAuthorizerDeniesCreateResourceWithForeignTenantBoundary(t *testing.T
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry)
+	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -136,7 +137,7 @@ func TestIAMAuthorizerAllowsPlatformScopeCrossTenant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry)
+	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -168,7 +169,7 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry)
+	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -195,12 +196,97 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 	}
 }
 
+func TestIAMAuthorizerDeniesPlatformOwnedUserOutsidePlatformScopeInSingleTenant(t *testing.T) {
+	t.Setenv("IAM_TENANT_MODE", "single")
+	t.Setenv("IAM_SINGLE_TENANT_ID", "erp-demo")
+	registry, err := NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
+	if err != nil {
+		t.Fatalf("NewIAMAuthorizer: %v", err)
+	}
+
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
+		SubjectID:     1,
+		Permissions:   []string{"api:user:*"},
+		ActiveScopeID: 7,
+	})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+	ctx = iamauth.BindActiveScopeContext(ctx, 7, "tenant")
+	ctx, err = contextx.WithTenantID(ctx, "erp-demo")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+
+	user := &iamentity.User{
+		TenantID:       "erp-demo",
+		OwnerID:        "platform",
+		ManagedScopeID: 1,
+	}
+	user.SetID(9)
+	decision, err := authorizer.Authorize(ctx, "api:user:write", user)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+	if decision.Effect != auth.EffectDeny {
+		t.Fatalf("expected deny, got %s", decision.Effect)
+	}
+	if decision.ReasonCode != "platform_scope_denied" {
+		t.Fatalf("expected platform_scope_denied, got %q", decision.ReasonCode)
+	}
+}
+
+func TestIAMAuthorizerAllowsPlatformOwnedUserInPlatformScope(t *testing.T) {
+	t.Setenv("IAM_TENANT_MODE", "single")
+	t.Setenv("IAM_SINGLE_TENANT_ID", "erp-demo")
+	registry, err := NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
+	if err != nil {
+		t.Fatalf("NewIAMAuthorizer: %v", err)
+	}
+
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
+		SubjectID:     1,
+		Permissions:   []string{"api:user:*"},
+		ActiveScopeID: 1,
+	})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+	ctx = iamauth.BindActiveScopeContext(ctx, 1, "platform")
+	ctx, err = contextx.WithTenantID(ctx, "erp-demo")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+
+	user := &iamentity.User{
+		TenantID:       "erp-demo",
+		OwnerID:        "platform",
+		ManagedScopeID: 1,
+	}
+	user.SetID(9)
+	decision, err := authorizer.Authorize(ctx, "api:user:write", user)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+	if err := decision.RequireAllow(); err != nil {
+		t.Fatalf("RequireAllow: %v", err)
+	}
+}
+
 func TestIAMAuthorizerAllowsPlatformScopedMenuWrite(t *testing.T) {
 	registry, err := NewIAMAuthzRegistry()
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry)
+	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}

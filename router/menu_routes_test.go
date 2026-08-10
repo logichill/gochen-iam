@@ -15,6 +15,7 @@ import (
 	"gochen/domain/access"
 	"gochen/httpx"
 	"gochen/httpx/nethttp"
+	"gochen/ident"
 )
 
 type menuRouteTestRepo struct{}
@@ -244,7 +245,7 @@ func TestTenantRoutesListUsesScopedQueryRepository(t *testing.T) {
 		[]auth.Resource,
 	) (auth.AuthzDecision, error) {
 		return auth.AllowDecision(), nil
-	}), nil)
+	}), nil, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewAuthorizer failed: %v", err)
 	}

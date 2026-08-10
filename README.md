@@ -57,9 +57,10 @@
 上层应用通常只需要：
 
 1. 注册 `gochen-iam` 模块
-2. 在 HTTP 层挂载 `AuthMiddleware(...)` 或 `OptionalAuthMiddleware(...)`
-3. 在业务接口使用 `PermissionMiddleware(...)`、`AdminOnlyMiddleware()`、`PlatformScopeMiddleware()` 等入口 guard
-4. 通过标准 repo / service / CRUD builder 使用自动注入的数据边界与写边界
+2. 如需记录拒绝审计，在组合根把 `AuditMiddleware(logger, sink)` 挂在最外层（早于模块内默认 AuditMiddleware）；最外层 recorder 优先，logger/sink 按请求实例传递，不使用包级全局状态
+3. 在 HTTP 层挂载 `AuthMiddleware(...)` 或 `OptionalAuthMiddleware(...)`
+4. 在业务接口使用 `PermissionMiddleware(...)`、`AdminOnlyMiddleware()`、`PlatformScopeMiddleware()` 等入口 guard
+5. 通过标准 repo / service / CRUD builder 使用自动注入的数据边界与写边界
 
 ## 认证（JWT）
 

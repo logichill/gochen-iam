@@ -325,7 +325,7 @@ func HasRequiredPermission(permission string) bool {
 		if !IsValidPermissionCode(registered) {
 			continue
 		}
-		if auth.PermissionPatternMatches(normalized, registered) || auth.PermissionPatternMatches(registered, normalized) {
+		if auth.PermissionPatternMatches(normalized, registered) {
 			return true
 		}
 	}

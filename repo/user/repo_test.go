@@ -3,12 +3,14 @@ package user
 import (
 	"context"
 	"database/sql"
+	"gochen/testkit"
 	"testing"
 
 	iamentity "gochen-iam/entity"
 	auth "gochen/auth"
 	"gochen/contextx"
 	"gochen/db"
+	"gochen/db/dialect"
 	"gochen/db/orm"
 )
 
@@ -38,6 +40,7 @@ type capturingModel struct {
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities { return nil }
+func (m *capturingModel) Dialect() dialect.IDialect      { return dialect.New("") }
 func (m *capturingModel) First(_ context.Context, _ any, opts ...orm.QueryOption) error {
 	m.firstCalls++
 	m.lastFirstOpts = orm.CollectQueryOptions(opts...)
@@ -123,7 +126,7 @@ func TestUserRepo_Get_UsesTxSessionModel(t *testing.T) {
 		baseModel:    &capturingModel{},
 		sessionModel: &capturingModel{},
 	}
-	r, err := NewUserRepository(o)
+	r, err := NewUserRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewUserRepository: %v", err)
 	}
@@ -150,7 +153,7 @@ func TestUserRepo_AssignRole_UsesTxSessionBindingModel(t *testing.T) {
 		baseModel:    &capturingModel{},
 		sessionModel: &capturingModel{},
 	}
-	r, err := NewUserRepository(o)
+	r, err := NewUserRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewUserRepository: %v", err)
 	}
@@ -180,7 +183,7 @@ func TestUserRepo_Get_FiltersByTenantFromPrincipal(t *testing.T) {
 		baseModel:    &capturingModel{},
 		sessionModel: &capturingModel{},
 	}
-	r, err := NewUserRepository(o)
+	r, err := NewUserRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewUserRepository: %v", err)
 	}
@@ -201,7 +204,7 @@ func TestUserRepo_Update_StripsAssociationsBeforeSave(t *testing.T) {
 		baseModel:    &capturingModel{},
 		sessionModel: &capturingModel{},
 	}
-	r, err := NewUserRepository(o)
+	r, err := NewUserRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewUserRepository: %v", err)
 	}

@@ -3,9 +3,11 @@ package tenant
 import (
 	"context"
 	"database/sql"
+	"gochen/testkit"
 	"testing"
 
 	"gochen/db"
+	"gochen/db/dialect"
 	"gochen/db/orm"
 )
 
@@ -17,6 +19,7 @@ type capturingModel struct {
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities { return nil }
+func (m *capturingModel) Dialect() dialect.IDialect      { return dialect.New("") }
 func (m *capturingModel) Count(context.Context, ...orm.QueryOption) (int64, error) {
 	return 0, nil
 }
@@ -77,7 +80,7 @@ func TestTenantRepo_Get_UsesTxSessionModel(t *testing.T) {
 		baseModel:    &capturingModel{},
 		sessionModel: &capturingModel{},
 	}
-	r, err := NewTenantRepository(o)
+	r, err := NewTenantRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}

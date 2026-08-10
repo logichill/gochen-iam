@@ -42,9 +42,6 @@ func authRequestContext(ctx httpx.IContext) context.Context {
 	if reqCtx := ctx.RequestContext(); reqCtx != nil {
 		return reqCtx
 	}
-	if req := ctx.Request(); req != nil {
-		return req.Context()
-	}
 	return context.Background()
 }
 

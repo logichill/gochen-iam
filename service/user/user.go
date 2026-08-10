@@ -44,6 +44,7 @@ func NewUserService(
 	roleRepo *rolerepo.RoleRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
 	authorizer *auth.Authorizer,
+	logger logging.ILogger,
 ) *UserService {
 	return &UserService{
 		userRepo:        userRepo,
@@ -51,7 +52,7 @@ func NewUserService(
 		roleRepo:        roleRepo,
 		scopeAuthorizer: scopeAuthorizer,
 		authorizer:      authorizer,
-		logger:          logging.ComponentLogger("iam.service.user"),
+		logger:          logging.ComponentLogger("iam.service.user", logger),
 	}
 }
 
@@ -851,7 +852,7 @@ func (s *UserService) UserPermissions(ctx context.Context, userID int64) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.UserPermissionSet.Code(iammw.ActionRead), user.TenantID); err != nil {
+	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.UserPermissionSet.Code(iammw.ActionRead), user); err != nil {
 		return nil, err
 	}
 	if !user.IsActive() {
@@ -977,7 +978,7 @@ func (s *UserService) UserRoles(ctx context.Context, userID int64) ([]*iamentity
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.UserPermissionSet.Code(iammw.ActionRead), user.TenantID); err != nil {
+	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.UserPermissionSet.Code(iammw.ActionRead), user); err != nil {
 		return nil, err
 	}
 	return s.roleRepo.FindByUserID(tenantCtx, userID)
@@ -989,7 +990,7 @@ func (s *UserService) UserRoleBindings(ctx context.Context, userID int64) ([]*sv
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.UserPermissionSet.Code(iammw.ActionRead), user.TenantID); err != nil {
+	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.UserPermissionSet.Code(iammw.ActionRead), user); err != nil {
 		return nil, err
 	}
 	bindings, err := s.userRepo.ListRoleBindings(tenantCtx, userID)
@@ -1098,7 +1099,7 @@ func (s *UserService) UserGroups(ctx context.Context, userID int64) ([]*iamentit
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.UserPermissionSet.Code(iammw.ActionRead), user.TenantID); err != nil {
+	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.UserPermissionSet.Code(iammw.ActionRead), user); err != nil {
 		return nil, err
 	}
 	return s.groupRepo.FindByUserID(tenantCtx, userID)

@@ -1,6 +1,7 @@
 package iam
 
 import (
+	"gochen/logging"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,7 +16,7 @@ func TestIAMModulePublicFeaturesExposeOnlyTenantMode(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "single")
 	t.Setenv("IAM_SINGLE_TENANT_ID", "test-tenant")
 
-	instance, err := NewModule(&moduleTestDatabase{})
+	instance, err := NewModule(&moduleTestDatabase{}, logging.NewNoopLogger())
 	if err != nil {
 		t.Fatalf("NewModule(database) error: %v", err)
 	}
@@ -30,7 +31,7 @@ func TestIAMModulePublicFeaturesExposeOnlyTenantMode(t *testing.T) {
 }
 
 func TestNewModuleRejectsNilDatabase(t *testing.T) {
-	if _, err := NewModule(nil); err == nil {
+	if _, err := NewModule(nil, logging.NewNoopLogger()); err == nil {
 		t.Fatal("expected nil database to be rejected")
 	}
 }

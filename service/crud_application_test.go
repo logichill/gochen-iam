@@ -77,12 +77,24 @@ func TestCRUDApplication_WrapsConstraintMetadataFromContext(t *testing.T) {
 		SnapshotVersion: "snap-2",
 		Consistency:     "strong",
 	}
+	user := &iamentity.User{
+		TenantID:       "tenant-1",
+		HomeTenantID:   "tenant-1",
+		HomeScopeID:    17,
+		ManagedScopeID: 17,
+		OwnerID:        "owner-1",
+		Username:       "user-1",
+		Email:          "user-1@example.com",
+		Password:       "secret1",
+		Status:         "active",
+	}
+	user.SetID(11)
 
-	require.NoError(t, app.CreateWithConstraint(ctx, &iamentity.User{}, constraint))
+	require.NoError(t, app.CreateWithConstraint(ctx, user, constraint))
 	require.Equal(t, constraint.Resources, repo.lastCreate.Unwrap().Resources)
 	require.Equal(t, expectedMetadata, repo.lastCreate.Metadata)
 
-	require.NoError(t, app.UpdateWithConstraint(ctx, &iamentity.User{}, constraint))
+	require.NoError(t, app.UpdateWithConstraint(ctx, user, constraint))
 	require.Equal(t, constraint.Resources, repo.lastUpdate.Unwrap().Resources)
 	require.Equal(t, expectedMetadata, repo.lastUpdate.Metadata)
 

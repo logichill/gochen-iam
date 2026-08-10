@@ -2,6 +2,9 @@ package group_test
 
 import (
 	"context"
+	"gochen/ident"
+	"gochen/logging"
+	"gochen/testkit"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -70,15 +73,15 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	}
 
 	// 创建仓储
-	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter)
+	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewGroupRepository: %v", err)
 	}
-	userRepo, err := userrepo.NewUserRepository(ormAdapter)
+	userRepo, err := userrepo.NewUserRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewUserRepository: %v", err)
 	}
-	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter)
+	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
@@ -86,14 +89,14 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
+	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
 	// 创建服务
-	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, nil, authorizer)
-	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, nil, authorizer)
+	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, nil, authorizer, logging.NewNoopLogger())
+	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, nil, authorizer, logging.NewNoopLogger())
 
 	// 创建背景上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

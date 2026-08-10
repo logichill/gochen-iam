@@ -2,6 +2,9 @@ package role
 
 import (
 	"context"
+	"gochen/ident"
+	"gochen/logging"
+	"gochen/testkit"
 	"path/filepath"
 	"testing"
 
@@ -47,23 +50,23 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 	}
 
 	ormAdapter := newRoleTestOrm(db)
-	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter)
+	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewScopeRepository: %v", err)
 	}
-	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter)
+	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
-	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter)
+	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}
-	userRepo, err := userrepo.NewUserRepository(ormAdapter)
+	userRepo, err := userrepo.NewUserRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewUserRepository: %v", err)
 	}
-	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter)
+	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewGroupRepository: %v", err)
 	}
@@ -128,7 +131,7 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer, authzRegistry)
+	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer, authzRegistry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -140,6 +143,8 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 		scopeAuthorizer,
 		authorizer,
 		nil,
+		ident.NewUUIDGenerator(),
+		logging.NewNoopLogger(),
 	)
 
 	if err := roleService.AddPermission(ctx, role.ID, "api:menu:write"); err == nil {
@@ -174,23 +179,23 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 	}
 
 	ormAdapter := newRoleTestOrm(db)
-	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter)
+	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewScopeRepository: %v", err)
 	}
-	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter)
+	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
-	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter)
+	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}
-	userRepo, err := userrepo.NewUserRepository(ormAdapter)
+	userRepo, err := userrepo.NewUserRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewUserRepository: %v", err)
 	}
-	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter)
+	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewGroupRepository: %v", err)
 	}
@@ -259,7 +264,7 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer, authzRegistry)
+	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer, authzRegistry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -271,6 +276,8 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 		scopeAuthorizer,
 		authorizer,
 		nil,
+		ident.NewUUIDGenerator(),
+		logging.NewNoopLogger(),
 	)
 
 	if _, err := roleService.CloneRole(ctx, systemRole.ID, "tenant-admin-clone"); err == nil {

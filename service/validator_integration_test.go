@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"gochen/testkit"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -67,23 +68,23 @@ func setupValidatorTest(t *testing.T) *validatorTestEnv {
 	}
 
 	ormAdapter := newScopeAuthorizerTestOrm(db)
-	userRepo, err := userrepo.NewUserRepository(ormAdapter)
+	userRepo, err := userrepo.NewUserRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewUserRepository: %v", err)
 	}
-	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter)
+	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewGroupRepository: %v", err)
 	}
-	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter)
+	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
-	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter)
+	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}
-	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter)
+	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewScopeRepository: %v", err)
 	}

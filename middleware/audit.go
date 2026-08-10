@@ -2,10 +2,11 @@ package middleware
 
 import (
 	"context"
+	"os"
+
 	"gochen/contextx"
 	"gochen/httpx"
 	"gochen/logging"
-	"os"
 )
 
 // AuditRecord 表示一次鉴权/授权决策的审计记录（默认仅记录 deny）。
@@ -26,10 +27,12 @@ type IAuditSink interface {
 	Record(ctx context.Context, rec AuditRecord)
 }
 
-var (
-	auditSink   IAuditSink
-	auditLogger = logging.ComponentLogger("iam.middleware.audit")
-)
+const auditRecorderContextKey = "gochen-iam.audit.recorder"
+
+type auditRecorder struct {
+	sink   IAuditSink
+	logger logging.ILogger
+}
 
 // isAuditLogEnabled 判断审计日志Enabled。
 func isAuditLogEnabled() bool {
@@ -37,29 +40,45 @@ func isAuditLogEnabled() bool {
 	return v == "" || v == "true" || v == "1"
 }
 
-// SetAuditSink 设置审计Sink。
-func SetAuditSink(sink IAuditSink) {
-	auditSink = sink
+// AuditMiddleware 为当前请求注入实例级授权审计依赖。
+// 调用方应在 AuthMiddleware、PermissionMiddleware 等鉴权中间件之前挂载。
+// 若上游组合根已注入 recorder，则保留上游配置，避免模块级默认值覆盖外部 sink。
+func AuditMiddleware(logger logging.ILogger, sink IAuditSink) httpx.Middleware {
+	recorder := &auditRecorder{sink: sink, logger: logger}
+	return func(ctx httpx.IContext, next func() error) error {
+		if ctx != nil && auditRecorderFromContext(ctx) == nil {
+			ctx.Set(auditRecorderContextKey, httpx.ValueOf(recorder))
+		}
+		return next()
+	}
 }
 
-// SetAuditLogger 允许上层注入 logger（例如与应用级 logger 对齐）。
-func SetAuditLogger(logger logging.ILogger) {
-	if logger != nil {
-		auditLogger = logger
+func auditRecorderFromContext(ctx httpx.IContext) *auditRecorder {
+	if ctx == nil {
+		return nil
 	}
+	value, ok := ctx.Get(auditRecorderContextKey)
+	if !ok {
+		return nil
+	}
+	recorder, ok := httpx.ValueAs[*auditRecorder](value)
+	if !ok {
+		return nil
+	}
+	return recorder
 }
 
 // recordAuthzDenied 处理记录AuthzDenied。
 func recordAuthzDenied(ctx httpx.IContext, rec AuditRecord) {
-	if ctx == nil {
+	recorder := auditRecorderFromContext(ctx)
+	if recorder == nil {
 		return
 	}
-	req := ctx.Request()
 	stdCtx := contextx.Background()
-	if req != nil {
-		rec.Method = req.Method
-		stdCtx = req.Context()
+	if reqCtx := ctx.RequestContext(); reqCtx != nil {
+		stdCtx = reqCtx
 	}
+	rec.Method = ctx.Method()
 	rec.Path = ctx.Path()
 
 	reqCtx := ctx.RequestContext()
@@ -68,12 +87,12 @@ func recordAuthzDenied(ctx httpx.IContext, rec AuditRecord) {
 		rec.TenantID = GetTenantID(reqCtx)
 	}
 
-	if auditSink != nil {
-		auditSink.Record(stdCtx, rec)
+	if recorder.sink != nil {
+		recorder.sink.Record(stdCtx, rec)
 	}
 
-	if auditLogger != nil && isAuditLogEnabled() {
-		auditLogger.Warn(stdCtx, "[authz] denied",
+	if recorder.logger != nil && isAuditLogEnabled() {
+		recorder.logger.Warn(stdCtx, "[authz] denied",
 			logging.String("reason", rec.Reason),
 			logging.String("path", rec.Path),
 			logging.String("method", rec.Method),

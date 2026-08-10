@@ -62,11 +62,11 @@ func (r *RoleRepo) getByID(ctx context.Context, id int64) (*iamentity.Role, erro
 }
 
 // NewRoleRepository 创建角色仓储。
-func NewRoleRepository(o orm.IOrm) (*RoleRepo, error) {
+func NewRoleRepository(o orm.IOrm, idGenerator ident.IGenerator[int64]) (*RoleRepo, error) {
 	base, err := repo.NewRepo[*iamentity.Role, int64](
 		o,
 		"roles",
-		repo.WithIDGenerator[*iamentity.Role, int64](ident.DefaultInt64Generator()),
+		repo.WithIDGenerator[*iamentity.Role, int64](idGenerator),
 		repo.WithResourceKind[*iamentity.Role, int64]("iam.role"),
 		repo.WithSoftDeleteColumns[*iamentity.Role, int64]("deleted_at", ""),
 		repo.WithAccessColumns[*iamentity.Role, int64]("namespace_scope_id", "owner_id", "version"),

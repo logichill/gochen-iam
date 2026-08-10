@@ -18,11 +18,11 @@ type TenantRepo struct {
 }
 
 // NewTenantRepository 创建租户仓储。
-func NewTenantRepository(o orm.IOrm) (*TenantRepo, error) {
+func NewTenantRepository(o orm.IOrm, idGenerator ident.IGenerator[int64]) (*TenantRepo, error) {
 	base, err := repo.NewRepo[*iamentity.Tenant, int64](
 		o,
 		"tenants",
-		repo.WithIDGenerator[*iamentity.Tenant, int64](ident.DefaultInt64Generator()),
+		repo.WithIDGenerator[*iamentity.Tenant, int64](idGenerator),
 		repo.WithResourceKind[*iamentity.Tenant, int64]("iam.tenant"),
 		repo.WithSoftDeleteColumns[*iamentity.Tenant, int64]("deleted_at", ""),
 	)

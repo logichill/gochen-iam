@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"encoding/json"
 	"time"
 
 	"gochen/domain"
@@ -22,7 +23,7 @@ type User struct {
 	OwnerID        string     `json:"owner_id" gorm:"size:128;not null;index"`
 	Username       string     `json:"username" gorm:"size:50;not null;uniqueIndex:idx_user_username_tenant"`
 	Email          string     `json:"email" gorm:"size:100;not null;uniqueIndex:idx_user_email_tenant"`
-	Password       string     `json:"password" gorm:"column:password_hash;size:255;not null"`
+	Password       string     `json:"-" gorm:"column:password_hash;size:255;not null"`
 	Status         string     `json:"status" gorm:"size:20;default:active"`
 	Avatar         string     `json:"avatar" gorm:"size:500"`
 	LastLoginAt    *time.Time `json:"last_login_at"`
@@ -30,6 +31,24 @@ type User struct {
 	// 关联关系
 	Groups []Group `json:"groups" gorm:"many2many:user_groups;"`
 	Roles  []Role  `json:"roles" gorm:"many2many:user_role_bindings;"`
+}
+
+// UnmarshalJSON 保留管理端 CRUD 对 password 输入字段的兼容，同时禁止该字段被序列化输出。
+func (u *User) UnmarshalJSON(data []byte) error {
+	type UserAlias User
+	payload := struct {
+		*UserAlias
+		Password *string `json:"password"`
+	}{
+		UserAlias: (*UserAlias)(u),
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return err
+	}
+	if payload.Password != nil {
+		u.Password = *payload.Password
+	}
+	return nil
 }
 
 // TableName 指定表名

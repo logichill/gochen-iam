@@ -3,6 +3,7 @@ package role
 import (
 	"context"
 	"database/sql"
+	"gochen/testkit"
 	"reflect"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	auth "gochen/auth"
 	"gochen/contextx"
 	"gochen/db"
+	"gochen/db/dialect"
 	"gochen/db/orm"
 )
 
@@ -27,6 +29,7 @@ type capturingModel struct {
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities { return nil }
+func (m *capturingModel) Dialect() dialect.IDialect      { return dialect.New("") }
 func (m *capturingModel) First(_ context.Context, dest any, opts ...orm.QueryOption) error {
 	m.firstCalls++
 	m.lastFirstOpts = orm.CollectQueryOptions(opts...)
@@ -155,7 +158,7 @@ func TestRoleRepo_GetRoleUsageStats_UsesTxSessionEngineModels(t *testing.T) {
 		sessionUserRoleModel:  &capturingModel{},
 		sessionGroupRoleModel: &capturingModel{},
 	}
-	r, err := NewRoleRepository(o)
+	r, err := NewRoleRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
@@ -185,7 +188,7 @@ func TestRoleRepo_GetRoleUsageStats_UsesTxSessionEngineModels(t *testing.T) {
 
 func TestRoleRepo_FindByNames_FiltersByTenant(t *testing.T) {
 	o := &fakeOrm{baseRoleModel: &capturingModel{}}
-	r, err := NewRoleRepository(o)
+	r, err := NewRoleRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
@@ -203,7 +206,7 @@ func TestRoleRepo_FindByNames_FiltersByTenant(t *testing.T) {
 
 func TestRoleRepo_FindUserRoles_FiltersByTenant(t *testing.T) {
 	o := &fakeOrm{baseRoleModel: &capturingModel{}}
-	r, err := NewRoleRepository(o)
+	r, err := NewRoleRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
@@ -221,7 +224,7 @@ func TestRoleRepo_FindUserRoles_FiltersByTenant(t *testing.T) {
 
 func TestRoleRepo_FindByPermission_FiltersByTenant(t *testing.T) {
 	o := &fakeOrm{baseRoleModel: &capturingModel{}}
-	r, err := NewRoleRepository(o)
+	r, err := NewRoleRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
@@ -238,7 +241,7 @@ func TestRoleRepo_FindByPermission_FiltersByTenant(t *testing.T) {
 
 func TestRoleRepo_Get_FiltersByTenantFromPrincipal(t *testing.T) {
 	o := &fakeOrm{baseRoleModel: &capturingModel{}}
-	r, err := NewRoleRepository(o)
+	r, err := NewRoleRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
@@ -256,7 +259,7 @@ func TestRoleRepo_Get_FiltersByTenantFromPrincipal(t *testing.T) {
 
 func TestRoleRepo_Update_StripsAssociationsBeforeSave(t *testing.T) {
 	o := &fakeOrm{baseRoleModel: &capturingModel{}}
-	r, err := NewRoleRepository(o)
+	r, err := NewRoleRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}

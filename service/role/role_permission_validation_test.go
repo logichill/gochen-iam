@@ -68,8 +68,8 @@ func TestValidatePermissions_StrictRegistry(t *testing.T) {
 	if err := s.validatePermissions([]string{"api:role_permission_validation_test:write"}); err == nil {
 		t.Fatalf("expected unknown permission to fail")
 	}
-	if err := s.validatePermissions([]string{"action:*:*"}); err == nil {
-		t.Fatalf("expected unknown wildcard domain to fail")
+	if err := s.validatePermissions([]string{"action:role_permission_validation_test:write"}); err == nil {
+		t.Fatalf("expected unknown action permission to fail")
 	}
 }
 

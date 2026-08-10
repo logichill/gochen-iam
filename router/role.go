@@ -172,6 +172,9 @@ func (rr *RoleRoutes) getRolePermissions(ctx httpx.IContext) error {
 	if err != nil {
 		return err
 	}
+	if err := svc.RequireAuthorization(reqCtx, rr.authorizer, svc.RolePermissionSet.Code(iammw.ActionRead), role); err != nil {
+		return err
+	}
 
 	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"role_id":     roleID,

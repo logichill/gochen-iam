@@ -2,6 +2,9 @@ package user_test
 
 import (
 	"context"
+	"gochen/ident"
+	"gochen/logging"
+	"gochen/testkit"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -81,23 +84,23 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	}
 
 	// 创建仓储
-	userRepo, err := userrepo.NewUserRepository(ormAdapter)
+	userRepo, err := userrepo.NewUserRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewUserRepository: %v", err)
 	}
-	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter)
+	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewGroupRepository: %v", err)
 	}
-	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter)
+	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
-	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter)
+	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}
-	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter)
+	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewScopeRepository: %v", err)
 	}
@@ -156,14 +159,14 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := iamservice.NewIAMAuthorizer(scopeAuthorizer, authzRegistry)
+	authorizer, err := iamservice.NewIAMAuthorizer(scopeAuthorizer, authzRegistry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
 	// 创建服务
-	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, scopeAuthorizer, authorizer)
-	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, scopeAuthorizer, authorizer)
+	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, scopeAuthorizer, authorizer, logging.NewNoopLogger())
+	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, scopeAuthorizer, authorizer, logging.NewNoopLogger())
 
 	return &userServiceTestEnv{
 		db:            db,
@@ -1153,6 +1156,74 @@ func TestUserServiceActivateDeactivate(t *testing.T) {
 	}
 	if dbUser.Status != svc.UserStatusActive {
 		t.Errorf("expected status %s, got %s", svc.UserStatusActive, dbUser.Status)
+	}
+}
+
+func TestUserServiceActivateUserRejectsPlatformOwnedUserFromTenantScopeInSingleTenant(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+	t.Setenv("IAM_TENANT_MODE", "single")
+	t.Setenv("IAM_SINGLE_TENANT_ID", env.tenantID)
+
+	platformScope, err := iamservice.NewScopeAuthorizer(env.scopeRepo, env.tenantRepo).EnsurePlatformScope(env.backgroundCtx)
+	if err != nil {
+		t.Fatalf("ensure platform scope: %v", err)
+	}
+	platformCtx := iamauth.BindActiveScopeContext(env.backgroundCtx, platformScope.ID, string(platformScope.Type))
+	platformCtx, err = auth.WithDataScope(platformCtx, auth.DataScope{
+		ActiveScopeID:   platformScope.ID,
+		VisibleScopeIDs: []int64{platformScope.ID},
+		Mode:            auth.ScopeModeScoped,
+	})
+	if err != nil {
+		t.Fatalf("bind platform data scope: %v", err)
+	}
+	platformPrincipal, ok := auth.PrincipalFromContext(platformCtx)
+	if !ok {
+		t.Fatal("expected platform principal")
+	}
+	platformPrincipal.ActiveScopeID = platformScope.ID
+	platformCtx, err = auth.WithPrincipal(platformCtx, platformPrincipal)
+	if err != nil {
+		t.Fatalf("bind platform principal: %v", err)
+	}
+
+	placeholder := &iamentity.User{
+		TenantID:       env.tenantID,
+		HomeTenantID:   env.tenantID,
+		HomeScopeID:    platformScope.ID,
+		ManagedScopeID: platformScope.ID,
+		OwnerID:        "platform",
+		Username:       "bootstrap-admin",
+		Email:          "bootstrap-admin@example.com",
+		Password:       "!ACTIVATION_REQUIRED!",
+		Status:         svc.UserStatusInactive,
+	}
+	if err := env.userRepo.Create(platformCtx, placeholder); err != nil {
+		t.Fatalf("create platform-owned placeholder: %v", err)
+	}
+
+	tenantPrincipal := auth.Principal{
+		SubjectID:     42,
+		Permissions:   []string{"api:user:*"},
+		ActiveScopeID: env.rootScopeID,
+	}
+	tenantCtx, err := auth.WithPrincipal(env.backgroundCtx, tenantPrincipal)
+	if err != nil {
+		t.Fatalf("bind tenant principal: %v", err)
+	}
+	if err := env.userService.ActivateUser(tenantCtx, placeholder.GetID()); err == nil {
+		t.Fatal("expected platform-owned placeholder activation to be rejected")
+	} else if !errors.Is(err, errors.Forbidden) {
+		t.Fatalf("expected forbidden activation, got %v", err)
+	}
+
+	stored, err := env.userRepo.Get(platformCtx, placeholder.GetID())
+	if err != nil {
+		t.Fatalf("reload platform-owned placeholder: %v", err)
+	}
+	if stored.Status != svc.UserStatusInactive {
+		t.Fatalf("platform-owned user status = %q, want inactive", stored.Status)
 	}
 }
 

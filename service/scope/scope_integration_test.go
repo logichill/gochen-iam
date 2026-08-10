@@ -2,6 +2,8 @@ package scope
 
 import (
 	"context"
+	"gochen/ident"
+	"gochen/testkit"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -59,23 +61,23 @@ func setupScopeServiceTest(t *testing.T) *scopeServiceTestEnv {
 	}
 
 	ormAdapter := newScopeTestOrm(db)
-	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter)
+	scopeRepo, err := scoperepo.NewScopeRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewScopeRepository: %v", err)
 	}
-	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter)
+	tenantRepo, err := tenantrepo.NewTenantRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}
-	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter)
+	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
-	userRepo, err := userrepo.NewUserRepository(ormAdapter)
+	userRepo, err := userrepo.NewUserRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewUserRepository: %v", err)
 	}
-	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter)
+	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewGroupRepository: %v", err)
 	}
@@ -83,7 +85,7 @@ func setupScopeServiceTest(t *testing.T) *scopeServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	if _, err := svc.NewIAMAuthorizer(nil, authzRegistry); err != nil {
+	if _, err := svc.NewIAMAuthorizer(nil, authzRegistry, ident.NewUUIDGenerator()); err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 

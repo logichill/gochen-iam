@@ -77,11 +77,11 @@ func (r *UserRepo) getByID(ctx context.Context, id int64) (*iamentity.User, erro
 }
 
 // NewUserRepository 创建用户仓储。
-func NewUserRepository(o orm.IOrm) (*UserRepo, error) {
+func NewUserRepository(o orm.IOrm, idGenerator ident.IGenerator[int64]) (*UserRepo, error) {
 	base, err := repo.NewRepo[*iamentity.User, int64](
 		o,
 		"users",
-		repo.WithIDGenerator[*iamentity.User, int64](ident.DefaultInt64Generator()),
+		repo.WithIDGenerator[*iamentity.User, int64](idGenerator),
 		repo.WithResourceKind[*iamentity.User, int64]("iam.user"),
 		repo.WithSoftDeleteColumns[*iamentity.User, int64]("deleted_at", ""),
 		repo.WithAccessColumns[*iamentity.User, int64]("managed_scope_id", "owner_id", "version"),

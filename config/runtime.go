@@ -26,14 +26,14 @@ const (
 
 // RuntimeConfig 描述 gochen-iam 运行期依赖的租户与鉴权配置。
 type RuntimeConfig struct {
-	TenantMode       string        `json:"tenant_mode" yaml:"tenant_mode" default:"single"`
-	SingleTenantID   string        `json:"single_tenant_id" yaml:"single_tenant_id" default:"default"`
-	SecretKey        string        `json:"secret_key" yaml:"secret_key"`
-	AccessTokenTTL   time.Duration `json:"access_token_ttl" yaml:"access_token_ttl" default:"24h"`
-	AllowQueryToken  bool          `json:"allow_query_token" yaml:"allow_query_token"`
-	RequireTenant    bool          `json:"require_tenant" yaml:"require_tenant"`
-	AllowTenantQuery bool          `json:"allow_tenant_query" yaml:"allow_tenant_query"`
-	TenantHeader     string        `json:"tenant_header" yaml:"tenant_header" default:"X-Tenant-ID"`
+	TenantMode       string        `json:"tenant_mode" yaml:"tenant_mode" env:"IAM_TENANT_MODE" default:"single"`
+	SingleTenantID   string        `json:"single_tenant_id" yaml:"single_tenant_id" env:"IAM_SINGLE_TENANT_ID" default:"default"`
+	SecretKey        string        `json:"secret_key" yaml:"secret_key" env:"AUTH_SECRET"`
+	AccessTokenTTL   time.Duration `json:"access_token_ttl" yaml:"access_token_ttl" env:"AUTH_ACCESS_TOKEN_TTL" default:"24h"`
+	AllowQueryToken  bool          `json:"allow_query_token" yaml:"allow_query_token" env:"AUTH_ALLOW_QUERY_TOKEN"`
+	RequireTenant    bool          `json:"require_tenant" yaml:"require_tenant" env:"AUTH_REQUIRE_TENANT"`
+	AllowTenantQuery bool          `json:"allow_tenant_query" yaml:"allow_tenant_query" env:"AUTH_ALLOW_TENANT_QUERY"`
+	TenantHeader     string        `json:"tenant_header" yaml:"tenant_header" env:"AUTH_TENANT_HEADER" default:"X-Tenant-ID"`
 }
 
 // DefaultRuntimeConfig 返回标准默认运行配置。

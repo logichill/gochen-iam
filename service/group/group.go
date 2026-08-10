@@ -37,6 +37,7 @@ func NewGroupService(
 	roleRepo *rolerepo.RoleRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
 	authorizer *auth.Authorizer,
+	logger logging.ILogger,
 ) *GroupService {
 	return &GroupService{
 		groupRepo:       groupRepo,
@@ -44,7 +45,7 @@ func NewGroupService(
 		roleRepo:        roleRepo,
 		scopeAuthorizer: scopeAuthorizer,
 		authorizer:      authorizer,
-		logger:          logging.ComponentLogger("iam.service.group"),
+		logger:          logging.ComponentLogger("iam.service.group", logger),
 	}
 }
 
@@ -340,7 +341,7 @@ func (s *GroupService) GroupUsers(ctx context.Context, groupID int64) ([]*iament
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), group.TenantID); err != nil {
+	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), group); err != nil {
 		return nil, err
 	}
 	return s.userRepo.FindByGroupID(tenantCtx, groupID)
@@ -415,7 +416,7 @@ func (s *GroupService) GroupRoles(ctx context.Context, groupID int64) ([]*iament
 	if err != nil {
 		return nil, err
 	}
-	if _, err := svc.RequireTenantPermission(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), group.TenantID); err != nil {
+	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), group); err != nil {
 		return nil, err
 	}
 	return s.roleRepo.FindByGroupID(tenantCtx, groupID)

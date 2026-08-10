@@ -21,11 +21,11 @@ type ScopeRepo struct {
 	rebuildMu sync.Mutex
 }
 
-func NewScopeRepository(o orm.IOrm) (*ScopeRepo, error) {
+func NewScopeRepository(o orm.IOrm, idGenerator ident.IGenerator[int64]) (*ScopeRepo, error) {
 	base, err := repo.NewRepo[*iamentity.Scope, int64](
 		o,
 		"scopes",
-		repo.WithIDGenerator[*iamentity.Scope, int64](ident.DefaultInt64Generator()),
+		repo.WithIDGenerator[*iamentity.Scope, int64](idGenerator),
 		repo.WithResourceKind[*iamentity.Scope, int64]("iam.scope"),
 		repo.WithSoftDeleteColumns[*iamentity.Scope, int64]("deleted_at", ""),
 	)

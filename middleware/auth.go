@@ -432,9 +432,6 @@ func requestOperationContext(ctx httpx.IContext) context.Context {
 	if reqCtx := ctx.RequestContext(); reqCtx != nil {
 		return reqCtx
 	}
-	if req := ctx.Request(); req != nil {
-		return req.Context()
-	}
 	return context.Background()
 }
 
@@ -664,8 +661,8 @@ func readAccessTokenCookie(ctx httpx.IContext, config *AuthConfig) string {
 	if name == "" {
 		return ""
 	}
-	req := ctx.Request()
-	if req == nil {
+	req, ok := nethttp.RequestOf(ctx)
+	if !ok {
 		return ""
 	}
 	cookie, err := req.Cookie(name)
@@ -1026,7 +1023,7 @@ func EnsureCSRFCookie(ctx httpx.IContext, config *AuthConfig) string {
 	if accessCookieName(config) == "" {
 		return ""
 	}
-	if req := ctx.Request(); req != nil {
+	if req, ok := nethttp.RequestOf(ctx); ok {
 		name := csrfCookieName(config)
 		for _, cookie := range req.Cookies() {
 			if cookie.Name == name {
@@ -1059,8 +1056,8 @@ func hasMatchingCSRFCookie(ctx httpx.IContext, config *AuthConfig, expected stri
 	if ctx == nil || expected == "" {
 		return false
 	}
-	req := ctx.Request()
-	if req == nil {
+	req, ok := nethttp.RequestOf(ctx)
+	if !ok {
 		return false
 	}
 	name := csrfCookieName(config)

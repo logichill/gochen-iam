@@ -2,6 +2,9 @@ package role
 
 import (
 	"context"
+	"gochen/ident"
+	"gochen/logging"
+	"gochen/testkit"
 	"path/filepath"
 	"testing"
 	"time"
@@ -57,15 +60,15 @@ func setupRoleBatchTest(t *testing.T) *roleBatchTestEnv {
 		t.Fatalf("auto migrate: %v", err)
 	}
 
-	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter)
+	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewGroupRepository: %v", err)
 	}
-	userRepo, err := userrepo.NewUserRepository(ormAdapter)
+	userRepo, err := userrepo.NewUserRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewUserRepository: %v", err)
 	}
-	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter)
+	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
@@ -73,13 +76,13 @@ func setupRoleBatchTest(t *testing.T) *roleBatchTestEnv {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
+	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
-	roleService := NewRoleService(roleRepo, userRepo, groupRepo, nil, authorizer, nil)
-	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, nil, authorizer)
+	roleService := NewRoleService(roleRepo, userRepo, groupRepo, nil, authorizer, nil, ident.NewUUIDGenerator(), logging.NewNoopLogger())
+	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, nil, authorizer, logging.NewNoopLogger())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{

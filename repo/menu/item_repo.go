@@ -20,11 +20,11 @@ type MenuItemRepo struct {
 }
 
 // NewMenuItemRepository 创建菜单条目仓储。
-func NewMenuItemRepository(o orm.IOrm) (*MenuItemRepo, error) {
+func NewMenuItemRepository(o orm.IOrm, idGenerator ident.IGenerator[int64]) (*MenuItemRepo, error) {
 	base, err := repo.NewRepo[*iamentity.MenuItem, int64](
 		o,
 		"menu_items",
-		repo.WithIDGenerator[*iamentity.MenuItem, int64](ident.DefaultInt64Generator()),
+		repo.WithIDGenerator[*iamentity.MenuItem, int64](idGenerator),
 		repo.WithResourceKind[*iamentity.MenuItem, int64]("iam.menu"),
 		repo.WithSoftDeleteColumns[*iamentity.MenuItem, int64]("deleted_at", ""),
 	)

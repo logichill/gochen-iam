@@ -2,6 +2,9 @@ package role
 
 import (
 	"context"
+	"gochen/ident"
+	"gochen/logging"
+	"gochen/testkit"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -45,15 +48,15 @@ func TestRoleServiceCheckPermissionIncludesGroupDefaultRoles(t *testing.T) {
 	}
 
 	ormAdapter := newRoleTestOrm(db)
-	userRepo, err := userrepo.NewUserRepository(ormAdapter)
+	userRepo, err := userrepo.NewUserRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewUserRepository: %v", err)
 	}
-	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter)
+	groupRepo, err := grouprepo.NewGroupRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewGroupRepository: %v", err)
 	}
-	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter)
+	roleRepo, err := rolerepo.NewRoleRepository(ormAdapter, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
@@ -61,11 +64,11 @@ func TestRoleServiceCheckPermissionIncludesGroupDefaultRoles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
+	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
-	roleService := NewRoleService(roleRepo, userRepo, groupRepo, nil, authorizer, nil)
+	roleService := NewRoleService(roleRepo, userRepo, groupRepo, nil, authorizer, nil, ident.NewUUIDGenerator(), logging.NewNoopLogger())
 
 	ctx := context.Background()
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{

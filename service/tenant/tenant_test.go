@@ -3,6 +3,8 @@ package tenant
 import (
 	"context"
 	"database/sql"
+	"gochen/ident"
+	"gochen/testkit"
 	"testing"
 
 	iamauth "gochen-iam/auth"
@@ -11,6 +13,7 @@ import (
 	svc "gochen-iam/service"
 	auth "gochen/auth"
 	"gochen/db"
+	"gochen/db/dialect"
 	"gochen/db/orm"
 )
 
@@ -21,6 +24,7 @@ type capturingTenantModel struct {
 
 func (m *capturingTenantModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingTenantModel) Capabilities() orm.Capabilities { return nil }
+func (m *capturingTenantModel) Dialect() dialect.IDialect      { return dialect.New("") }
 func (m *capturingTenantModel) First(context.Context, any, ...orm.QueryOption) error {
 	return nil
 }
@@ -60,7 +64,7 @@ func (o *fakeTenantOrm) Model(meta *orm.ModelMeta) (orm.IModel, error) {
 
 func TestTenantService_ListTenants_FiltersSoftDeletedRows(t *testing.T) {
 	model := &capturingTenantModel{}
-	repo, err := tenantrepo.NewTenantRepository(&fakeTenantOrm{model: model})
+	repo, err := tenantrepo.NewTenantRepository(&fakeTenantOrm{model: model}, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewTenantRepository: %v", err)
 	}
@@ -70,7 +74,7 @@ func TestTenantService_ListTenants_FiltersSoftDeletedRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
+	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry, ident.NewUUIDGenerator())
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"gochen-iam/tenant"
 	"gochen/domain/crud"
 	"gochen/errors"
+	"gochen/testkit"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -105,7 +106,7 @@ func TestAuthContextResolverVisibleScopesRespectTenantMode(t *testing.T) {
 	if err := db.AutoMigrate(&iamentity.Scope{}, &iamentity.ScopeVisibility{}); err != nil {
 		t.Fatalf("auto migrate: %v", err)
 	}
-	scopeRepo, err := scoperepo.NewScopeRepository(newScopeAuthorizerTestOrm(db))
+	scopeRepo, err := scoperepo.NewScopeRepository(newScopeAuthorizerTestOrm(db), testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewScopeRepository: %v", err)
 	}
@@ -166,7 +167,7 @@ func TestAuthContextResolverVisibleScopesRespectTenantMode(t *testing.T) {
 		mode         tenant.Mode
 		wantScopeIDs []int64
 	}{
-		{name: "single includes platform parent", mode: tenant.ModeSingle, wantScopeIDs: []int64{1, 2, 4}},
+		{name: "single keeps platform records out of default data scope", mode: tenant.ModeSingle, wantScopeIDs: []int64{2, 4}},
 		{name: "tenant keeps scoped visibility", mode: tenant.ModeTenant, wantScopeIDs: []int64{2, 4}},
 	}
 	for _, tt := range tests {
