@@ -5,9 +5,8 @@ import (
 	"strings"
 
 	iamauth "gochen-iam/auth"
-	auth "gochen/auth"
+	"gochen/auth/scoped"
 	"gochen/domain"
-	"gochen/domain/access"
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 )
@@ -15,7 +14,7 @@ import (
 // IResourceContextRepository 组合了资源边界解析与基础按 ID 读取能力。
 type IResourceContextRepository[T domain.IEntity[ID], ID comparable] interface {
 	domaincrud.IRepository[T, ID]
-	access.IResourceBoundaryRepository[T, ID]
+	scoped.IResourceBoundaryReader[ID]
 }
 
 // IScopedResourceContextRepository 组合了资源上下文读能力与显式写约束能力。
@@ -53,7 +52,7 @@ func LoadTenantBoundResource[T domain.IEntity[ID], ID comparable](
 }
 
 // BindResourceContext 把资源解析出的边界绑定回上下文。
-func BindResourceContext(ctx context.Context, resource access.ResourceBoundary) (context.Context, error) {
+func BindResourceContext(ctx context.Context, resource scoped.Resource) (context.Context, error) {
 	boundCtx := ctx
 	if tenantID := tenantIDFromBoundary(resource); tenantID != "" {
 		var err error
@@ -68,7 +67,7 @@ func BindResourceContext(ctx context.Context, resource access.ResourceBoundary) 
 	return BindVisibleScopeContext(boundCtx, resource.ManagedScopeID, []int64{resource.ManagedScopeID})
 }
 
-func tenantIDFromBoundary(resource access.ResourceBoundary) string {
+func tenantIDFromBoundary(resource scoped.Resource) string {
 	if tenantID := strings.TrimSpace(resource.TenantID); tenantID != "" {
 		return tenantID
 	}
@@ -86,8 +85,8 @@ func clearBoundScopeContext(ctx context.Context) (context.Context, error) {
 	if err != nil {
 		return nil, err
 	}
-	if scope, ok := auth.DataScopeFromContext(boundCtx); ok && scope.Mode == auth.ScopeModeScoped {
-		return auth.WithDataScope(boundCtx, auth.DataScope{Mode: auth.ScopeModeGlobal})
+	if scope, ok := scoped.DataScopeFromContext(boundCtx); ok && scope.Kind == scoped.ScopeFiltered {
+		return scoped.WithDataScope(boundCtx, scoped.Global())
 	}
 	return boundCtx, nil
 }

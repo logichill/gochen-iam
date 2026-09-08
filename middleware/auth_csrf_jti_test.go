@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"gochen-runtime/http/nethttp"
 	"gochen/errors"
-	"gochen/httpx/nethttp"
 )
 
 func TestCSRFDoubleSubmitEnforcedForCookieAuthMutations(t *testing.T) {

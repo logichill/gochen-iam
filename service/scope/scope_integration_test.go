@@ -2,12 +2,12 @@ package scope
 
 import (
 	"context"
-	"gochen/ident"
-	"gochen/testkit"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"gochen/testkit"
 
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
@@ -18,7 +18,7 @@ import (
 	tenantrepo "gochen-iam/repo/tenant"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
 	"gochen/errors"
 
 	"gorm.io/driver/sqlite"
@@ -85,7 +85,7 @@ func setupScopeServiceTest(t *testing.T) *scopeServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	if _, err := svc.NewIAMAuthorizer(nil, authzRegistry, ident.NewUUIDGenerator()); err != nil {
+	if _, err := svc.NewIAMAuthorizer(nil, authzRegistry); err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 

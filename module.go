@@ -20,14 +20,13 @@ import (
 	tenantsvc "gochen-iam/service/tenant"
 	usersvc "gochen-iam/service/user"
 	iamtenant "gochen-iam/tenant"
-	auth "gochen/auth"
+	"gochen-runtime/host"
+	auth "gochen-runtime/host/authz"
+	"gochen-runtime/host/module"
 	"gochen/db"
 	"gochen/errors"
-	"gochen/host"
-	"gochen/host/module"
-	"gochen/host/module/runtimecap"
 	"gochen/httpx"
-	"gochen/logging"
+	"gochen/observe/logging"
 )
 
 // NewModule 使用应用主数据库装配 IAM 领域模块。
@@ -38,6 +37,11 @@ func NewModule(
 	if logger == nil {
 		return nil, errors.NewCode(errors.InvalidInput, "IAM logger is required")
 	}
+	// IAM 自身权限目录必须进入 strict registry：路由装配期的 PermissionMiddleware
+	// 只登记路由实际拦截的权限码，其余（read/write/delete、menu:view 等）需在此显式登记，
+	// 否则角色授权校验会把它们判为“未知权限”。
+	// 跨模块目录镜像由应用侧 InstallIAMPermissionCatalog(registry) 安装的同步钩子完成。
+	iamservice.RegisterIAMPermissionCatalog()
 	store, err := iammw.NewDatabaseRevokedTokenStore(database)
 	if err != nil {
 		return nil, err
@@ -55,8 +59,10 @@ func NewModule(
 	}
 	base, err := host.Module("iam").
 		Name("IAM").
-		PermissionDefinitions(iamservice.IAMAuthzPermissionDefinitions()...).
-		ResourceResolver(iamservice.IAMResourceResolvers()...).
+		Extension(auth.Catalog{
+			PermissionDefinitions: iamservice.IAMAuthzPermissionDefinitions(),
+			ResourceResolvers:     iamservice.IAMResourceResolvers(),
+		}).
 		Provide(
 			// Repos
 			tenantrepo.NewTenantRepository,
@@ -139,29 +145,29 @@ type iamModule struct {
 	module.IModule
 }
 
-func (m *iamModule) Init(opts module.ModuleInitOptions) error {
-	if err := iamservice.InstallIAMPermissionCatalog(runtimecap.AuthzRegistryFrom(opts)); err != nil {
-		return err
+func (m *iamModule) RegisterRoutes(ctx context.Context) error {
+	if rm, ok := m.IModule.(module.IRouteModule); ok {
+		return rm.RegisterRoutes(ctx)
 	}
-	return m.IModule.Init(opts)
+	return nil
 }
 
-func (m *iamModule) RegisterRoutes(ctx context.Context) error {
-	if routeModule, ok := m.IModule.(interface {
-		RegisterRoutes(context.Context) error
-	}); ok {
-		return routeModule.RegisterRoutes(ctx)
+func (m *iamModule) ModuleExtensions() []any {
+	if ep, ok := m.IModule.(module.IModuleExtensionProvider); ok {
+		return ep.ModuleExtensions()
+	}
+	return nil
+}
+
+func (m *iamModule) DependsOn() []string {
+	if dp, ok := m.IModule.(module.IModuleDependencyProvider); ok {
+		return dp.DependsOn()
 	}
 	return nil
 }
 
 func (m *iamModule) AuthzRegistration() auth.ModuleRegistration {
-	if provider, ok := m.IModule.(interface {
-		AuthzRegistration() auth.ModuleRegistration
-	}); ok {
-		return provider.AuthzRegistration()
-	}
-	return auth.ModuleRegistration{}
+	return iamservice.IAMAuthzRegistration()
 }
 
 // PublicFeatures 声明前端可在登录前读取的 IAM 部署模式。
@@ -193,6 +199,9 @@ func newAuthConfigValidator(_ *iamservice.AuthContextResolver, config *iammw.Aut
 func (v *authConfigValidator) RegisterRoutes(httpx.IRouteGroup) error {
 	if err := iammw.ValidateAuthConfig(v.config); err != nil {
 		return errors.Wrap(err, errors.Internal, "auth config validation failed")
+	}
+	if err := iammw.EnsureStrictPermissionRegistryLoaded(); err != nil {
+		return errors.Wrap(err, errors.Internal, "strict permission registry validation failed")
 	}
 	return nil
 }

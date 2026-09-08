@@ -8,12 +8,14 @@ import (
 	assocguard "gochen-iam/repo/internal/guard"
 	scoperesolver "gochen-iam/repo/internal/scope"
 	iamtenant "gochen-iam/tenant"
+	"gochen-runtime/db/orm/repo"
 	appcrud "gochen/app/crud"
+	"gochen/auth/scoped"
 	"gochen/db/orm"
-	"gochen/db/orm/repo"
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
-	"gochen/ident"
+	"gochen/gen"
+	"strconv"
 )
 
 // GroupRepo 组织数据访问层
@@ -61,14 +63,16 @@ func (r *GroupRepo) getByID(ctx context.Context, id int64) (*iamentity.Group, er
 }
 
 // NewGroupRepository 创建分组仓储。
-func NewGroupRepository(o orm.IOrm, idGenerator ident.IGenerator[int64]) (*GroupRepo, error) {
-	base, err := repo.NewRepo(
+func NewGroupRepository(o orm.IOrm, idGenerator gen.IGenerator[int64]) (*GroupRepo, error) {
+	base, err := repo.NewRepo[*iamentity.Group, int64](
 		o,
 		"groups",
-		repo.WithIDGenerator[*iamentity.Group](idGenerator),
+		repo.WithIDGenerator[*iamentity.Group, int64](idGenerator),
 		repo.WithResourceKind[*iamentity.Group, int64]("iam.group"),
 		repo.WithSoftDeleteColumns[*iamentity.Group, int64]("deleted_at", ""),
-		repo.WithAccessColumns[*iamentity.Group, int64]("managed_scope_id", "owner_id", "version"),
+		repo.WithIsolation[*iamentity.Group, int64](repo.IsolationCols{Column: "tenant_id"}),
+		repo.WithScope[*iamentity.Group, int64](repo.ScopeCols{ManagedScopeID: "managed_scope_id", OwnerID: "owner_id", Revision: "version"}),
+		repo.WithDataScopeResolver[*iamentity.Group, int64](scoperesolver.DefaultResolver),
 	)
 	if err != nil {
 		return nil, err
@@ -78,10 +82,13 @@ func NewGroupRepository(o orm.IOrm, idGenerator ident.IGenerator[int64]) (*Group
 
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供
 
-// Create 创建组织，并在同一事务内补齐 path/level 派生字段。
+// Create 预分配组织 ID，并在同一事务内写入完整的 path/level 派生字段。
 func (r *GroupRepo) Create(ctx context.Context, group *iamentity.Group) (err error) {
 	if group == nil {
 		return errors.NewCode(errors.InvalidInput, "group cannot be nil")
+	}
+	if err := r.Repo.EnsureID(group); err != nil {
+		return err
 	}
 	if group.ManagedScopeID == 0 {
 		group.ManagedScopeID = scoperesolver.ResolveManagedScopeID(ctx)
@@ -93,13 +100,7 @@ func (r *GroupRepo) Create(ctx context.Context, group *iamentity.Group) (err err
 		if err := r.syncGroupHierarchy(txCtx, group); err != nil {
 			return err
 		}
-		if err := r.Repo.Create(txCtx, group); err != nil {
-			return err
-		}
-		if err := r.syncGroupHierarchy(txCtx, group); err != nil {
-			return err
-		}
-		return r.Repo.Update(txCtx, group)
+		return r.Repo.Create(txCtx, group)
 	})
 }
 
@@ -124,12 +125,19 @@ func (r *GroupRepo) Update(ctx context.Context, group *iamentity.Group) (err err
 		}
 		pathChanged := current.Path != group.Path || current.Level != group.Level || int64PtrValue(current.ParentID) != int64PtrValue(group.ParentID)
 
-		if err := r.Repo.Update(txCtx, groupWithoutAssociations(group)); err != nil {
+		updated := groupWithoutAssociations(group)
+		if err := r.Repo.Update(txCtx, updated); err != nil {
 			return err
 		}
+		group.Version = updated.GetVersion()
+		group.SetUpdatedAt(updated.GetUpdatedAt())
 		if pathChanged {
 			if err := r.repairDescendantHierarchy(txCtx, group, func(child *iamentity.Group) error {
-				return r.Repo.Update(txCtx, child)
+				childCtx, err := r.derivedGroupConstraintCtx(txCtx, group.GetID(), child)
+				if err != nil {
+					return err
+				}
+				return r.Repo.Update(childCtx, child)
 			}); err != nil {
 				return err
 			}
@@ -190,7 +198,8 @@ func (r *GroupRepo) CreateWithConstraint(ctx context.Context, group *iamentity.G
 		if err := r.syncGroupHierarchy(txCtx, group); err != nil {
 			return err
 		}
-		return r.Repo.CreateWithConstraint(assocguard.BindContext(txCtx, guard), group, guard.Unwrap())
+		boundCtx := r.boundContext(txCtx, guard)
+		return r.Repo.Create(boundCtx, group)
 	})
 }
 
@@ -209,12 +218,14 @@ func (r *GroupRepo) UpdateWithConstraint(ctx context.Context, group *iamentity.G
 		}
 		pathChanged := current.Path != group.Path || current.Level != group.Level || int64PtrValue(current.ParentID) != int64PtrValue(group.ParentID)
 
-		if err := r.Repo.UpdateWithConstraint(assocguard.BindContext(txCtx, guard), group, guard.Unwrap()); err != nil {
+		boundCtx := r.boundContext(txCtx, guard)
+		if err := r.Repo.Update(boundCtx, group); err != nil {
 			return err
 		}
 		if pathChanged {
 			if err := r.repairDescendantHierarchy(txCtx, group, func(child *iamentity.Group) error {
-				return r.Repo.UpdateWithConstraint(assocguard.BindContext(txCtx, guard), child, guard.Unwrap())
+				childBoundCtx := r.boundContext(txCtx, guard)
+				return r.Repo.Update(childBoundCtx, child)
 			}); err != nil {
 				return err
 			}
@@ -224,7 +235,39 @@ func (r *GroupRepo) UpdateWithConstraint(ctx context.Context, group *iamentity.G
 }
 
 func (r *GroupRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
-	return r.Repo.DeleteWithConstraint(assocguard.BindContext(ctx, guard), id, guard.Unwrap())
+	boundCtx := r.boundContext(ctx, guard)
+	return r.Repo.Delete(boundCtx, id)
+}
+
+func (r *GroupRepo) boundContext(ctx context.Context, guard iamaccess.WriteConstraint) context.Context {
+	return scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+}
+
+// derivedGroupConstraintCtx 为创建后的层级补齐及同范围子树修复绑定真实版本。
+// 显式授权过的子节点保留原快照；从父节点派生时不得扩张租户或 managed scope。
+func (r *GroupRepo) derivedGroupConstraintCtx(ctx context.Context, parentID int64, group *iamentity.Group) (context.Context, error) {
+	constraint, ok := scoped.ConstraintFrom(ctx, r.ResourceKind())
+	if !ok {
+		return nil, errors.NewCode(errors.Forbidden, "group hierarchy write constraint is required")
+	}
+	id := strconv.FormatInt(group.GetID(), 10)
+	for _, resource := range constraint.Resources {
+		if resource.Kind == r.ResourceKind() && resource.ResourceID == id {
+			return ctx, nil
+		}
+	}
+	resource, err := constraint.RequireResource(r.ResourceKind(), strconv.FormatInt(parentID, 10))
+	if err != nil {
+		return nil, err
+	}
+	if resource.TenantID != group.TenantID || resource.ManagedScopeID != group.ManagedScopeID {
+		return nil, errors.NewCode(errors.Forbidden, "group hierarchy repair exceeds authorized boundary")
+	}
+	resource.ResourceID = id
+	resource.Revision = strconv.FormatUint(group.GetVersion(), 10)
+	return scoped.WithConstraint(ctx, scoped.SingleEntityConstraint(r.ResourceKind(), scoped.WriteConstraint{
+		Resources: []scoped.ResourceConstraint{resource},
+	})), nil
 }
 
 func (r *GroupRepo) syncGroupHierarchy(ctx context.Context, group *iamentity.Group) error {

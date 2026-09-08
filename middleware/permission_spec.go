@@ -1,6 +1,6 @@
 package middleware
 
-import auth "gochen/auth"
+import auth "gochen-runtime/host/authz"
 
 type Resource string
 

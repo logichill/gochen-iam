@@ -4,14 +4,15 @@ import (
 	"strings"
 
 	iamauth "gochen-iam/auth"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/action"
 	"gochen/errors"
 	"gochen/httpx"
 )
 
 // IsValidPermissionCode 用于校验权限码格式（命名治理的最小护栏）。
 func IsValidPermissionCode(permission string) bool {
-	return auth.IsValidPermissionCode(permission)
+	return action.IsValidCode(permission)
 }
 
 // Roles 从请求上下文中获取当前请求的角色列表
@@ -79,7 +80,7 @@ func HasPermission(ctx httpx.IRequestContext, permission string) bool {
 		return false
 	}
 	for _, p := range perms {
-		if auth.PermissionPatternMatches(p, permission) {
+		if action.PatternMatches(p, permission) {
 			return true
 		}
 	}

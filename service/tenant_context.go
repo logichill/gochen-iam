@@ -5,7 +5,8 @@ import (
 	"strings"
 
 	iamauth "gochen-iam/auth"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/errors"
 )
@@ -35,8 +36,8 @@ func BindTenantContext(ctx context.Context, tenantID string) (context.Context, e
 			return nil, err
 		}
 	}
-	if scope, ok := auth.DataScopeFromContext(derived); ok && scope.Mode == auth.ScopeModeScoped {
-		derived, err = auth.WithDataScope(derived, auth.DataScope{Mode: auth.ScopeModeGlobal})
+	if scope, ok := scoped.DataScopeFromContext(derived); ok && scope.Kind == scoped.ScopeFiltered {
+		derived, err = scoped.WithDataScope(derived, scoped.Global())
 		if err != nil {
 			return nil, err
 		}
@@ -49,8 +50,8 @@ func BindTenantContext(ctx context.Context, tenantID string) (context.Context, e
 }
 
 func ensureTenantReadScope(ctx context.Context) (context.Context, error) {
-	if _, ok := auth.DataScopeFromContext(ctx); ok {
+	if _, ok := scoped.DataScopeFromContext(ctx); ok {
 		return ctx, nil
 	}
-	return auth.WithDataScope(ctx, auth.DataScope{Mode: auth.ScopeModeGlobal})
+	return scoped.WithDataScope(ctx, scoped.Global())
 }

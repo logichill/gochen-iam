@@ -6,7 +6,7 @@ import (
 
 	iamauth "gochen-iam/auth"
 	iammw "gochen-iam/middleware"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
 	"gochen/errors"
 )
 

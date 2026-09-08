@@ -8,10 +8,11 @@ import (
 	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
+	"gochen-runtime/db/orm/repo"
+	"gochen/auth/scoped"
 	"gochen/db/orm"
-	"gochen/db/orm/repo"
 	"gochen/errors"
-	"gochen/ident"
+	"gochen/gen"
 )
 
 // MenuItemRepo 菜单项仓储（全局）。
@@ -20,7 +21,7 @@ type MenuItemRepo struct {
 }
 
 // NewMenuItemRepository 创建菜单条目仓储。
-func NewMenuItemRepository(o orm.IOrm, idGenerator ident.IGenerator[int64]) (*MenuItemRepo, error) {
+func NewMenuItemRepository(o orm.IOrm, idGenerator gen.IGenerator[int64]) (*MenuItemRepo, error) {
 	base, err := repo.NewRepo[*iamentity.MenuItem, int64](
 		o,
 		"menu_items",
@@ -45,15 +46,18 @@ func (r *MenuItemRepo) Update(ctx context.Context, m *iamentity.MenuItem) error 
 }
 
 func (r *MenuItemRepo) CreateWithConstraint(ctx context.Context, item *iamentity.MenuItem, guard iamaccess.WriteConstraint) error {
-	return r.Repo.CreateWithConstraint(assocguard.BindContext(ctx, guard), item, guard.Unwrap())
+	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+	return r.Repo.Create(boundCtx, item)
 }
 
 func (r *MenuItemRepo) UpdateWithConstraint(ctx context.Context, item *iamentity.MenuItem, guard iamaccess.WriteConstraint) error {
-	return r.Repo.UpdateWithConstraint(assocguard.BindContext(ctx, guard), item, guard.Unwrap())
+	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+	return r.Repo.Update(boundCtx, item)
 }
 
 func (r *MenuItemRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
-	return r.Repo.DeleteWithConstraint(assocguard.BindContext(ctx, guard), id, guard.Unwrap())
+	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+	return r.Repo.Delete(boundCtx, id)
 }
 
 // Get 返回当前值。

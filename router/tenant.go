@@ -10,10 +10,12 @@ import (
 	scoperepo "gochen-iam/repo/scope"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	"gochen/api/rest"
+	"gochen-runtime/api/rest"
+	authz "gochen-runtime/host/authz"
+	"gochen-runtime/security"
 	appcrud "gochen/app/crud"
-	auth "gochen/auth"
-	"gochen/db/query"
+	"gochen/app/query"
+	"gochen/auth/action"
 	"gochen/errors"
 	"gochen/httpx"
 )
@@ -28,7 +30,6 @@ type TenantRoutes struct {
 	roleRepo         *rolerepo.RoleRepo
 	scopeRepo        *scoperepo.ScopeRepo
 	deleteGovernance *tenantDeleteGovernance
-	authorizer       auth.IAuthorizer
 }
 
 // NewTenantRoutes 创建租户路由注册器
@@ -40,7 +41,6 @@ func NewTenantRoutes(
 	groupRepo *grouprepo.GroupRepo,
 	roleRepo *rolerepo.RoleRepo,
 	scopeRepo *scoperepo.ScopeRepo,
-	authorizer *auth.Authorizer,
 ) *TenantRoutes {
 	deleteGovernance := newTenantDeleteGovernance(userRepo, groupRepo, roleRepo, scopeRepo)
 	return &TenantRoutes{
@@ -52,7 +52,6 @@ func NewTenantRoutes(
 		roleRepo:         roleRepo,
 		scopeRepo:        scopeRepo,
 		deleteGovernance: deleteGovernance,
-		authorizer:       authorizer,
 	}
 }
 
@@ -80,20 +79,23 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		}
 		return errors.Wrap(err, errors.Internal, "failed to create tenant crud application").WithContext("route", "iam.tenant")
 	}
+	securedApp, err := security.Action[*iamentity.Tenant, int64](appService, authz.NewActionChecker(), action.OperationPolicy{
+		Create: svc.TenantPermissionSet.Code(iammw.ActionWrite),
+		Update: svc.TenantPermissionSet.Code(iammw.ActionWrite),
+		Delete: svc.TenantPermissionSet.Code(iammw.ActionDelete),
+		Read:   svc.TenantPermissionSet.Code(iammw.ActionRead),
+		List:   svc.TenantPermissionSet.Code(iammw.ActionRead),
+	})
+	if err != nil {
+		return err
+	}
 
 	// 这里故意不传 QuerySchema，直接演示 CRUD builder 的全默认 auto-infer 流程：
 	// - QuerySchema 为空；
 	// - Allowed* 也为空；
 	// - builder 会直接基于 Tenant struct 自动推导查询 schema。
 	builder, err := rest.NewApiBuilder[*iamentity.Tenant, int64](
-		appService,
-		rest.WithAuthorization[*iamentity.Tenant, int64](tr.authorizer, rest.CRUDPermissions{
-			List:   svc.TenantPermissionSet.Code(iammw.ActionRead),
-			Get:    svc.TenantPermissionSet.Code(iammw.ActionRead),
-			Create: svc.TenantPermissionSet.Code(iammw.ActionWrite),
-			Update: svc.TenantPermissionSet.Code(iammw.ActionWrite),
-			Delete: svc.TenantPermissionSet.Code(iammw.ActionDelete),
-		}),
+		securedApp,
 		func(builder *rest.ApiBuilder[*iamentity.Tenant, int64]) {
 			builder.Route(func(cfg *rest.RouteConfig[int64]) {
 				cfg.Response.ResponseWrapper = tr.wrapTenantResponse
@@ -103,6 +105,7 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 			*h = *TenantHooksForTenant(tr.tenantRepo, tr.scopeAuthorizer, tr.deleteGovernance)
 		}),
 	)
+
 	if err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create tenant api builder").WithContext("route", "iam.tenant")
@@ -115,10 +118,6 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 			cfg.Query.EnablePagination = true
 			cfg.Query.DefaultPageSize = 10
 			cfg.Query.MaxPageSize = 100
-			if cfg.Authorization != nil {
-				cfg.Authorization.Consistency = auth.ConsistencyModeStrong
-				cfg.Authorization.HighRisk = true
-			}
 		}).
 		Build(adminGroup); err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {

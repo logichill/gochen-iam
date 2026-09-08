@@ -63,8 +63,8 @@ func TestAllPermissionDefinitions_IncludeActionAndMenuVisibilityPatterns(t *test
 		t.Fatalf("expected permission definition %q to be registered", code)
 	}
 
-	assertContainsDefinition("action:mcp:invoke")
-	assertContainsDefinition("menu:*:view")
+	assertContainsDefinition("mcp:action:invoke")
+	assertContainsDefinition("*:menu:view")
 }
 
 func TestAllPermissionDefinitions_IncludeRiskLevelsForHighRiskPermissions(t *testing.T) {
@@ -82,9 +82,9 @@ func TestAllPermissionDefinitions_IncludeRiskLevelsForHighRiskPermissions(t *tes
 		t.Fatalf("expected permission definition %q to be registered", code)
 	}
 
-	assertRiskLevel("api:plan:write", string(iammw.RiskLevelHigh))
-	assertRiskLevel("api:tenant:write", string(iammw.RiskLevelCritical))
-	assertRiskLevel("action:mcp:invoke", string(iammw.RiskLevelCritical))
+	assertRiskLevel("plan:api:write", string(iammw.RiskLevelHigh))
+	assertRiskLevel("tenant:api:write", string(iammw.RiskLevelCritical))
+	assertRiskLevel("mcp:action:invoke", string(iammw.RiskLevelCritical))
 }
 
 func TestAllPermissionDefinitions_IncludeBuiltinOnlyWildcardPermissions(t *testing.T) {
@@ -102,8 +102,8 @@ func TestAllPermissionDefinitions_IncludeBuiltinOnlyWildcardPermissions(t *testi
 		t.Fatalf("expected permission definition %q to be registered", code)
 	}
 
-	assertBuiltinOnly("menu:*:view")
-	assertBuiltinOnly("api:*:*")
+	assertBuiltinOnly("*:menu:view")
+	assertBuiltinOnly("*:api:*")
 	assertBuiltinOnly("*:*:*")
 }
 

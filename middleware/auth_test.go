@@ -473,15 +473,16 @@ func TestHasPermission_WildcardPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
-	ctx = auth.WithPermissions(ctx, []string{"api:*:*", "menu:*:view"})
+	ctx = auth.WithPermissions(ctx, []string{"*:api:*", "*:menu:view"})
 
-	if !HasPermission(ctx, "api:any:permission") {
-		t.Error("expected api:*:* to match api:any:permission")
+	if !HasPermission(ctx, "any:api:permission") {
+		t.Error("expected *:api:* to match any:api:permission")
 	}
-	if !HasPermission(ctx, "menu:dashboard.home:view") {
-		t.Error("expected menu:*:view to match menu:dashboard.home:view")
+	if !HasPermission(ctx, "dashboard.home:menu:view") {
+		t.Error("expected *:menu:view to match dashboard.home:menu:view")
 	}
-	if HasPermission(ctx, "action:mcp:invoke") {
+	if HasPermission(ctx, "mcp:action:invoke") {
 		t.Error("expected missing action permission")
 	}
+
 }

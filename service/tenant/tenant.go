@@ -8,7 +8,7 @@ import (
 	iammw "gochen-iam/middleware"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
-	auth "gochen/auth"
+	"gochen/auth/scoped"
 	"gochen/db/orm"
 	"gochen/errors"
 )
@@ -17,23 +17,19 @@ import (
 type TenantService struct {
 	tenantRepo      *tenantrepo.TenantRepo
 	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      auth.IAuthorizer
+	authorizer      scoped.IAuthorizer
 }
 
 // NewTenantService 创建租户服务实例
 func NewTenantService(
 	tenantRepo *tenantrepo.TenantRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer *auth.Authorizer,
+	authorizer scoped.IAuthorizer,
 ) *TenantService {
-	var authzEngine auth.IAuthorizer
-	if authorizer != nil {
-		authzEngine = authorizer
-	}
 	return &TenantService{
 		tenantRepo:      tenantRepo,
 		scopeAuthorizer: scopeAuthorizer,
-		authorizer:      authzEngine,
+		authorizer:      authorizer,
 	}
 }
 

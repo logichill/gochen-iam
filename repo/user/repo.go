@@ -9,12 +9,13 @@ import (
 	assocguard "gochen-iam/repo/internal/guard"
 	scoperesolver "gochen-iam/repo/internal/scope"
 	iamtenant "gochen-iam/tenant"
+	"gochen-runtime/db/orm/repo"
+	"gochen/app/query"
+	"gochen/auth/scoped"
 	"gochen/db/orm"
-	"gochen/db/orm/repo"
-	"gochen/db/query"
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
-	"gochen/ident"
+	"gochen/gen"
 )
 
 // UserRepo 用户数据访问层
@@ -77,14 +78,16 @@ func (r *UserRepo) getByID(ctx context.Context, id int64) (*iamentity.User, erro
 }
 
 // NewUserRepository 创建用户仓储。
-func NewUserRepository(o orm.IOrm, idGenerator ident.IGenerator[int64]) (*UserRepo, error) {
+func NewUserRepository(o orm.IOrm, idGenerator gen.IGenerator[int64]) (*UserRepo, error) {
 	base, err := repo.NewRepo[*iamentity.User, int64](
 		o,
 		"users",
 		repo.WithIDGenerator[*iamentity.User, int64](idGenerator),
 		repo.WithResourceKind[*iamentity.User, int64]("iam.user"),
 		repo.WithSoftDeleteColumns[*iamentity.User, int64]("deleted_at", ""),
-		repo.WithAccessColumns[*iamentity.User, int64]("managed_scope_id", "owner_id", "version"),
+		repo.WithIsolation[*iamentity.User, int64](repo.IsolationCols{Column: "tenant_id"}),
+		repo.WithScope[*iamentity.User, int64](repo.ScopeCols{ManagedScopeID: "managed_scope_id", OwnerID: "owner_id", Revision: "version"}),
+		repo.WithDataScopeResolver[*iamentity.User, int64](scoperesolver.DefaultResolver),
 	)
 	if err != nil {
 		return nil, err
@@ -179,17 +182,20 @@ func userWithoutAssociations(user *iamentity.User) *iamentity.User {
 
 // CreateWithConstraint 在显式写边界下创建用户。
 func (r *UserRepo) CreateWithConstraint(ctx context.Context, u *iamentity.User, guard iamaccess.WriteConstraint) error {
-	return r.Repo.CreateWithConstraint(assocguard.BindContext(ctx, guard), u, guard.Unwrap())
+	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+	return r.Repo.Create(boundCtx, u)
 }
 
 // UpdateWithConstraint 在显式写边界下更新用户。
 func (r *UserRepo) UpdateWithConstraint(ctx context.Context, u *iamentity.User, guard iamaccess.WriteConstraint) error {
-	return r.Repo.UpdateWithConstraint(assocguard.BindContext(ctx, guard), u, guard.Unwrap())
+	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+	return r.Repo.Update(boundCtx, u)
 }
 
 // DeleteWithConstraint 在显式写边界下删除用户。
 func (r *UserRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
-	return r.Repo.DeleteWithConstraint(assocguard.BindContext(ctx, guard), id, guard.Unwrap())
+	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+	return r.Repo.Delete(boundCtx, id)
 }
 
 // Query 覆盖通用查询，补齐用户分页列表所需的角色/组织关联。

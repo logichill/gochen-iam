@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v4"
-	"github.com/google/uuid"
 
 	"gochen-iam/tenant"
+	"gochen-runtime/http/nethttp"
 	"gochen/contextx"
 	"gochen/errors"
+	"gochen/gen/uuid"
 	"gochen/httpx"
-	"gochen/httpx/nethttp"
 )
 
 const (

@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"gochen/httpx/nethttp"
+	"gochen-runtime/http/nethttp"
 )
 
 func TestExtractTokenPrefersHeaderThenCookie(t *testing.T) {

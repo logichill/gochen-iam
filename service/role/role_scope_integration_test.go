@@ -2,22 +2,23 @@ package role
 
 import (
 	"context"
-	"gochen/ident"
-	"gochen/logging"
+	"gochen/gen"
+	"gochen/observe/logging"
 	"gochen/testkit"
 	"path/filepath"
 	"testing"
 
-	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
+
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	scoperepo "gochen-iam/repo/scope"
 	tenantrepo "gochen-iam/repo/tenant"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -85,15 +86,20 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iamentity.ScopeTypeTenant))
-	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
-		ActiveScopeID:   1,
-		VisibleScopeIDs: []int64{1},
-		Mode:            auth.ScopeModeScoped,
-	})
+	ctx, err = scoped.WithDataScope(ctx, scoped.Filtered(1))
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)
 	}
+	ctx = scoped.WithConstraint(ctx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
+		return scoped.WriteConstraint{
+			Resources: []scoped.ResourceConstraint{{
+				Kind:           entityType,
+				TenantID:       "tenant-a",
+				ManagedScopeID: 1,
+				Revision:       "0",
+			}},
+		}, true
+	}))
 
 	tenantScope := &iamentity.Scope{
 		Key:    "tenant:tenant-a",
@@ -131,7 +137,7 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer, authzRegistry, ident.NewUUIDGenerator())
+	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -143,11 +149,11 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 		scopeAuthorizer,
 		authorizer,
 		nil,
-		ident.NewUUIDGenerator(),
+		gen.NewUUIDGenerator(),
 		logging.NewNoopLogger(),
 	)
 
-	if err := roleService.AddPermission(ctx, role.ID, "api:menu:write"); err == nil {
+	if err := roleService.AddPermission(ctx, role.ID, "menu:api:write"); err == nil {
 		t.Fatalf("expected tenant-scoped role to reject platform-only permission")
 	}
 }
@@ -214,15 +220,21 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iamentity.ScopeTypeTenant))
-	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
-		ActiveScopeID:   1,
-		VisibleScopeIDs: []int64{1},
-		Mode:            auth.ScopeModeScoped,
-	})
+	ctx, err = scoped.WithDataScope(ctx, scoped.Filtered(1))
+
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)
 	}
+	ctx = scoped.WithConstraint(ctx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
+		return scoped.WriteConstraint{
+			Resources: []scoped.ResourceConstraint{{
+				Kind:           entityType,
+				TenantID:       "tenant-a",
+				ManagedScopeID: 1,
+				Revision:       "0",
+			}},
+		}, true
+	}))
 
 	tenantScope := &iamentity.Scope{
 		Key:    "tenant:tenant-a",
@@ -251,9 +263,10 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 		NamespaceScopeID: tenantScope.ID,
 		Code:             svc.AdminRoleName,
 		Name:             svc.AdminRoleName,
-		Permissions:      iamentity.PermissionArray{"api:*:*", "menu:*:view"},
-		IsSystem:         true,
-		Status:           svc.RoleStatusActive,
+		Permissions:      iamentity.PermissionArray{"*:api:*", "*:menu:view"},
+
+		IsSystem: true,
+		Status:   svc.RoleStatusActive,
 	}
 	if err := roleRepo.Create(ctx, systemRole); err != nil {
 		t.Fatalf("create system role: %v", err)
@@ -264,7 +277,7 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer, authzRegistry, ident.NewUUIDGenerator())
+	authorizer, err := svc.NewIAMAuthorizer(scopeAuthorizer, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -276,7 +289,7 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 		scopeAuthorizer,
 		authorizer,
 		nil,
-		ident.NewUUIDGenerator(),
+		gen.NewUUIDGenerator(),
 		logging.NewNoopLogger(),
 	)
 

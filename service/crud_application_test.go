@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
-	appaccess "gochen/domain/access"
+	appaccess "gochen/auth/scoped"
 )
 
 type crudApplicationRepoStub struct {
@@ -34,8 +34,8 @@ func (r *crudApplicationRepoStub) Count(context.Context) (int64, error) { return
 
 func (r *crudApplicationRepoStub) Exists(context.Context, int64) (bool, error) { return false, nil }
 
-func (r *crudApplicationRepoStub) ResolveResourceByID(context.Context, int64) (appaccess.ResourceBoundary, error) {
-	return appaccess.ResourceBoundary{Kind: "iam.user", ID: "11", ManagedScopeID: 17}, nil
+func (r *crudApplicationRepoStub) ResolveResourceByID(context.Context, int64) (appaccess.Resource, error) {
+	return appaccess.Resource{Kind: "iam.user", ID: "11", ManagedScopeID: 17}, nil
 }
 
 func (r *crudApplicationRepoStub) CreateWithConstraint(ctx context.Context, entity *iamentity.User, constraint iamaccess.WriteConstraint) error {
@@ -53,16 +53,12 @@ func (r *crudApplicationRepoStub) DeleteWithConstraint(ctx context.Context, id i
 	return nil
 }
 
-func TestCRUDApplication_WrapsConstraintMetadataFromContext(t *testing.T) {
+func TestCRUDApplication_WrapsConstraint(t *testing.T) {
 	repo := &crudApplicationRepoStub{}
 	app, err := NewCRUDApplication[*iamentity.User, int64](repo, repo)
 	require.NoError(t, err)
 
-	ctx := appaccess.WithConstraintMetadata(context.Background(), appaccess.ConstraintMetadata{
-		DecisionID:      "decision-1",
-		SnapshotVersion: "snap-2",
-		Consistency:     "strong",
-	})
+	ctx := context.Background()
 	constraint := appaccess.WriteConstraint{
 		Resources: []appaccess.ResourceConstraint{{
 			Kind:           "iam.user",
@@ -72,11 +68,6 @@ func TestCRUDApplication_WrapsConstraintMetadataFromContext(t *testing.T) {
 		}},
 	}
 
-	expectedMetadata := appaccess.ConstraintMetadata{
-		DecisionID:      "decision-1",
-		SnapshotVersion: "snap-2",
-		Consistency:     "strong",
-	}
 	user := &iamentity.User{
 		TenantID:       "tenant-1",
 		HomeTenantID:   "tenant-1",
@@ -92,13 +83,10 @@ func TestCRUDApplication_WrapsConstraintMetadataFromContext(t *testing.T) {
 
 	require.NoError(t, app.CreateWithConstraint(ctx, user, constraint))
 	require.Equal(t, constraint.Resources, repo.lastCreate.Unwrap().Resources)
-	require.Equal(t, expectedMetadata, repo.lastCreate.Metadata)
 
 	require.NoError(t, app.UpdateWithConstraint(ctx, user, constraint))
 	require.Equal(t, constraint.Resources, repo.lastUpdate.Unwrap().Resources)
-	require.Equal(t, expectedMetadata, repo.lastUpdate.Metadata)
 
 	require.NoError(t, app.DeleteWithConstraint(ctx, 11, constraint))
 	require.Equal(t, constraint.Resources, repo.lastDelete.Unwrap().Resources)
-	require.Equal(t, expectedMetadata, repo.lastDelete.Metadata)
 }

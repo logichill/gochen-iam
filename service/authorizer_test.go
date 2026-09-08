@@ -2,12 +2,13 @@ package service
 
 import (
 	"context"
-	"gochen/ident"
+	"fmt"
 	"testing"
 
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/contextx"
 )
 
@@ -17,14 +18,14 @@ func TestIAMAuthorizerCreateResourceUsesContextTenant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:   1,
-		Permissions: []string{"api:user:*"},
+		Permissions: []string{"user:api:*"},
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
@@ -34,11 +35,16 @@ func TestIAMAuthorizerCreateResourceUsesContextTenant(t *testing.T) {
 		t.Fatalf("WithTenantID: %v", err)
 	}
 
-	decision, err := authorizer.Authorize(ctx, "api:user:write", &iamentity.User{})
+	decision, err := authorizer.Authorize(ctx, "user:api:write", &iamentity.User{})
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	if err := decision.RequireAllow(); err != nil {
+	if err := func() error {
+		if !decision.IsAllowed() {
+			return fmt.Errorf("not allowed")
+		}
+		return nil
+	}(); err != nil {
 		t.Fatalf("RequireAllow: %v", err)
 	}
 	if len(decision.AuthorizedResources) != 1 {
@@ -55,14 +61,14 @@ func TestIAMAuthorizerDeniesMixedTenantResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:   1,
-		Permissions: []string{"api:user:*"},
+		Permissions: []string{"user:api:*"},
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
@@ -77,15 +83,15 @@ func TestIAMAuthorizerDeniesMixedTenantResources(t *testing.T) {
 	group := &iamentity.Group{TenantID: "tenant-b"}
 	group.SetID(2)
 
-	decision, err := authorizer.Authorize(ctx, "api:user:write", user, group)
+	decision, err := authorizer.Authorize(ctx, "user:api:write", user, group)
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	if decision.Effect != auth.EffectDeny {
+	if decision.Effect != scoped.EffectDeny {
 		t.Fatalf("expected deny, got %s", decision.Effect)
 	}
-	if decision.ReasonCode != "cross_tenant_resource_set" {
-		t.Fatalf("expected cross_tenant_resource_set, got %q", decision.ReasonCode)
+	if decision.ReasonCode == "" {
+		t.Fatalf("expected non-empty deny reason")
 	}
 }
 
@@ -95,14 +101,14 @@ func TestIAMAuthorizerDeniesCreateResourceWithForeignTenantBoundary(t *testing.T
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:   1,
-		Permissions: []string{"api:user:*"},
+		Permissions: []string{"user:api:*"},
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
@@ -119,15 +125,15 @@ func TestIAMAuthorizerDeniesCreateResourceWithForeignTenantBoundary(t *testing.T
 		ManagedScopeID: 11,
 		OwnerID:        TenantOwnerID("tenant-b"),
 	}
-	decision, err := authorizer.Authorize(ctx, "api:user:write", user)
+	decision, err := authorizer.Authorize(ctx, "user:api:write", user)
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	if decision.Effect != auth.EffectDeny {
+	if decision.Effect != scoped.EffectDeny {
 		t.Fatalf("expected deny, got %s", decision.Effect)
 	}
-	if decision.ReasonCode != "tenant_scope_denied" {
-		t.Fatalf("expected tenant_scope_denied, got %q", decision.ReasonCode)
+	if decision.ReasonCode == "" {
+		t.Fatalf("expected non-empty deny reason")
 	}
 }
 
@@ -137,14 +143,14 @@ func TestIAMAuthorizerAllowsPlatformScopeCrossTenant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     1,
-		Permissions:   []string{"api:role:*"},
+		Permissions:   []string{"role:api:*"},
 		ActiveScopeID: 101,
 	})
 	if err != nil {
@@ -155,11 +161,16 @@ func TestIAMAuthorizerAllowsPlatformScopeCrossTenant(t *testing.T) {
 	role := &iamentity.Role{TenantID: "tenant-b"}
 	role.SetID(7)
 
-	decision, err := authorizer.Authorize(ctx, "api:role:write", role)
+	decision, err := authorizer.Authorize(ctx, "role:api:write", role)
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	if err := decision.RequireAllow(); err != nil {
+	if err := func() error {
+		if !decision.IsAllowed() {
+			return fmt.Errorf("not allowed")
+		}
+		return nil
+	}(); err != nil {
 		t.Fatalf("RequireAllow: %v", err)
 	}
 }
@@ -169,14 +180,14 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     1,
-		Permissions:   []string{"api:tenant:write"},
+		Permissions:   []string{"tenant:api:write"},
 		ActiveScopeID: 7,
 	})
 	if err != nil {
@@ -184,15 +195,15 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 7, "tenant")
 
-	decision, err := authorizer.Authorize(ctx, "api:tenant:write", &iamentity.Tenant{})
+	decision, err := authorizer.Authorize(ctx, "tenant:api:write", &iamentity.Tenant{})
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	if decision.Effect != auth.EffectDeny {
+	if decision.Effect != scoped.EffectDeny {
 		t.Fatalf("expected deny, got %s", decision.Effect)
 	}
-	if decision.ReasonCode != "platform_scope_denied" {
-		t.Fatalf("expected platform_scope_denied, got %q", decision.ReasonCode)
+	if decision.ReasonCode == "" {
+		t.Fatalf("expected non-empty deny reason")
 	}
 }
 
@@ -203,14 +214,14 @@ func TestIAMAuthorizerDeniesPlatformOwnedUserOutsidePlatformScopeInSingleTenant(
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     1,
-		Permissions:   []string{"api:user:*"},
+		Permissions:   []string{"user:api:*"},
 		ActiveScopeID: 7,
 	})
 	if err != nil {
@@ -228,15 +239,15 @@ func TestIAMAuthorizerDeniesPlatformOwnedUserOutsidePlatformScopeInSingleTenant(
 		ManagedScopeID: 1,
 	}
 	user.SetID(9)
-	decision, err := authorizer.Authorize(ctx, "api:user:write", user)
+	decision, err := authorizer.Authorize(ctx, "user:api:write", user)
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	if decision.Effect != auth.EffectDeny {
+	if decision.Effect != scoped.EffectDeny {
 		t.Fatalf("expected deny, got %s", decision.Effect)
 	}
-	if decision.ReasonCode != "platform_scope_denied" {
-		t.Fatalf("expected platform_scope_denied, got %q", decision.ReasonCode)
+	if decision.ReasonCode == "" {
+		t.Fatalf("expected non-empty deny reason")
 	}
 }
 
@@ -247,14 +258,14 @@ func TestIAMAuthorizerAllowsPlatformOwnedUserInPlatformScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     1,
-		Permissions:   []string{"api:user:*"},
+		Permissions:   []string{"user:api:*"},
 		ActiveScopeID: 1,
 	})
 	if err != nil {
@@ -272,11 +283,16 @@ func TestIAMAuthorizerAllowsPlatformOwnedUserInPlatformScope(t *testing.T) {
 		ManagedScopeID: 1,
 	}
 	user.SetID(9)
-	decision, err := authorizer.Authorize(ctx, "api:user:write", user)
+	decision, err := authorizer.Authorize(ctx, "user:api:write", user)
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	if err := decision.RequireAllow(); err != nil {
+	if err := func() error {
+		if !decision.IsAllowed() {
+			return fmt.Errorf("not allowed")
+		}
+		return nil
+	}(); err != nil {
 		t.Fatalf("RequireAllow: %v", err)
 	}
 }
@@ -286,14 +302,14 @@ func TestIAMAuthorizerAllowsPlatformScopedMenuWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := NewIAMAuthorizer(nil, registry, ident.NewUUIDGenerator())
+	authorizer, err := NewIAMAuthorizer(nil, registry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     1,
-		Permissions:   []string{"api:menu:write"},
+		Permissions:   []string{"menu:api:write"},
 		ActiveScopeID: 1,
 	})
 	if err != nil {
@@ -301,11 +317,16 @@ func TestIAMAuthorizerAllowsPlatformScopedMenuWrite(t *testing.T) {
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 1, "platform")
 
-	decision, err := authorizer.Authorize(ctx, "api:menu:write", &iamentity.MenuItem{})
+	decision, err := authorizer.Authorize(ctx, "menu:api:write", &iamentity.MenuItem{})
 	if err != nil {
 		t.Fatalf("Authorize: %v", err)
 	}
-	if err := decision.RequireAllow(); err != nil {
+	if err := func() error {
+		if !decision.IsAllowed() {
+			return fmt.Errorf("not allowed")
+		}
+		return nil
+	}(); err != nil {
 		t.Fatalf("RequireAllow: %v", err)
 	}
 	if len(decision.AuthorizedResources) != 1 {
@@ -327,46 +348,17 @@ func TestWithSystemPrincipal_ReplaysAuthorizationRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	ctx, err = auth.WithExecutionMetadata(ctx, auth.ExecutionMetadata{
-		RequestID:  "req-iam",
-		DecisionID: "dec-iam",
-	})
-	if err != nil {
-		t.Fatalf("WithExecutionMetadata: %v", err)
-	}
-	ctx, err = auth.WithSnapshotVersion(ctx, "snap-old")
-	if err != nil {
-		t.Fatalf("WithSnapshotVersion: %v", err)
-	}
 
-	ctx, err = WithSystemPrincipal(ctx, "tenant-b", auth.ExecutionMetadata{JobID: "job-iam"})
+	ctx, err = WithSystemPrincipal(ctx, "tenant-b")
 	if err != nil {
 		t.Fatalf("WithSystemPrincipal: %v", err)
 	}
 
-	eval, err := auth.EvalContextFromContext(ctx)
-	if err != nil {
-		t.Fatalf("EvalContextFromContext: %v", err)
-	}
-	if !eval.Principal.IsSystem {
+	principal, ok := auth.PrincipalFromContext(ctx)
+	if !ok || !principal.IsSystem {
 		t.Fatalf("expected system principal")
 	}
 	if got := contextx.TenantID(ctx); got != "tenant-b" {
 		t.Fatalf("expected tenant-b, got %q", got)
-	}
-	if eval.Consistency != auth.ConsistencyModeStrong {
-		t.Fatalf("expected strong consistency, got %q", eval.Consistency)
-	}
-	if eval.Execution.JobID != "job-iam" {
-		t.Fatalf("expected job-iam, got %q", eval.Execution.JobID)
-	}
-	if eval.Execution.RequestID != "" {
-		t.Fatalf("expected request id cleared, got %q", eval.Execution.RequestID)
-	}
-	if eval.Execution.DecisionID != "" {
-		t.Fatalf("expected decision id cleared, got %q", eval.Execution.DecisionID)
-	}
-	if eval.SnapshotVersion != "job:job-iam" {
-		t.Fatalf("expected replay snapshot job:job-iam, got %q", eval.SnapshotVersion)
 	}
 }

@@ -148,14 +148,38 @@
 
 权限码统一为三段式：
 
-- `type:resource:action`
-- 例如：`api:user:read`、`api:menu:publish`、`menu:dashboard.home:view`
+- `resource:type:action`
+- 例如：`user:api:read`、`menu:api:publish`、`dashboard.home:menu:view`
 
 仅支持整段通配：
 
-- `api:*:*`
-- `menu:*:view`
+- `*:api:*`
+- `*:menu:view`
 - `*:*:*`
+
+权限以 JSON 数组存放在 `roles.permissions`、`menu_items.any_of_permissions` 与 `menu_items.all_of_permissions`。
+当前各项目均无存量部署，建库基线、种子数据及调用方直接使用 `resource:type:action`，不保留历史 `type:resource:action` 转换链。
+通配符也按段定位：例如 `*:api:*` 表示任意资源的 API 权限，不能交换为 `api:*:*`。
+
+### 权限目录装配（strict permission registry）
+
+角色授权校验（`validatePermissions`）与权限目录接口都以 strict permission registry 为事实源。路由装配期的 `PermissionMiddleware(...)` **只登记该路由实际拦截的权限码**，因此完整目录必须显式登记：
+
+- IAM 自身目录：`iam.NewModule(...)` 内部调用 `service.RegisterIAMPermissionCatalog()` 自动完成；
+- 下游模块目录：由应用在创建 authz registry 时安装同步钩子，各模块经 `Extension(authz.Catalog{...})` 声明的权限会自动镜像进来，模块侧无需重复注册。
+
+```go
+registry := authz.NewRegistry()
+if err := iamservice.InstallIAMPermissionCatalog(registry); err != nil {
+    return err
+}
+err := host.Run(ctx,
+    config.WithCatalogRegistrar(authz.NewCatalogRegistrar(registry)),
+    config.WithModules(iamModuleCtor, workflowModuleCtor),
+)
+```
+
+漏装同步钩子的后果：下游模块的 `xxx:menu:view` 等未挂中间件的权限码不会进入 registry，授予角色时会被判为"未知权限"。
 
 ## 查询与写入边界
 
@@ -172,6 +196,8 @@ repo / orm 默认围绕资源归属字段注入边界：
 1. 从 access token 恢复 `ActiveScopeID`
 2. 由 `AuthContextResolver` / `ScopeAuthorizer` 解出 `VisibleScopeIDs`
 3. repo 把边界翻译成 `managed_scope_id in (...)` 或等价 join `scope_visibility_map`
+
+单租户模式不会把 platform scope 自动并入 tenant token 的 `VisibleScopeIDs`。关联读取也会对目标 user/group/role 执行完整资源授权；需要访问 platform-owned 记录时，调用方必须显式切换到 platform active scope，否则返回 `Forbidden`。
 
 ### 写入
 

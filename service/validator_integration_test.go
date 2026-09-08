@@ -16,7 +16,8 @@ import (
 	tenantrepo "gochen-iam/repo/tenant"
 	userrepo "gochen-iam/repo/user"
 	"gochen-iam/tenant"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/domain/crud"
 
@@ -119,11 +120,7 @@ func setupValidatorTest(t *testing.T) *validatorTestEnv {
 		t.Fatalf("ensure tenant root scope: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, rootScope.ID, string(rootScope.Type))
-	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
-		ActiveScopeID:   rootScope.ID,
-		VisibleScopeIDs: []int64{rootScope.ID},
-		Mode:            auth.ScopeModeScoped,
-	})
+	ctx, err = scoped.WithDataScope(ctx, scoped.Filtered(rootScope.ID))
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)
 	}
@@ -140,6 +137,16 @@ func setupValidatorTest(t *testing.T) *validatorTestEnv {
 	if err != nil {
 		t.Fatalf("rebind tenant context: %v", err)
 	}
+	ctx = scoped.WithConstraint(ctx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
+		return scoped.WriteConstraint{
+			Resources: []scoped.ResourceConstraint{{
+				Kind:           entityType,
+				TenantID:       tenantRow.Key,
+				ManagedScopeID: rootScope.ID,
+				Revision:       "0",
+			}},
+		}, true
+	}))
 
 	return &validatorTestEnv{
 		db:            db,

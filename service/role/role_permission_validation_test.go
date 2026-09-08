@@ -10,19 +10,19 @@ import (
 
 func TestIsValidPermission(t *testing.T) {
 	valid := []string{
-		"api:task:read",
-		"api:task:write",
-		"api:task:*",
-		"api:*:*",
+		"task:api:read",
+		"task:api:write",
+		"task:api:*",
+		"*:api:*",
 		"*:*:*",
-		"api:user:read_self",
-		"api:story:admin",
-		"action:mcp:invoke",
-		"menu:dashboard.home:view",
-		"menu:*:view",
-		"API:SYSTEM:READ",
-		"api:a1_b2:read_self",
-		"menu:a_b.c_d:view",
+		"user:api:read_self",
+		"story:api:admin",
+		"mcp:action:invoke",
+		"dashboard.home:menu:view",
+		"*:menu:view",
+		"SYSTEM:API:READ",
+		"a1_b2:api:read_self",
+		"a_b.c_d:menu:view",
 	}
 	for _, p := range valid {
 		if !iammw.IsValidPermissionCode(p) {
@@ -38,10 +38,10 @@ func TestIsValidPermission(t *testing.T) {
 		":read",
 		"task:read",
 		"task:read:extra:value",
-		"action:mcp-invoke",
+		"mcp:action-invoke",
 		"task read",
 		"task/read",
-		"api:task:read\n",
+		"task:api:read\n",
 	}
 	for _, p := range invalid {
 		if iammw.IsValidPermissionCode(p) {
@@ -52,34 +52,35 @@ func TestIsValidPermission(t *testing.T) {
 
 func TestValidatePermissions_StrictRegistry(t *testing.T) {
 	// 注册系统所需权限（模拟路由装配期调用 PermissionMiddleware）
-	_ = iammw.PermissionMiddleware(iammw.PermissionCode("api:role_permission_validation_test:read"))
-	_ = iammw.PermissionMiddleware(iammw.PermissionCode("menu:role_permission_validation_test:view"))
+	_ = iammw.PermissionMiddleware(iammw.PermissionCode("role_permission_validation_test:api:read"))
+	_ = iammw.PermissionMiddleware(iammw.PermissionCode("role_permission_validation_test:menu:view"))
 
 	s := &RoleService{}
-	if err := s.validatePermissions([]string{"api:role_permission_validation_test:read"}); err != nil {
+	if err := s.validatePermissions([]string{"role_permission_validation_test:api:read"}); err != nil {
 		t.Fatalf("expected permission in registry to pass, got: %v", err)
 	}
-	if err := s.validatePermissions([]string{"api:*:*", "menu:*:view"}); err != nil {
+	if err := s.validatePermissions([]string{"*:api:*", "*:menu:view"}); err != nil {
 		t.Fatalf("expected wildcard permissions matched by registry to pass, got: %v", err)
 	}
 	if err := s.validatePermissions([]string{"*:*:*"}); err != nil {
 		t.Fatalf("expected full wildcard permission to pass when registry is non-empty, got: %v", err)
 	}
-	if err := s.validatePermissions([]string{"api:role_permission_validation_test:write"}); err == nil {
+	if err := s.validatePermissions([]string{"role_permission_validation_test:api:write"}); err == nil {
 		t.Fatalf("expected unknown permission to fail")
 	}
-	if err := s.validatePermissions([]string{"action:role_permission_validation_test:write"}); err == nil {
+	if err := s.validatePermissions([]string{"role_permission_validation_test:action:write"}); err == nil {
 		t.Fatalf("expected unknown action permission to fail")
 	}
 }
 
 func TestValidatePermissionsForScope_RejectsBuiltinWildcardPermissions(t *testing.T) {
-	iammw.RegisterRequiredPermissionDefinitions(svc.AllPermissionDefinitions...)
+	// 走生产注册路径：目录一旦不再被登记，本用例会直接失败。
+	svc.RegisterIAMPermissionCatalog()
 
 	s := &RoleService{}
 	scope := &iamentity.Scope{Type: iamentity.ScopeTypeTenant}
 
-	for _, permission := range []string{"menu:*:view", "api:*:*", "*:*:*"} {
+	for _, permission := range []string{"*:menu:view", "*:api:*", "*:*:*"} {
 		if err := s.validatePermissionsForScope([]string{permission}, scope); err == nil {
 			t.Fatalf("expected builtin-only permission %q to fail for custom role", permission)
 		}

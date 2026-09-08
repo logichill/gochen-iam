@@ -9,10 +9,12 @@ import (
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
 	iamtenant "gochen-iam/tenant"
-	"gochen/api/rest"
+	"gochen-runtime/api/rest"
+	"gochen-runtime/security"
 	appcrud "gochen/app/crud"
-	auth "gochen/auth"
-	"gochen/db/query"
+	"gochen/app/query"
+	"gochen/auth/action"
+	"gochen/auth/scoped"
 	"gochen/errors"
 	"gochen/httpx"
 )
@@ -33,14 +35,14 @@ var groupQuerySchema = query.MustInferQuerySchema[groupQueryFields](nil)
 type GroupRoutes struct {
 	groupService IGroupService
 	groupRepo    svc.IScopedResourceContextRepository[*iamentity.Group, int64]
-	authorizer   auth.IAuthorizer
+	authorizer   scoped.IAuthorizer
 }
 
 // NewGroupRoutes 创建组织路由注册器
 func NewGroupRoutes(
 	groupService IGroupService,
 	groupRepo svc.IScopedResourceContextRepository[*iamentity.Group, int64],
-	authorizer *auth.Authorizer,
+	authorizer scoped.IAuthorizer,
 ) *GroupRoutes {
 	return &GroupRoutes{
 		groupService: groupService,
@@ -70,20 +72,33 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create group crud application").WithContext("route", "iam.group")
 	}
 
+	var app appcrud.IApplication[*iamentity.Group, int64] = appService
+	if gr.authorizer != nil {
+		scopedApp, err := security.Scoped(appService, gr.authorizer, security.ScopedConfig{
+			EntityType: svc.GroupResourceKind,
+			Policy: action.OperationPolicy{
+				Create: iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionWrite).Code,
+				Update: iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionWrite).Code,
+				Delete: iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionDelete).Code,
+				Read:   iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionRead).Code,
+				List:   iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionRead).Code,
+			},
+			ScopeResolver: svc.DefaultDataScopeResolver,
+		})
+		if err != nil {
+			return err
+		}
+		app = scopedApp
+	}
+
 	builder, err := rest.NewApiBuilder[*iamentity.Group, int64](
-		appService,
+		app,
 		rest.WithQuerySchema[*iamentity.Group, int64](groupQuerySchema),
-		rest.WithAuthorization[*iamentity.Group, int64](gr.authorizer, rest.CRUDPermissions{
-			List:   svc.GroupPermissionSet.Code(iammw.ActionRead),
-			Get:    svc.GroupPermissionSet.Code(iammw.ActionRead),
-			Create: svc.GroupPermissionSet.Code(iammw.ActionWrite),
-			Update: svc.GroupPermissionSet.Code(iammw.ActionWrite),
-			Delete: svc.GroupPermissionSet.Code(iammw.ActionDelete),
-		}),
 		rest.WithHooks[*iamentity.Group, int64](func(h *appcrud.Hooks[*iamentity.Group, int64]) {
 			*h = *newGroupCRUDHooks(gr.groupRepo)
 		}),
 	)
+
 	if err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create group api builder").WithContext("route", "iam.group")
@@ -96,10 +111,6 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 			cfg.Query.EnablePagination = true
 			cfg.Query.DefaultPageSize = 10
 			cfg.Query.MaxPageSize = 1000
-			if cfg.Authorization != nil {
-				cfg.Authorization.Consistency = auth.ConsistencyModeStrong
-				cfg.Authorization.HighRisk = true
-			}
 		}).
 		Build(adminGroup); err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {

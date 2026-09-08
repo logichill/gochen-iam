@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"gochen/httpx/nethttp"
+	"gochen-runtime/http/nethttp"
 )
 
 func TestGroupBindJSON_AllowsCompatibilityCodeField(t *testing.T) {

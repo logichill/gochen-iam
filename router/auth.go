@@ -201,6 +201,10 @@ func (ar *AuthRoutes) login(ctx httpx.IContext) error {
 }
 
 func (ar *AuthRoutes) activateScope(ctx httpx.IContext) error {
+	reqCtx, _, err := ar.ensureTenantContext(ctx)
+	if err != nil {
+		return err
+	}
 	var req struct {
 		ActivationToken string `json:"activation_token" binding:"required"`
 		ScopeID         int64  `json:"scope_id" binding:"required"`
@@ -223,7 +227,7 @@ func (ar *AuthRoutes) activateScope(ctx httpx.IContext) error {
 		return errors.NewCode(errors.Forbidden, "当前认证结果不允许激活目标授权域")
 	}
 
-	session, err := ar.userService.ActivateScope(ctx.RequestContext(), claims.UserID, req.ScopeID)
+	session, err := ar.userService.ActivateScope(reqCtx, claims.UserID, req.ScopeID)
 	if err != nil {
 		return err
 	}

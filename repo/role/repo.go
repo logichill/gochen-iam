@@ -8,13 +8,14 @@ import (
 	assocguard "gochen-iam/repo/internal/guard"
 	scoperesolver "gochen-iam/repo/internal/scope"
 	iamtenant "gochen-iam/tenant"
-	auth "gochen/auth"
+	"gochen-runtime/db/orm/repo"
+	auth "gochen-runtime/host/authz"
+	"gochen/app/query"
+	"gochen/auth/scoped"
 	"gochen/db/orm"
-	"gochen/db/orm/repo"
-	"gochen/db/query"
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
-	"gochen/ident"
+	"gochen/gen"
 )
 
 // RoleRepo 角色数据访问层
@@ -62,14 +63,16 @@ func (r *RoleRepo) getByID(ctx context.Context, id int64) (*iamentity.Role, erro
 }
 
 // NewRoleRepository 创建角色仓储。
-func NewRoleRepository(o orm.IOrm, idGenerator ident.IGenerator[int64]) (*RoleRepo, error) {
+func NewRoleRepository(o orm.IOrm, idGenerator gen.IGenerator[int64]) (*RoleRepo, error) {
 	base, err := repo.NewRepo[*iamentity.Role, int64](
 		o,
 		"roles",
 		repo.WithIDGenerator[*iamentity.Role, int64](idGenerator),
 		repo.WithResourceKind[*iamentity.Role, int64]("iam.role"),
 		repo.WithSoftDeleteColumns[*iamentity.Role, int64]("deleted_at", ""),
-		repo.WithAccessColumns[*iamentity.Role, int64]("namespace_scope_id", "owner_id", "version"),
+		repo.WithIsolation[*iamentity.Role, int64](repo.IsolationCols{Column: "tenant_id"}),
+		repo.WithScope[*iamentity.Role, int64](repo.ScopeCols{ManagedScopeID: "namespace_scope_id", OwnerID: "owner_id", Revision: "version"}),
+		repo.WithDataScopeResolver[*iamentity.Role, int64](scoperesolver.DefaultResolver),
 	)
 	if err != nil {
 		return nil, err
@@ -130,15 +133,18 @@ func roleWithoutAssociations(role *iamentity.Role) *iamentity.Role {
 }
 
 func (r *RoleRepo) CreateWithConstraint(ctx context.Context, role *iamentity.Role, guard iamaccess.WriteConstraint) error {
-	return r.Repo.CreateWithConstraint(assocguard.BindContext(ctx, guard), role, guard.Unwrap())
+	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+	return r.Repo.Create(boundCtx, role)
 }
 
 func (r *RoleRepo) UpdateWithConstraint(ctx context.Context, role *iamentity.Role, guard iamaccess.WriteConstraint) error {
-	return r.Repo.UpdateWithConstraint(assocguard.BindContext(ctx, guard), role, guard.Unwrap())
+	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+	return r.Repo.Update(boundCtx, role)
 }
 
 func (r *RoleRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
-	return r.Repo.DeleteWithConstraint(assocguard.BindContext(ctx, guard), id, guard.Unwrap())
+	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+	return r.Repo.Delete(boundCtx, id)
 }
 
 // Query 覆盖通用查询，补齐 namespace scope 关系。

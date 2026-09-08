@@ -5,11 +5,12 @@ import (
 	"os"
 	"testing"
 
-	"gochen-iam/access"
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
+
 	"gochen/contextx"
 	"gochen/errors"
 )
@@ -46,12 +47,12 @@ func (s *groupHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Group, 
 	return &cp, nil
 }
 
-func (s *groupHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (access.ResourceBoundary, error) {
+func (s *groupHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (scoped.Resource, error) {
 	g, ok := s.groups[id]
 	if !ok {
-		return access.ResourceBoundary{}, errors.NewCode(errors.NotFound, "组织不存在")
+		return scoped.Resource{}, errors.NewCode(errors.NotFound, "组织不存在")
 	}
-	return access.ResourceBoundary{
+	return scoped.Resource{
 		Kind:    "iam.group",
 		ID:      "group",
 		OwnerID: "tenant:" + g.GetTenantID(),
@@ -72,11 +73,7 @@ func tenantCtx(t *testing.T, tenantID string) context.Context {
 		t.Fatalf("WithTenantID: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iamentity.ScopeTypeTenant))
-	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
-		ActiveScopeID:   1,
-		VisibleScopeIDs: []int64{1},
-		Mode:            auth.ScopeModeScoped,
-	})
+	ctx, err = scoped.WithDataScope(ctx, scoped.Filtered(1))
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)
 	}

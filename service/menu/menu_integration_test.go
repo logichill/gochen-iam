@@ -2,19 +2,19 @@ package menu
 
 import (
 	"context"
-	"gochen/ident"
-	"gochen/logging"
-	"gochen/testkit"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"gochen/observe/logging"
+	"gochen/testkit"
 
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	menurepo "gochen-iam/repo/menu"
 	svc "gochen-iam/service"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
 	"gochen/errors"
 
 	"gorm.io/driver/sqlite"
@@ -51,7 +51,7 @@ func setupMenuServiceTest(t *testing.T) *menuServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry, ident.NewUUIDGenerator())
+	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}

@@ -5,8 +5,8 @@ import (
 
 	iamaccess "gochen-iam/access"
 	appcrud "gochen/app/crud"
+	"gochen/auth/scoped"
 	"gochen/domain"
-	appaccess "gochen/domain/access"
 	"gochen/errors"
 )
 
@@ -25,6 +25,7 @@ type scopedConstraintRepositoryAdapter[T domain.IEntity[ID], ID comparable] stru
 // CRUDApplication 把 gochen 原生 builder 的 WriteConstraint 适配到 gochen-iam 仓储。
 type CRUDApplication[T domain.IEntity[ID], ID comparable] struct {
 	*appcrud.Application[T, ID]
+	scopedRepo IScopedConstraintRepository[T, ID]
 }
 
 // NewCRUDApplication 创建 IAM CRUD 适配器。
@@ -47,43 +48,84 @@ func NewCRUDApplication[T domain.IEntity[ID], ID comparable](
 	}
 	return &CRUDApplication[T, ID]{
 		Application: base,
+		scopedRepo:  scopedRepo,
 	}, nil
 }
 
-func wrapIAMConstraint(ctx context.Context, constraint appaccess.WriteConstraint) iamaccess.WriteConstraint {
-	// 若 constraint 自身已经由 auth.WriteGuard 注入 metadata，优先保留；
-	// 否则回落到 context 中之前 Bind 的 metadata（兼容手工绕过 authz 的路径）。
-	if constraint.Metadata == (appaccess.ConstraintMetadata{}) {
-		if metadata, ok := appaccess.ConstraintMetadataFromContext(ctx); ok {
-			constraint.Metadata = metadata
-		}
+func wrapIAMConstraint(constraint scoped.WriteConstraint) iamaccess.WriteConstraint {
+	return iamaccess.NewWriteConstraint(constraint)
+}
+
+func (r *scopedConstraintRepositoryAdapter[T, ID]) Create(ctx context.Context, entity T) error {
+	return r.IScopedResourceContextRepository.Create(ctx, entity)
+}
+
+func (r *scopedConstraintRepositoryAdapter[T, ID]) Update(ctx context.Context, entity T) error {
+	return r.IScopedResourceContextRepository.Update(ctx, entity)
+}
+
+func (r *scopedConstraintRepositoryAdapter[T, ID]) Delete(ctx context.Context, id ID) error {
+	return r.IScopedResourceContextRepository.Delete(ctx, id)
+}
+
+func (r *scopedConstraintRepositoryAdapter[T, ID]) CreateWithConstraint(ctx context.Context, entity T, constraint scoped.WriteConstraint) error {
+	return r.scopedRepo.CreateWithConstraint(ctx, entity, wrapIAMConstraint(constraint))
+}
+
+func (r *scopedConstraintRepositoryAdapter[T, ID]) UpdateWithConstraint(ctx context.Context, entity T, constraint scoped.WriteConstraint) error {
+	return r.scopedRepo.UpdateWithConstraint(ctx, entity, wrapIAMConstraint(constraint))
+}
+
+func (r *scopedConstraintRepositoryAdapter[T, ID]) DeleteWithConstraint(ctx context.Context, id ID, constraint scoped.WriteConstraint) error {
+	return r.scopedRepo.DeleteWithConstraint(ctx, id, wrapIAMConstraint(constraint))
+}
+
+func (r *scopedConstraintRepositoryAdapter[T, ID]) HasScopeDeclaration() bool {
+	if p, ok := any(r.IScopedResourceContextRepository).(scoped.IScopeDeclarationProbe); ok {
+		return p.HasScopeDeclaration()
 	}
-	return iamaccess.NewWriteConstraint(constraint, appaccess.ConstraintMetadata{})
+	return false
 }
 
-func (r *scopedConstraintRepositoryAdapter[T, ID]) CreateWithConstraint(ctx context.Context, entity T, constraint appaccess.WriteConstraint) error {
-	return r.scopedRepo.CreateWithConstraint(ctx, entity, wrapIAMConstraint(ctx, constraint))
+func (r *scopedConstraintRepositoryAdapter[T, ID]) ResourceKind() string {
+	if p, ok := any(r.IScopedResourceContextRepository).(scoped.IResourceKindProbe); ok {
+		return p.ResourceKind()
+	}
+	return ""
 }
 
-func (r *scopedConstraintRepositoryAdapter[T, ID]) UpdateWithConstraint(ctx context.Context, entity T, constraint appaccess.WriteConstraint) error {
-	return r.scopedRepo.UpdateWithConstraint(ctx, entity, wrapIAMConstraint(ctx, constraint))
+func (r *scopedConstraintRepositoryAdapter[T, ID]) ValidateWriteConstraintSupport() error {
+	if p, ok := any(r.IScopedResourceContextRepository).(scoped.IConstraintWriteProbe); ok {
+		return p.ValidateWriteConstraintSupport()
+	}
+	return nil
 }
 
-func (r *scopedConstraintRepositoryAdapter[T, ID]) DeleteWithConstraint(ctx context.Context, id ID, constraint appaccess.WriteConstraint) error {
-	return r.scopedRepo.DeleteWithConstraint(ctx, id, wrapIAMConstraint(ctx, constraint))
+func (r *scopedConstraintRepositoryAdapter[T, ID]) ResolveResourceByID(ctx context.Context, id ID) (scoped.Resource, error) {
+	if p, ok := any(r.IScopedResourceContextRepository).(scoped.IResourceBoundaryReader[ID]); ok {
+		return p.ResolveResourceByID(ctx, id)
+	}
+	return scoped.Resource{}, nil
+}
+
+func (r *scopedConstraintRepositoryAdapter[T, ID]) ResolveResourceByIDIncludingDeleted(ctx context.Context, id ID) (scoped.Resource, error) {
+	if p, ok := any(r.IScopedResourceContextRepository).(scoped.IDeletedResourceBoundaryReader[ID]); ok {
+		return p.ResolveResourceByIDIncludingDeleted(ctx, id)
+	}
+	return r.ResolveResourceByID(ctx, id)
 }
 
 // CreateWithConstraint 在显式 guard 下创建实体。
-func (a *CRUDApplication[T, ID]) CreateWithConstraint(ctx context.Context, entity T, constraint appaccess.WriteConstraint) error {
-	return appcrud.NewWriteConstraintWriter[T, ID](a.Application).CreateWithConstraint(ctx, entity, constraint)
+func (a *CRUDApplication[T, ID]) CreateWithConstraint(ctx context.Context, entity T, constraint scoped.WriteConstraint) error {
+	return a.scopedRepo.CreateWithConstraint(ctx, entity, wrapIAMConstraint(constraint))
 }
 
 // UpdateWithConstraint 在显式 guard 下更新实体。
-func (a *CRUDApplication[T, ID]) UpdateWithConstraint(ctx context.Context, entity T, constraint appaccess.WriteConstraint) error {
-	return appcrud.NewWriteConstraintWriter[T, ID](a.Application).UpdateWithConstraint(ctx, entity, constraint)
+func (a *CRUDApplication[T, ID]) UpdateWithConstraint(ctx context.Context, entity T, constraint scoped.WriteConstraint) error {
+	return a.scopedRepo.UpdateWithConstraint(ctx, entity, wrapIAMConstraint(constraint))
 }
 
 // DeleteWithConstraint 在显式 guard 下删除实体。
-func (a *CRUDApplication[T, ID]) DeleteWithConstraint(ctx context.Context, id ID, constraint appaccess.WriteConstraint) error {
-	return appcrud.NewWriteConstraintWriter[T, ID](a.Application).DeleteWithConstraint(ctx, id, constraint)
+func (a *CRUDApplication[T, ID]) DeleteWithConstraint(ctx context.Context, id ID, constraint scoped.WriteConstraint) error {
+	return a.scopedRepo.DeleteWithConstraint(ctx, id, wrapIAMConstraint(constraint))
 }

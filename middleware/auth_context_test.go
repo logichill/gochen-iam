@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	iamauth "gochen-iam/auth"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
 	"gochen/contextx"
 	"gochen/httpx"
 )
@@ -20,7 +20,7 @@ func TestInjectClaimsRequestContext_BindsPrincipalAndLegacyHelpers(t *testing.T)
 
 	bound, err := InjectClaimsRequestContext(reqCtx, "tenant-b", &JWTClaims{
 		UserID:        7,
-		Permissions:   []string{"api:user:manage", "*:*:*"},
+		Permissions:   []string{"user:api:manage", "*:*:*"},
 		ActiveScopeID: 100,
 	}, fixedAuthContextResolver{kind: "platform"})
 	require.NoError(t, err)
@@ -29,18 +29,18 @@ func TestInjectClaimsRequestContext_BindsPrincipalAndLegacyHelpers(t *testing.T)
 	require.True(t, ok)
 	require.Equal(t, int64(7), principal.SubjectID)
 	require.Equal(t, int64(100), principal.ActiveScopeID)
-	require.True(t, principal.HasPermission("api:user:manage"))
+	require.True(t, principal.HasPermission("user:api:manage"))
 	require.Equal(t, "tenant-b", contextx.TenantID(bound))
 	require.Equal(t, "platform", iamauth.ActiveScopeKind(bound))
 	require.NotNil(t, iamauth.PermissionSet(bound))
-	require.True(t, HasPermission(bound, "api:user:manage"))
-	require.True(t, HasPermission(bound, "api:any:thing"))
+	require.True(t, HasPermission(bound, "user:api:manage"))
+	require.True(t, HasPermission(bound, "any:api:thing"))
 }
 
 func TestPermissionChecker_EmptyPermissionsFailClosed(t *testing.T) {
 	reqCtx, err := httpx.NewRequestContext(context.Background())
 	require.NoError(t, err)
-	reqCtx = iamauth.WithPermissions(reqCtx, []string{"api:user:manage"})
+	reqCtx = iamauth.WithPermissions(reqCtx, []string{"user:api:manage"})
 	ctx := requestContextOnly{reqCtx: reqCtx}
 	checker := permissionChecker{}
 
@@ -49,8 +49,8 @@ func TestPermissionChecker_EmptyPermissionsFailClosed(t *testing.T) {
 	require.False(t, checker.HasAnyPermission(ctx, nil))
 	require.False(t, checker.HasAnyPermission(ctx, []string{""}))
 	require.False(t, checker.HasAnyPermission(ctx, []string{"   "}))
-	require.True(t, checker.HasAnyPermission(ctx, []string{"api:user:manage"}))
-	require.True(t, checker.HasAnyPermission(ctx, []string{"", "api:user:manage"}))
+	require.True(t, checker.HasAnyPermission(ctx, []string{"user:api:manage"}))
+	require.True(t, checker.HasAnyPermission(ctx, []string{"", "user:api:manage"}))
 }
 
 type requestContextOnly struct {

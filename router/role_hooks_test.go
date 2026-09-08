@@ -2,9 +2,9 @@ package router
 
 import (
 	"context"
+	"gochen/auth/scoped"
 	"testing"
 
-	"gochen-iam/access"
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
@@ -38,13 +38,13 @@ func (s *roleHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Role, er
 	return cloneRole(role), nil
 }
 
-func (s *roleHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (access.ResourceBoundary, error) {
+func (s *roleHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (scoped.Resource, error) {
 	role, ok := s.roles[id]
 	if !ok {
-		return access.ResourceBoundary{}, errors.NewCode(errors.NotFound, "角色不存在")
+		return scoped.Resource{}, errors.NewCode(errors.NotFound, "角色不存在")
 	}
 	s.lastResolved = id
-	return access.ResourceBoundary{
+	return scoped.Resource{
 		Kind:           "iam.role",
 		ID:             "role",
 		OwnerID:        "tenant:" + role.GetTenantID(),
@@ -91,7 +91,7 @@ func TestRoleCRUDHooks_CreateRejectsBuiltinWildcardPermissions(t *testing.T) {
 	role := &iamentity.Role{
 		Name:        "自定义管理员",
 		Description: "test",
-		Permissions: iamentity.PermissionArray{"api:*:*"},
+		Permissions: iamentity.PermissionArray{"*:api:*"},
 	}
 
 	err := hooks.BeforeCreate(tenantCtx(t, "tenant-a"), role)
@@ -116,9 +116,10 @@ func TestRoleCRUDHooks_CreateAppliesServiceDefaults(t *testing.T) {
 	role := &iamentity.Role{
 		Code:        "mutated",
 		Name:        "租户管理员",
-		Permissions: iamentity.PermissionArray{"api:role:read"},
-		IsSystem:    true,
-		Status:      "inactive",
+		Permissions: iamentity.PermissionArray{"role:api:read"},
+
+		IsSystem: true,
+		Status:   "inactive",
 	}
 
 	if err := hooks.BeforeCreate(tenantCtx(t, "tenant-a"), role); err != nil {
@@ -153,7 +154,7 @@ func TestRoleCRUDHooks_UpdateRejectsSystemRoleMutation(t *testing.T) {
 		NamespaceScopeID: 1,
 		Code:             "system-admin",
 		Name:             "系统管理员",
-		Permissions:      iamentity.PermissionArray{"api:role:read"},
+		Permissions:      iamentity.PermissionArray{"role:api:read"},
 		IsSystem:         true,
 		Status:           svc.RoleStatusActive,
 	}
@@ -189,7 +190,7 @@ func TestRoleCRUDHooks_UpdateRestoresImmutableFields(t *testing.T) {
 		NamespaceScopeID: 1,
 		Code:             "auditor",
 		Name:             "审计员",
-		Permissions:      iamentity.PermissionArray{"api:role:read"},
+		Permissions:      iamentity.PermissionArray{"role:api:read"},
 		IsSystem:         false,
 		Status:           svc.RoleStatusActive,
 	}
@@ -207,7 +208,7 @@ func TestRoleCRUDHooks_UpdateRestoresImmutableFields(t *testing.T) {
 	updating.Code = "mutated"
 	updating.Status = "inactive"
 	updating.IsSystem = true
-	updating.Permissions = iamentity.PermissionArray{"api:user:read"}
+	updating.Permissions = iamentity.PermissionArray{"user:api:read"}
 
 	if err := hooks.BeforeUpdate(tenantCtx(t, "tenant-a"), updating); err != nil {
 		t.Fatalf("BeforeUpdate: %v", err)
@@ -235,9 +236,10 @@ func TestRoleCRUDHooks_DeleteRejectsInUseAndCrossTenantRole(t *testing.T) {
 		NamespaceScopeID: 1,
 		Code:             "operator",
 		Name:             "运营",
-		Permissions:      iamentity.PermissionArray{"api:role:read"},
+		Permissions:      iamentity.PermissionArray{"role:api:read"},
 		Status:           svc.RoleStatusActive,
 	}
+
 	role.SetID(3)
 
 	repo := &roleHookRepoStub{

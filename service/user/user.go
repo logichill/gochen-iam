@@ -22,9 +22,10 @@ import (
 	userrepo "gochen-iam/repo/user"
 
 	svc "gochen-iam/service"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/errors"
-	"gochen/logging"
+	"gochen/observe/logging"
 )
 
 // UserService 用户服务
@@ -33,7 +34,7 @@ type UserService struct {
 	groupRepo       *grouprepo.GroupRepo
 	roleRepo        *rolerepo.RoleRepo
 	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      auth.IAuthorizer
+	authorizer      scoped.IAuthorizer
 	logger          logging.ILogger
 }
 
@@ -43,7 +44,7 @@ func NewUserService(
 	groupRepo *grouprepo.GroupRepo,
 	roleRepo *rolerepo.RoleRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer *auth.Authorizer,
+	authorizer scoped.IAuthorizer,
 	logger logging.ILogger,
 ) *UserService {
 	return &UserService{
@@ -211,6 +212,11 @@ func (s *UserService) ActivateScope(ctx context.Context, userID, activeScopeID i
 	if activeScopeID <= 0 {
 		return nil, errors.NewCode(errors.Validation, "active scope is required")
 	}
+	if tenantID, err := svc.NormalizeTenantID(ctx, ""); err == nil && tenantID != "" {
+		if boundCtx, err := svc.BindTenantContext(ctx, tenantID); err == nil {
+			ctx = boundCtx
+		}
+	}
 	user, _, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {
 		return nil, err
@@ -229,6 +235,11 @@ func (s *UserService) ActivateScope(ctx context.Context, userID, activeScopeID i
 func (s *UserService) AuthSnapshot(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error) {
 	if activeScopeID <= 0 {
 		return nil, errors.NewCode(errors.Validation, "active scope is required")
+	}
+	if tenantID, err := svc.NormalizeTenantID(ctx, ""); err == nil && tenantID != "" {
+		if boundCtx, err := svc.BindTenantContext(ctx, tenantID); err == nil {
+			ctx = boundCtx
+		}
 	}
 	user, _, err := svc.LoadTenantBoundResource(ctx, s.userRepo, userID)
 	if err != nil {

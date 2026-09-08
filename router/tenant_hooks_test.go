@@ -2,11 +2,11 @@ package router
 
 import (
 	"context"
+	"gochen/auth/scoped"
 	"strconv"
 	"strings"
 	"testing"
 
-	"gochen-iam/access"
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
 	"gochen/errors"
@@ -33,12 +33,12 @@ func (s *tenantHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Tenant
 	return &cp, nil
 }
 
-func (s *tenantHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (access.ResourceBoundary, error) {
+func (s *tenantHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (scoped.Resource, error) {
 	tenant, ok := s.tenants[id]
 	if !ok {
-		return access.ResourceBoundary{}, errors.NewCode(errors.NotFound, "租户不存在")
+		return scoped.Resource{}, errors.NewCode(errors.NotFound, "租户不存在")
 	}
-	return access.ResourceBoundary{
+	return scoped.Resource{
 		Kind: "iam.tenant",
 		ID:   strconv.FormatInt(tenant.GetID(), 10),
 	}, nil

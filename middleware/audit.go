@@ -6,7 +6,7 @@ import (
 
 	"gochen/contextx"
 	"gochen/httpx"
-	"gochen/logging"
+	"gochen/observe/logging"
 )
 
 // AuditRecord 表示一次鉴权/授权决策的审计记录（默认仅记录 deny）。

@@ -34,13 +34,13 @@ func TestAPIPermissions_BuildsExpectedSpecs(t *testing.T) {
 	}
 
 	read := PermissionByAction(specs, ActionRead)
-	if read.Code != "api:user:read" {
-		t.Fatalf("expected read permission code api:user:read, got %q", read.Code)
+	if read.Code != "user:api:read" {
+		t.Fatalf("expected read permission code user:api:read, got %q", read.Code)
 	}
 
 	selfEdit := PermissionByAction(specs, ActionSelfEdit)
-	if selfEdit.Code != "api:user:update_self" {
-		t.Fatalf("expected self edit permission code api:user:update_self, got %q", selfEdit.Code)
+	if selfEdit.Code != "user:api:update_self" {
+		t.Fatalf("expected self edit permission code user:api:update_self, got %q", selfEdit.Code)
 	}
 }
 
@@ -51,7 +51,7 @@ func TestPermissionCodes_DeduplicatesSpecs(t *testing.T) {
 	)
 
 	codes := PermissionCodes(specs...)
-	expected := []string{"api:task:read", "api:task:write", "api:task:delete"}
+	expected := []string{"task:api:read", "task:api:write", "task:api:delete"}
 	if len(codes) != len(expected) {
 		t.Fatalf("expected %d codes, got %d: %#v", len(expected), len(codes), codes)
 	}
@@ -65,11 +65,11 @@ func TestPermissionCodes_DeduplicatesSpecs(t *testing.T) {
 func TestPermissionSet_CodeAndMustExposeActionIndexedAccess(t *testing.T) {
 	set := NewAPIPermissionSet(ResourceUser, JoinActions(ManageActions(), SelfActions())...)
 
-	if got := set.Code(ActionRead); got != "api:user:read" {
-		t.Fatalf("expected read code api:user:read, got %q", got)
+	if got := set.Code(ActionRead); got != "user:api:read" {
+		t.Fatalf("expected read code user:api:read, got %q", got)
 	}
-	if got := set.Must(ActionSelfEdit).Code; got != "api:user:update_self" {
-		t.Fatalf("expected self edit code api:user:update_self, got %q", got)
+	if got := set.Must(ActionSelfEdit).Code; got != "user:api:update_self" {
+		t.Fatalf("expected self edit code user:api:update_self, got %q", got)
 	}
 	if got := len(set.Codes()); got != 6 {
 		t.Fatalf("expected 6 codes, got %d", got)
@@ -85,9 +85,10 @@ func TestPermissionSpecDefinitionUsesCoreNormalization(t *testing.T) {
 		Risk(RiskLevelHigh).
 		Definition()
 
-	if def.Code != "api:user:write" {
+	if def.Code != "user:api:write" {
 		t.Fatalf("expected normalized code, got %q", def.Code)
 	}
+
 	if def.Name != "User Write" || def.Description != "Update user" {
 		t.Fatalf("expected normalized metadata, got %#v", def)
 	}

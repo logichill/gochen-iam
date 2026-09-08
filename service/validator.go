@@ -9,7 +9,7 @@ import (
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
-	auth "gochen/auth"
+	"gochen/auth/action"
 	"gochen/errors"
 	"gochen/validate"
 )
@@ -212,7 +212,7 @@ func roleHasAdminCapability(role *iamentity.Role) bool {
 		if permission == "" {
 			continue
 		}
-		if auth.PermissionPatternMatches(permission, AdminEntryPermission.Code) {
+		if action.PatternMatches(permission, AdminEntryPermission.Code) {
 			return true
 		}
 	}

@@ -6,7 +6,7 @@ import (
 	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
 	appcrud "gochen/app/crud"
-	"gochen/domain/access"
+	"gochen/auth/scoped"
 	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 )
@@ -66,25 +66,25 @@ func (a *CRUDApplication) ValidateWriteConstraintSupport() error {
 func (a *CRUDApplication) CreateWithConstraint(
 	ctx context.Context,
 	entity *iamentity.MenuItem,
-	guard access.WriteConstraint,
+	guard scoped.WriteConstraint,
 ) error {
-	return a.menuService.CreateEntityWithConstraint(ctx, entity, iamaccess.NewWriteConstraint(guard, access.ConstraintMetadata{}))
+	return a.menuService.CreateEntityWithConstraint(ctx, entity, iamaccess.NewWriteConstraint(guard))
 }
 
 // UpdateWithConstraint 在显式 guard 下更新菜单。
 func (a *CRUDApplication) UpdateWithConstraint(
 	ctx context.Context,
 	entity *iamentity.MenuItem,
-	guard access.WriteConstraint,
+	guard scoped.WriteConstraint,
 ) error {
-	return a.menuService.UpdateEntityWithConstraint(ctx, entity, iamaccess.NewWriteConstraint(guard, access.ConstraintMetadata{}))
+	return a.menuService.UpdateEntityWithConstraint(ctx, entity, iamaccess.NewWriteConstraint(guard))
 }
 
 // DeleteWithConstraint 在显式 guard 下删除菜单。
 func (a *CRUDApplication) DeleteWithConstraint(
 	ctx context.Context,
 	id int64,
-	guard access.WriteConstraint,
+	guard scoped.WriteConstraint,
 ) error {
-	return a.menuService.DeleteEntityWithConstraint(ctx, id, iamaccess.NewWriteConstraint(guard, access.ConstraintMetadata{}))
+	return a.menuService.DeleteEntityWithConstraint(ctx, id, iamaccess.NewWriteConstraint(guard))
 }

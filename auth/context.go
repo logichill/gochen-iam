@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/httpx"
 )
 
@@ -165,4 +167,39 @@ func ActiveScopeKindFromContext(ctx context.Context) string {
 		}
 	}
 	return ""
+}
+
+// DefaultDataScopeResolver 为 IAM 仓储、服务与路由提供统一默认数据范围解析。
+var DefaultDataScopeResolver = scoped.DataScopeResolverFunc(func(ctx context.Context) (scoped.DataScope, error) {
+	if scope, ok := scoped.DataScopeFromContext(ctx); ok {
+		return scope, nil
+	}
+	if principal, ok := authz.PrincipalFromContext(ctx); ok {
+		if principal.IsSystem {
+			return scoped.Global(), nil
+		}
+		if principal.ActiveScopeID > 0 {
+			return scoped.Filtered(principal.ActiveScopeID), nil
+		}
+	}
+	if scopeID := ActiveScopeIDFromContext(ctx); scopeID > 0 {
+		return scoped.Filtered(scopeID), nil
+	}
+	return scoped.DenyAll(), nil
+})
+
+// ResolveManagedScopeID 解析用于受管范围写入的 scope ID。
+func ResolveManagedScopeID(ctx context.Context) int64 {
+	if scopeID := ActiveScopeIDFromContext(ctx); scopeID > 0 {
+		return scopeID
+	}
+	if scope, ok := scoped.DataScopeFromContext(ctx); ok {
+		if len(scope.ScopeIDs) == 1 {
+			return scope.ScopeIDs[0]
+		}
+	}
+	if principal, ok := authz.PrincipalFromContext(ctx); ok && principal.ActiveScopeID > 0 {
+		return principal.ActiveScopeID
+	}
+	return 0
 }

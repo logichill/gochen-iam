@@ -12,14 +12,15 @@ import (
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
+	auth "gochen-runtime/host/authz"
 	appcrud "gochen/app/crud"
-	auth "gochen/auth"
-	"gochen/db/query"
+	"gochen/app/query"
+	"gochen/auth/scoped"
 	"gochen/errors"
 	"gochen/eventing"
 	"gochen/eventing/bus"
-	"gochen/ident"
-	"gochen/logging"
+	"gochen/gen"
+	"gochen/observe/logging"
 )
 
 var errBatchAssignRoleRollback = stdErrors.New("rollback batch assign role")
@@ -30,9 +31,9 @@ type RoleService struct {
 	userRepo         *userrepo.UserRepo
 	groupRepo        *grouprepo.GroupRepo
 	scopeAuthorizer  *svc.ScopeAuthorizer
-	authorizer       auth.IAuthorizer
+	authorizer       scoped.IAuthorizer
 	eventBus         bus.IEventBus
-	eventIDGenerator ident.IGenerator[string]
+	eventIDGenerator gen.IGenerator[string]
 	logger           logging.ILogger
 	governance       *Governance
 }
@@ -43,11 +44,12 @@ func NewRoleService(
 	userRepo *userrepo.UserRepo,
 	groupRepo *grouprepo.GroupRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer *auth.Authorizer,
+	authorizer scoped.IAuthorizer,
 	eventBus bus.IEventBus,
-	eventIDGenerator ident.IGenerator[string],
+	eventIDGenerator gen.IGenerator[string],
 	logger logging.ILogger,
 ) *RoleService {
+
 	return &RoleService{
 		roleRepo:         roleRepo,
 		userRepo:         userRepo,

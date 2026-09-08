@@ -177,14 +177,14 @@ func TestAuthContextResolverVisibleScopesRespectTenantMode(t *testing.T) {
 				UserID:         7,
 				ActiveScopeID:  tenantRootID,
 				BindingVersion: "binding-v1",
-				Permissions:    []string{"api:user:list"},
+				Permissions:    []string{"user:api:list"},
 			}}
 			resolver := NewAuthContextResolver(NewScopeAuthorizer(scopeRepo, nil), provider)
 			claims := &iammw.JWTClaims{
 				UserID:         7,
 				ActiveScopeID:  tenantRootID,
 				BindingVersion: "binding-v1",
-				Permissions:    []string{"api:user:list"},
+				Permissions:    []string{"user:api:list"},
 			}
 
 			resolved, err := resolver.ResolveAuthContext(context.Background(), claims)

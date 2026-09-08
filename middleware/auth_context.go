@@ -5,7 +5,8 @@ import (
 	"strings"
 
 	iamauth "gochen-iam/auth"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"
@@ -60,11 +61,7 @@ func InjectClaimsRequestContext(
 			return nil, errors.NewCode(errors.InvalidInput, "resolved auth context is required")
 		}
 		baseCtx = iamauth.BindActiveScopeContext(baseCtx, runtime.ActiveScopeID, runtime.ActiveScopeKind)
-		baseCtx, err = auth.WithDataScope(baseCtx, auth.DataScope{
-			ActiveScopeID:   runtime.ActiveScopeID,
-			VisibleScopeIDs: runtime.VisibleScopeIDs,
-			Mode:            auth.ScopeModeScoped,
-		})
+		baseCtx, err = scoped.WithDataScope(baseCtx, scoped.Filtered(runtime.VisibleScopeIDs...))
 		if err != nil {
 			return nil, err
 		}

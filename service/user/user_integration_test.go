@@ -2,13 +2,13 @@ package user_test
 
 import (
 	"context"
-	"gochen/ident"
-	"gochen/logging"
-	"gochen/testkit"
 	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
+
+	"gochen/observe/logging"
+	"gochen/testkit"
 
 	iamaccess "gochen-iam/access"
 	iamauth "gochen-iam/auth"
@@ -23,9 +23,9 @@ import (
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
 
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/contextx"
-	appaccess "gochen/domain/access"
 	"gochen/errors"
 
 	"gorm.io/driver/sqlite"
@@ -134,11 +134,7 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 		t.Fatalf("ensure tenant root scope: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, rootScope.ID, string(rootScope.Type))
-	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
-		ActiveScopeID:   rootScope.ID,
-		VisibleScopeIDs: []int64{rootScope.ID},
-		Mode:            auth.ScopeModeScoped,
-	})
+	ctx, err = scoped.WithDataScope(ctx, scoped.Filtered(rootScope.ID))
 	if err != nil {
 		t.Fatalf("bind tenant root scope: %v", err)
 	}
@@ -155,11 +151,22 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	if err != nil {
 		t.Fatalf("rebind tenant context: %v", err)
 	}
+	ctx = scoped.WithConstraint(ctx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
+		return scoped.WriteConstraint{
+			Resources: []scoped.ResourceConstraint{{
+				Kind:           entityType,
+				TenantID:       tenant.Key,
+				ManagedScopeID: rootScope.ID,
+				Revision:       "0",
+			}},
+		}, true
+	}))
+
 	authzRegistry, err := iamservice.NewIAMAuthzRegistry()
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := iamservice.NewIAMAuthorizer(scopeAuthorizer, authzRegistry, ident.NewUUIDGenerator())
+	authorizer, err := iamservice.NewIAMAuthorizer(scopeAuthorizer, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -568,9 +575,9 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 		t.Fatalf("register user: %v", err)
 	}
 
-	activeRole := env.createTestRole(t, "role_active", []string{"api:perm:active"})
-	inactiveRole := env.createTestRole(t, "role_inactive", []string{"api:perm:inactive"})
-	deletedRole := env.createTestRole(t, "role_deleted", []string{"api:perm:deleted"})
+	activeRole := env.createTestRole(t, "role_active", []string{"perm:api:active"})
+	inactiveRole := env.createTestRole(t, "role_inactive", []string{"perm:api:inactive"})
+	deletedRole := env.createTestRole(t, "role_deleted", []string{"perm:api:deleted"})
 
 	if err := env.userService.AssignRole(env.backgroundCtx, user.GetID(), activeRole.GetID()); err != nil {
 		t.Fatalf("assign active role: %v", err)
@@ -584,10 +591,29 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 
 	inactiveRole.Status = svc.RoleStatusInactive
 	inactiveRole.SetUpdatedAt(time.Now())
-	if err := env.roleRepo.Update(env.backgroundCtx, inactiveRole); err != nil {
+	inactiveRoleCtx := scoped.WithConstraint(env.backgroundCtx, scoped.SingleEntityConstraint("iam.role", scoped.WriteConstraint{
+		Resources: []scoped.ResourceConstraint{{
+			Kind:           "iam.role",
+			ResourceID:     strconv.FormatInt(inactiveRole.GetID(), 10),
+			TenantID:       env.tenantID,
+			ManagedScopeID: inactiveRole.NamespaceScopeID,
+			Revision:       "0",
+		}},
+	}))
+	if err := env.roleRepo.Update(inactiveRoleCtx, inactiveRole); err != nil {
 		t.Fatalf("deactivate role: %v", err)
 	}
-	if err := env.roleRepo.Delete(env.backgroundCtx, deletedRole.GetID()); err != nil {
+	deletedRoleCtx := scoped.WithConstraint(env.backgroundCtx, scoped.SingleEntityConstraint("iam.role", scoped.WriteConstraint{
+		Resources: []scoped.ResourceConstraint{{
+			Kind:           "iam.role",
+			ResourceID:     strconv.FormatInt(deletedRole.GetID(), 10),
+			TenantID:       env.tenantID,
+			ManagedScopeID: deletedRole.NamespaceScopeID,
+			Revision:       "0",
+		}},
+	}))
+
+	if err := env.roleRepo.Delete(deletedRoleCtx, deletedRole.GetID()); err != nil {
 		t.Fatalf("soft delete role: %v", err)
 	}
 
@@ -641,47 +667,47 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 	assertContains(scopeOption.RoleNames, "role_active", "auth roles")
 	assertNotContains(scopeOption.RoleNames, "role_inactive", "auth roles")
 	assertNotContains(scopeOption.RoleNames, "role_deleted", "auth roles")
-	assertContains(scopeOption.Permissions, "api:perm:active", "auth permissions")
-	assertNotContains(scopeOption.Permissions, "api:perm:inactive", "auth permissions")
-	assertNotContains(scopeOption.Permissions, "api:perm:deleted", "auth permissions")
+	assertContains(scopeOption.Permissions, "perm:api:active", "auth permissions")
+	assertNotContains(scopeOption.Permissions, "perm:api:inactive", "auth permissions")
+	assertNotContains(scopeOption.Permissions, "perm:api:deleted", "auth permissions")
 
 	assertContains(activeResp.RoleNames, "role_active", "active roles")
 	assertNotContains(activeResp.RoleNames, "role_inactive", "active roles")
 	assertNotContains(activeResp.RoleNames, "role_deleted", "active roles")
-	assertContains(activeResp.Permissions, "api:perm:active", "active permissions")
-	assertNotContains(activeResp.Permissions, "api:perm:inactive", "active permissions")
-	assertNotContains(activeResp.Permissions, "api:perm:deleted", "active permissions")
+	assertContains(activeResp.Permissions, "perm:api:active", "active permissions")
+	assertNotContains(activeResp.Permissions, "perm:api:inactive", "active permissions")
+	assertNotContains(activeResp.Permissions, "perm:api:deleted", "active permissions")
 
 	assertContains(snapshotResp.RoleNames, "role_active", "snapshot roles")
 	assertNotContains(snapshotResp.RoleNames, "role_inactive", "snapshot roles")
 	assertNotContains(snapshotResp.RoleNames, "role_deleted", "snapshot roles")
-	assertContains(snapshotResp.Permissions, "api:perm:active", "snapshot permissions")
-	assertNotContains(snapshotResp.Permissions, "api:perm:inactive", "snapshot permissions")
-	assertNotContains(snapshotResp.Permissions, "api:perm:deleted", "snapshot permissions")
+	assertContains(snapshotResp.Permissions, "perm:api:active", "snapshot permissions")
+	assertNotContains(snapshotResp.Permissions, "perm:api:inactive", "snapshot permissions")
+	assertNotContains(snapshotResp.Permissions, "perm:api:deleted", "snapshot permissions")
 
 	perms, err := env.userService.UserPermissions(env.backgroundCtx, user.GetID())
 	if err != nil {
 		t.Fatalf("get user permissions: %v", err)
 	}
-	assertContains(perms, "api:perm:active", "user permissions")
-	assertNotContains(perms, "api:perm:inactive", "user permissions")
-	assertNotContains(perms, "api:perm:deleted", "user permissions")
+	assertContains(perms, "perm:api:active", "user permissions")
+	assertNotContains(perms, "perm:api:inactive", "user permissions")
+	assertNotContains(perms, "perm:api:deleted", "user permissions")
 
-	allowed, err := env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "api:perm:active")
+	allowed, err := env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "perm:api:active")
 	if err != nil {
 		t.Fatalf("check permission perm:active: %v", err)
 	}
 	if !allowed {
 		t.Fatalf("expected perm:active allowed")
 	}
-	allowed, err = env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "api:perm:inactive")
+	allowed, err = env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "perm:api:inactive")
 	if err != nil {
 		t.Fatalf("check permission perm:inactive: %v", err)
 	}
 	if allowed {
 		t.Fatalf("expected perm:inactive denied")
 	}
-	allowed, err = env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "api:perm:deleted")
+	allowed, err = env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "perm:api:deleted")
 	if err != nil {
 		t.Fatalf("check permission perm:deleted: %v", err)
 	}
@@ -694,7 +720,7 @@ func TestUserServiceGetUserPermissionsRequiresActiveUser(t *testing.T) {
 	env := setupUserServiceTest(t)
 	defer env.teardown(t)
 
-	role := env.createTestRole(t, "perm_role", []string{"api:perm:active"})
+	role := env.createTestRole(t, "perm_role", []string{"perm:api:active"})
 
 	tests := []struct {
 		name    string
@@ -738,7 +764,7 @@ func TestUserServiceGetUserPermissionsRequiresActiveUser(t *testing.T) {
 				t.Fatalf("expected forbidden error for %s user, got %v", tt.name, err)
 			}
 
-			allowed, err := env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "api:perm:active")
+			allowed, err := env.userService.CheckPermission(env.backgroundCtx, user.GetID(), "perm:api:active")
 			if err == nil {
 				t.Fatalf("expected error for %s user, got allowed=%v", tt.name, allowed)
 			}
@@ -766,8 +792,8 @@ func TestUserServiceSingleTenantUsesOneRootScopeForRBAC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("register user: %v", err)
 	}
-	directRole := env.createTestRole(t, "single_direct", []string{"api:single:direct"})
-	groupRole := env.createTestRole(t, "single_group", []string{"api:single:group"})
+	directRole := env.createTestRole(t, "single_direct", []string{"single:api:direct"})
+	groupRole := env.createTestRole(t, "single_group", []string{"single:api:group"})
 	if err := env.userService.AssignRole(env.backgroundCtx, user.GetID(), directRole.GetID()); err != nil {
 		t.Fatalf("assign direct role: %v", err)
 	}
@@ -814,8 +840,8 @@ func TestUserServiceSingleTenantUsesOneRootScopeForRBAC(t *testing.T) {
 	}
 	assertStringContains(t, option.RoleNames, directRole.Name)
 	assertStringContains(t, option.RoleNames, groupRole.Name)
-	assertStringContains(t, option.Permissions, "api:single:direct")
-	assertStringContains(t, option.Permissions, "api:single:group")
+	assertStringContains(t, option.Permissions, "single:api:direct")
+	assertStringContains(t, option.Permissions, "single:api:group")
 
 	session, err := env.userService.ActivateScope(env.backgroundCtx, user.GetID(), env.rootScopeID)
 	if err != nil {
@@ -852,7 +878,7 @@ func TestUserServiceAuthSnapshotQueryCountIsBounded(t *testing.T) {
 						t.Fatalf("create user: %v", err)
 					}
 					for i := 0; i < bindingCount; i++ {
-						directRole := env.createTestRole(t, "bounded_direct_"+strconv.Itoa(i), []string{"api:bounded:direct:" + strconv.Itoa(i)})
+						directRole := env.createTestRole(t, "bounded_direct_"+strconv.Itoa(i), []string{"bounded:api:direct:" + strconv.Itoa(i)})
 						if err := env.db.Create(&iamentity.UserRoleBinding{
 							UserID:       user.GetID(),
 							RoleID:       directRole.GetID(),
@@ -862,7 +888,7 @@ func TestUserServiceAuthSnapshotQueryCountIsBounded(t *testing.T) {
 							t.Fatalf("create direct role binding %d: %v", i, err)
 						}
 
-						groupRole := env.createTestRole(t, "bounded_group_"+strconv.Itoa(i), []string{"api:bounded:group:" + strconv.Itoa(i)})
+						groupRole := env.createTestRole(t, "bounded_group_"+strconv.Itoa(i), []string{"bounded:api:group:" + strconv.Itoa(i)})
 						group := &iamentity.Group{
 							TenantID:       env.tenantID,
 							ManagedScopeID: env.rootScopeID,
@@ -995,7 +1021,7 @@ func TestUserServiceSingleTenantRejectsExplicitOrExistingNonCoveringGrant(t *tes
 	if err != nil {
 		t.Fatalf("register user: %v", err)
 	}
-	role := env.createTestRole(t, "single_invalid_grant_role", []string{"api:single:test"})
+	role := env.createTestRole(t, "single_invalid_grant_role", []string{"single:api:test"})
 	nonRootScopeID := env.rootScopeID + 1000
 	if err := env.userService.AssignRoleBinding(env.backgroundCtx, user.GetID(), role.GetID(), &nonRootScopeID); !errors.Is(err, errors.InvalidInput) {
 		t.Fatalf("expected explicit non-root grant to fail, got %v", err)
@@ -1170,11 +1196,7 @@ func TestUserServiceActivateUserRejectsPlatformOwnedUserFromTenantScopeInSingleT
 		t.Fatalf("ensure platform scope: %v", err)
 	}
 	platformCtx := iamauth.BindActiveScopeContext(env.backgroundCtx, platformScope.ID, string(platformScope.Type))
-	platformCtx, err = auth.WithDataScope(platformCtx, auth.DataScope{
-		ActiveScopeID:   platformScope.ID,
-		VisibleScopeIDs: []int64{platformScope.ID},
-		Mode:            auth.ScopeModeScoped,
-	})
+	platformCtx, err = scoped.WithDataScope(platformCtx, scoped.Filtered(platformScope.ID))
 	if err != nil {
 		t.Fatalf("bind platform data scope: %v", err)
 	}
@@ -1205,7 +1227,7 @@ func TestUserServiceActivateUserRejectsPlatformOwnedUserFromTenantScopeInSingleT
 
 	tenantPrincipal := auth.Principal{
 		SubjectID:     42,
-		Permissions:   []string{"api:user:*"},
+		Permissions:   []string{"user:api:*"},
 		ActiveScopeID: env.rootScopeID,
 	}
 	tenantCtx, err := auth.WithPrincipal(env.backgroundCtx, tenantPrincipal)
@@ -1293,7 +1315,7 @@ func TestUserServiceAssignRole(t *testing.T) {
 	}
 
 	// 创建角色
-	role := env.createTestRole(t, "test_role", []string{"api:test:read", "api:test:write"})
+	role := env.createTestRole(t, "test_role", []string{"test:api:read", "test:api:write"})
 
 	// 分配角色
 	err = env.userService.AssignRole(env.backgroundCtx, user.GetID(), role.GetID())
@@ -1354,15 +1376,16 @@ func TestUserRepoAssignRoleWithConstraint_AllowsSameTenantDifferentManagedScopes
 		NamespaceScopeID: childScope.ID,
 		Name:             "child_scope_role",
 		Description:      "child scope role",
-		Permissions:      iamentity.PermissionArray([]string{"api:test:read"}),
+		Permissions:      iamentity.PermissionArray([]string{"test:api:read"}),
 		Status:           svc.RoleStatusActive,
 	}
 	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
 		t.Fatalf("create child scope role: %v", err)
 	}
 
-	guard := iamaccess.NewWriteConstraint(appaccess.WriteConstraint{
-		Resources: []appaccess.ResourceConstraint{
+	guard := iamaccess.NewWriteConstraint(scoped.WriteConstraint{
+		Resources: []scoped.ResourceConstraint{
+
 			{
 				Kind:           svc.UserResourceKind,
 				ResourceID:     guardID(user.GetID()),
@@ -1376,7 +1399,7 @@ func TestUserRepoAssignRoleWithConstraint_AllowsSameTenantDifferentManagedScopes
 				TenantID:       env.tenantID,
 			},
 		},
-	}, appaccess.ConstraintMetadata{})
+	})
 
 	if err := env.userRepo.AssignRoleWithConstraint(env.backgroundCtx, user.GetID(), role.GetID(), guard); err != nil {
 		t.Fatalf("AssignRoleWithConstraint: %v", err)
@@ -1460,7 +1483,7 @@ func TestUserServiceRemoveRole(t *testing.T) {
 	}
 
 	// 创建并分配角色
-	role := env.createTestRole(t, "remove_role", []string{"api:test:read"})
+	role := env.createTestRole(t, "remove_role", []string{"test:api:read"})
 	err = env.userService.AssignRole(env.backgroundCtx, user.GetID(), role.GetID())
 	if err != nil {
 		t.Fatalf("assign role: %v", err)
@@ -1539,13 +1562,23 @@ func TestUserServiceAssignRoleMasksCrossTenantRoleAsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BindTenantContext(other): %v", err)
 	}
+	otherCtx = scoped.WithConstraint(otherCtx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
+		return scoped.WriteConstraint{
+			Resources: []scoped.ResourceConstraint{{
+				Kind:           entityType,
+				TenantID:       "other-tenant",
+				ManagedScopeID: 1,
+				Revision:       "0",
+			}},
+		}, true
+	}))
 	otherRole := &iamentity.Role{
 		TenantID:         "other-tenant",
 		OwnerID:          svc.TenantOwnerID("other-tenant"),
 		NamespaceScopeID: 1,
 		Name:             "other-role",
 		Description:      "cross tenant role",
-		Permissions:      iamentity.PermissionArray([]string{"api:test:read"}),
+		Permissions:      iamentity.PermissionArray([]string{"test:api:read"}),
 		Status:           svc.RoleStatusActive,
 	}
 	if err := env.roleRepo.Create(otherCtx, otherRole); err != nil {
@@ -1575,6 +1608,17 @@ func TestUserServiceAssignToGroupMasksCrossTenantGroupAsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BindTenantContext(other): %v", err)
 	}
+	otherCtx = scoped.WithConstraint(otherCtx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
+		return scoped.WriteConstraint{
+			Resources: []scoped.ResourceConstraint{{
+				Kind:           entityType,
+				TenantID:       "other-tenant",
+				ManagedScopeID: 1,
+				Revision:       "0",
+			}},
+		}, true
+	}))
+
 	otherTenant := &iamentity.Tenant{
 		Key:    "other-tenant",
 		Name:   "Other Tenant",

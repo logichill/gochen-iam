@@ -12,16 +12,16 @@ func TestWithPermissions_InjectsPermissionSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
-	ctx = WithPermissions(ctx, []string{"api:a:read", "api:c:write"})
+	ctx = WithPermissions(ctx, []string{"a:api:read", "c:api:write"})
 
 	set := PermissionSet(ctx)
 	if set == nil {
 		t.Fatalf("expected permission set to be injected")
 	}
-	if _, ok := set["api:a:read"]; !ok {
-		t.Fatalf("expected api:a:read in permission set")
+	if _, ok := set["a:api:read"]; !ok {
+		t.Fatalf("expected a:api:read in permission set")
 	}
-	if _, ok := set["api:c:write"]; !ok {
-		t.Fatalf("expected api:c:write in permission set")
+	if _, ok := set["c:api:write"]; !ok {
+		t.Fatalf("expected c:api:write in permission set")
 	}
 }

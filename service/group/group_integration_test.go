@@ -2,13 +2,13 @@ package group_test
 
 import (
 	"context"
-	"gochen/ident"
-	"gochen/logging"
-	"gochen/testkit"
 	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
+
+	"gochen/observe/logging"
+	"gochen/testkit"
 
 	iamentity "gochen-iam/entity"
 	grouprepo "gochen-iam/repo/group"
@@ -17,7 +17,8 @@ import (
 	svc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/errors"
 
@@ -89,7 +90,7 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry, ident.NewUUIDGenerator())
+	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
@@ -113,6 +114,16 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
+	ctx = scoped.WithConstraint(ctx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
+		return scoped.WriteConstraint{
+			Resources: []scoped.ResourceConstraint{{
+				Kind:           entityType,
+				TenantID:       "test-tenant",
+				ManagedScopeID: 1,
+				Revision:       "0",
+			}},
+		}, true
+	}))
 
 	return &groupServiceTestEnv{
 		db:            db,
@@ -159,7 +170,7 @@ func (env *groupServiceTestEnv) createTestRole(t *testing.T, name string) *iamen
 		NamespaceScopeID: 1,
 		Name:             name,
 		Description:      "测试角色",
-		Permissions:      iamentity.PermissionArray([]string{"api:test:read"}),
+		Permissions:      iamentity.PermissionArray([]string{"test:api:read"}),
 		Status:           svc.RoleStatusActive,
 	}
 	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
@@ -976,7 +987,17 @@ func TestGroupRepoUpdateSyncsHierarchyFromParentID(t *testing.T) {
 	rootBID := rootB.GetID()
 	child.Parent = nil
 	child.ParentID = &rootBID
-	if err := env.groupRepo.Update(env.backgroundCtx, child); err != nil {
+	childIDStr := strconv.FormatInt(child.GetID(), 10)
+	updateCtx := scoped.WithConstraint(env.backgroundCtx, scoped.SingleEntityConstraint("iam.group", scoped.WriteConstraint{
+		Resources: []scoped.ResourceConstraint{{
+			Kind:           "iam.group",
+			ResourceID:     childIDStr,
+			TenantID:       env.tenantID,
+			ManagedScopeID: 1,
+			Revision:       "0",
+		}},
+	}))
+	if err := env.groupRepo.Update(updateCtx, child); err != nil {
 		t.Fatalf("update child via repo: %v", err)
 	}
 

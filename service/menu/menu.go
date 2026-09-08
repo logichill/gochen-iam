@@ -10,28 +10,24 @@ import (
 	iammw "gochen-iam/middleware"
 	menurepo "gochen-iam/repo/menu"
 	svc "gochen-iam/service"
-	auth "gochen/auth"
+	"gochen/auth/scoped"
 	"gochen/errors"
 	"gochen/httpx"
-	"gochen/logging"
+	"gochen/observe/logging"
 )
 
 // MenuService 负责菜单定义管理与当前用户菜单树组装。
 type MenuService struct {
 	menuRepo   *menurepo.MenuItemRepo
-	authorizer auth.IAuthorizer
+	authorizer scoped.IAuthorizer
 	logger     logging.ILogger
 }
 
 // NewMenuService 创建菜单应用服务。
-func NewMenuService(menuRepo *menurepo.MenuItemRepo, authorizer *auth.Authorizer, logger logging.ILogger) *MenuService {
-	var authzEngine auth.IAuthorizer
-	if authorizer != nil {
-		authzEngine = authorizer
-	}
+func NewMenuService(menuRepo *menurepo.MenuItemRepo, authorizer scoped.IAuthorizer, logger logging.ILogger) *MenuService {
 	return &MenuService{
 		menuRepo:   menuRepo,
-		authorizer: authzEngine,
+		authorizer: authorizer,
 		logger:     logging.ComponentLogger("iam.service.menu", logger),
 	}
 }

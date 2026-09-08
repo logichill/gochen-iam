@@ -10,12 +10,12 @@ import (
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
 	menusvc "gochen-iam/service/menu"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/domain"
-	"gochen/domain/access"
+
+	"gochen-runtime/http/nethttp"
 	"gochen/httpx"
-	"gochen/httpx/nethttp"
-	"gochen/ident"
 )
 
 type menuRouteTestRepo struct{}
@@ -121,8 +121,8 @@ func (r routeScopedRepo[T]) Count(context.Context) (int64, error) { return 0, ni
 func (r routeScopedRepo[T]) Exists(context.Context, int64) (bool, error) {
 	return false, nil
 }
-func (r routeScopedRepo[T]) ResolveResourceByID(context.Context, int64) (access.ResourceBoundary, error) {
-	return access.ResourceBoundary{}, nil
+func (r routeScopedRepo[T]) ResolveResourceByID(context.Context, int64) (scoped.Resource, error) {
+	return scoped.Resource{}, nil
 }
 func (r routeScopedRepo[T]) CreateWithConstraint(context.Context, T, iamaccess.WriteConstraint) error {
 	return nil
@@ -238,20 +238,9 @@ func TestManagementCRUDRoutesUseManageMiddlewareGroup(t *testing.T) {
 
 func TestTenantRoutesListUsesScopedQueryRepository(t *testing.T) {
 	repo := routeScopedRepo[*iamentity.Tenant]{entity: &iamentity.Tenant{}}
-	authorizer, err := auth.NewAuthorizer(auth.EvaluatorFunc(func(
-		context.Context,
-		auth.Principal,
-		string,
-		[]auth.Resource,
-	) (auth.AuthzDecision, error) {
-		return auth.AllowDecision(), nil
-	}), nil, ident.NewUUIDGenerator())
-	if err != nil {
-		t.Fatalf("NewAuthorizer failed: %v", err)
-	}
 
 	root := newRecordingGroup("", nil)
-	if err := NewTenantRoutes(nil, repo, nil, nil, nil, nil, nil, authorizer).RegisterRoutes(root); err != nil {
+	if err := NewTenantRoutes(nil, repo, nil, nil, nil, nil, nil).RegisterRoutes(root); err != nil {
 		t.Fatalf("RegisterRoutes failed: %v", err)
 	}
 	handler := root.handlers["GET /tenants"]

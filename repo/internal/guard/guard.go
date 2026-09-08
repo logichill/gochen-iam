@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	iamaccess "gochen-iam/access"
-	"gochen/domain/access"
 	"gochen/errors"
 )
 
@@ -76,23 +75,10 @@ func FormatInt64(id int64) string {
 	return strconv.FormatInt(id, 10)
 }
 
-// BindContext 将 write constraint 中的元数据与单资源 scope 边界绑定回上下文。
+// BindContext 将 write constraint 中的单资源 scope 边界绑定回上下文。
 func BindContext(ctx context.Context, constraint iamaccess.WriteConstraint) context.Context {
-	ctx = access.WithConstraintMetadata(ctx, access.ConstraintMetadata{
-		DecisionID:      constraint.Metadata.DecisionID,
-		SnapshotVersion: constraint.Metadata.SnapshotVersion,
-		Consistency:     constraint.Metadata.Consistency,
-	})
-	if len(constraint.Resources) != 1 {
-		return ctx
+	if derived, err := constraint.ScopedContext(ctx); err == nil {
+		return derived
 	}
-	resource := constraint.Resources[0]
-	if resource.ManagedScopeID == 0 {
-		return ctx
-	}
-	return access.WithDataScope(ctx, access.DataScope{
-		ActiveScopeID:   resource.ManagedScopeID,
-		VisibleScopeIDs: []int64{resource.ManagedScopeID},
-		Mode:            access.ScopeModeScoped,
-	})
+	return ctx
 }

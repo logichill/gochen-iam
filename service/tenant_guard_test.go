@@ -8,10 +8,10 @@ import (
 	iamauth "gochen-iam/auth"
 	iammw "gochen-iam/middleware"
 	"gochen-iam/tenant"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen-runtime/http/nethttp"
 	"gochen/contextx"
 	"gochen/httpx"
-	"gochen/httpx/nethttp"
 )
 
 func newTenantGuardRequestContext(t *testing.T, tenantID string) httpx.IRequestContext {
@@ -101,7 +101,7 @@ func TestRequireTenantPermission_ReusesTenantGuardWhenAuthorizerUnavailable(t *t
 	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeTenant))
 	reqCtx := newTenantGuardRequestContext(t, "tenant-a")
 
-	tenantID, err := RequireTenantPermission(reqCtx, nil, "api:user:read", "tenant-a")
+	tenantID, err := RequireTenantPermission(reqCtx, nil, "user:api:read", "tenant-a")
 	if err != nil {
 		t.Fatalf("RequireTenantPermission: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestRequireSameTenantPermission_RejectsCrossTenantBeforePermissionCheck(t *
 	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeTenant))
 	reqCtx := newTenantGuardRequestContext(t, "tenant-a")
 
-	_, err := RequireSameTenantPermission(reqCtx, nil, "api:user:write", "tenant-a", "tenant-b")
+	_, err := RequireSameTenantPermission(reqCtx, nil, "user:api:write", "tenant-a", "tenant-b")
 	if err == nil {
 		t.Fatalf("expected cross-tenant access to be rejected")
 	}
@@ -163,9 +163,9 @@ func TestRequireTenantPermission_SingleModeStillChecksPermission(t *testing.T) {
 	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
 	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
 
-	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "api:user:read")
+	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "user:api:read")
 
-	tenantID, err := RequireTenantPermission(reqCtx, NewScopeAuthorizer(nil, nil), "api:user:read", "")
+	tenantID, err := RequireTenantPermission(reqCtx, NewScopeAuthorizer(nil, nil), "user:api:read", "")
 	if err != nil {
 		t.Fatalf("RequireTenantPermission: %v", err)
 	}
@@ -178,14 +178,14 @@ func TestRequireTenantPermission_SingleModeRejectsMissingPermission(t *testing.T
 	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
 	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
 
-	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "api:user:list")
+	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "user:api:list")
 
-	err := iammw.RequirePermission(reqCtx, "api:user:read")
+	err := iammw.RequirePermission(reqCtx, "user:api:read")
 	if err == nil {
 		t.Fatalf("expected middleware permission helper to reject missing permission")
 	}
 
-	if _, err := RequireTenantPermission(reqCtx, NewScopeAuthorizer(nil, nil), "api:user:read", ""); err == nil {
+	if _, err := RequireTenantPermission(reqCtx, NewScopeAuthorizer(nil, nil), "user:api:read", ""); err == nil {
 		t.Fatalf("expected missing permission to be rejected even in single mode")
 	}
 }

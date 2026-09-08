@@ -1,15 +1,16 @@
 package iam
 
 import (
-	"gochen/logging"
+	"gochen/observe/logging"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	iammw "gochen-iam/middleware"
+	iamservice "gochen-iam/service"
+	"gochen-runtime/host/module"
+	"gochen-runtime/http/nethttp"
 	"gochen/db"
-	"gochen/host/module"
-	"gochen/httpx/nethttp"
 )
 
 func TestIAMModulePublicFeaturesExposeOnlyTenantMode(t *testing.T) {
@@ -33,6 +34,25 @@ func TestIAMModulePublicFeaturesExposeOnlyTenantMode(t *testing.T) {
 func TestNewModuleRejectsNilDatabase(t *testing.T) {
 	if _, err := NewModule(nil, logging.NewNoopLogger()); err == nil {
 		t.Fatal("expected nil database to be rejected")
+	}
+}
+
+// TestNewModuleRegistersIAMPermissionCatalog 守住权限目录登记：
+// 路由装配期的 PermissionMiddleware 只登记路由拦截的码，
+// 目录一旦不再登记，read/write/delete 与 menu:view 等码会被角色校验判为“未知权限”。
+func TestNewModuleRegistersIAMPermissionCatalog(t *testing.T) {
+	if _, err := NewModule(&moduleTestDatabase{}, logging.NewNoopLogger()); err != nil {
+		t.Fatalf("NewModule(database) error: %v", err)
+	}
+
+	for _, code := range []string{
+		iamservice.UserPermissionSet.Code(iammw.ActionRead),
+		iamservice.MenuPermissionSet.Code(iammw.ActionRead),
+		iamservice.RolePermissionSet.Code(iammw.ActionDelete),
+	} {
+		if !iammw.HasRequiredPermission(code) {
+			t.Fatalf("expected IAM catalog permission %q in strict permission registry", code)
+		}
 	}
 }
 

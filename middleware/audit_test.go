@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"gochen/logging"
+	"gochen/observe/logging"
 )
 
 func TestAuditMiddlewareKeepsLoggerRequestScoped(t *testing.T) {

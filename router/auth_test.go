@@ -12,10 +12,10 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen-runtime/http/nethttp"
 	"gochen/contextx"
 	"gochen/errors"
-	"gochen/httpx/nethttp"
 )
 
 type routerFixedAuthContextResolver struct {

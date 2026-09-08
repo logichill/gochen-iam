@@ -9,7 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/action"
 )
 
 type requiredPermissionMeta struct {
@@ -77,8 +78,8 @@ func normalizePermissionDefinition(def PermissionDefinition) PermissionDefinitio
 	}
 	if IsValidPermissionCode(def.Code) {
 		segments := strings.Split(def.Code, ":")
-		def.Type = segments[0]
-		def.Resource = segments[1]
+		def.Resource = segments[0]
+		def.Type = segments[1]
 		def.Action = segments[2]
 	} else {
 		def.Type = strings.TrimSpace(def.Type)
@@ -325,7 +326,7 @@ func HasRequiredPermission(permission string) bool {
 		if !IsValidPermissionCode(registered) {
 			continue
 		}
-		if auth.PermissionPatternMatches(normalized, registered) {
+		if action.PatternMatches(normalized, registered) {
 			return true
 		}
 	}

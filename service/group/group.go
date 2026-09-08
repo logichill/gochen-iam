@@ -12,10 +12,10 @@ import (
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
 	appcrud "gochen/app/crud"
-	auth "gochen/auth"
-	"gochen/db/query"
+	"gochen/app/query"
+	"gochen/auth/scoped"
 	"gochen/errors"
-	"gochen/logging"
+	"gochen/observe/logging"
 )
 
 var errBatchAddUsersRollback = stdErrors.New("rollback batch add users to group")
@@ -26,7 +26,7 @@ type GroupService struct {
 	userRepo        *userrepo.UserRepo
 	roleRepo        *rolerepo.RoleRepo
 	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      auth.IAuthorizer
+	authorizer      scoped.IAuthorizer
 	logger          logging.ILogger
 }
 
@@ -36,7 +36,7 @@ func NewGroupService(
 	userRepo *userrepo.UserRepo,
 	roleRepo *rolerepo.RoleRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer *auth.Authorizer,
+	authorizer scoped.IAuthorizer,
 	logger logging.ILogger,
 ) *GroupService {
 	return &GroupService{

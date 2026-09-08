@@ -4,13 +4,13 @@ import (
 	"testing"
 
 	iammw "gochen-iam/middleware"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
 )
 
 func TestSyncRequiredPermissionCatalog_RegistersDefinitionMetadata(t *testing.T) {
-	const permissionCode = "api:modulecatalogsynctest:write"
+	const permissionCode = "modulecatalogsynctest:api:write"
 
-	SyncRequiredPermissionCatalog(auth.ModuleRegistration{
+	if err := SyncRequiredPermissionCatalog(auth.ModuleRegistration{
 		ModuleID:   "sync-test",
 		ModuleName: "Sync Test",
 		PermissionDefinitions: []auth.PermissionDefinition{
@@ -23,7 +23,9 @@ func TestSyncRequiredPermissionCatalog_RegistersDefinitionMetadata(t *testing.T)
 				RiskLevel:   "high",
 			},
 		},
-	})
+	}); err != nil {
+		t.Fatalf("SyncRequiredPermissionCatalog: %v", err)
+	}
 
 	got := findRequiredPermissionDefinition(iammw.RequiredPermissionDefinitions(), permissionCode)
 	if got.Code != permissionCode {
@@ -40,38 +42,67 @@ func TestSyncRequiredPermissionCatalog_RegistersDefinitionMetadata(t *testing.T)
 	}
 }
 
-func TestSyncRequiredPermissionCatalog_RegistersExternalPermissionCode(t *testing.T) {
-	const permissionCode = "ems.reporting.write"
+func TestSyncRequiredPermissionCatalog_RegistersPermissionCodesWithoutDefinitions(t *testing.T) {
+	const permissionCode = "modulecodesynctest:api:read"
 
-	SyncRequiredPermissionCatalog(auth.ModuleRegistration{
-		ModuleID:   "reporting",
-		ModuleName: "Reporting",
-		PermissionDefinitions: []auth.PermissionDefinition{
-			{
-				Code:        permissionCode,
-				Name:        "Reporting Write",
-				Description: "allow mutate reporting resources",
-				Scopes:      []string{"tenant"},
-				RiskLevel:   "high",
-			},
-		},
-	})
+	if err := SyncRequiredPermissionCatalog(auth.ModuleRegistration{
+		ModuleID:    "code-sync-test",
+		ModuleName:  "Code Sync Test",
+		Permissions: []string{permissionCode},
+	}); err != nil {
+		t.Fatalf("SyncRequiredPermissionCatalog: %v", err)
+	}
 
 	if !iammw.HasRequiredPermission(permissionCode) {
-		t.Fatalf("expected external permission %q to be recognized by strict registry", permissionCode)
+		t.Fatalf("expected permission %q to be recognized by strict registry", permissionCode)
 	}
-	got := findRequiredPermissionDefinition(iammw.RequiredPermissionDefinitions(), permissionCode)
-	if got.Code != permissionCode {
-		t.Fatalf("expected required permission %q to be registered, got %#v", permissionCode, got)
+}
+
+// TestInstallIAMPermissionCatalog_RegistersCatalogAndMirrorsModules 覆盖生产装配路径：
+// IAM 自身目录进入 strict registry，且后续模块经 Catalog 声明的权限自动镜像进来。
+func TestInstallIAMPermissionCatalog_RegistersCatalogAndMirrorsModules(t *testing.T) {
+	registry := auth.NewRegistry()
+	if err := InstallIAMPermissionCatalog(registry); err != nil {
+		t.Fatalf("InstallIAMPermissionCatalog: %v", err)
 	}
-	if got.Type != "" || got.Resource != "" || got.Action != "" {
-		t.Fatalf("expected external permission to keep empty type/resource/action, got %#v", got)
+
+	// IAM 自身目录：路由中间件不会登记 read 码，必须由目录登记覆盖。
+	iamReadCode := UserPermissionSet.Code(iammw.ActionRead)
+	if !iammw.HasRequiredPermission(iamReadCode) {
+		t.Fatalf("expected IAM catalog permission %q in strict registry", iamReadCode)
 	}
-	if got.Name != "Reporting Write" || got.Description != "allow mutate reporting resources" {
-		t.Fatalf("unexpected external permission metadata: %#v", got)
+	// 内置通配定义需带 BuiltinOnly 元数据，供自定义角色校验拒绝复用。
+	wildcard := findRequiredPermissionDefinition(iammw.RequiredPermissionDefinitions(), "*:menu:view")
+	if wildcard.Code != "*:menu:view" || !wildcard.BuiltinOnly {
+		t.Fatalf("expected builtin-only menu visibility wildcard in strict registry, got %#v", wildcard)
 	}
-	if len(got.Scopes) != 1 || got.Scopes[0] != string(iammw.ScopeTenant) || got.RiskLevel != string(iammw.RiskLevelHigh) {
-		t.Fatalf("unexpected external permission policy metadata: %#v", got)
+
+	const downstreamCode = "downstreamcatalogtest.designer:menu:view"
+	registration := auth.ModuleRegistration{
+		ModuleID:   "downstream-catalog-test",
+		ModuleName: "Downstream Catalog Test",
+		PermissionDefinitions: []auth.PermissionDefinition{
+			{
+				Code:        downstreamCode,
+				Name:        "Downstream Designer Menu",
+				Description: "downstream module menu visibility permission",
+				Scopes:      []string{string(iammw.ScopePlatform), string(iammw.ScopeTenant)},
+			},
+		},
+	}
+	if err := registry.RegisterModule(registration); err != nil {
+		t.Fatalf("RegisterModule: %v", err)
+	}
+	if err := registry.SyncModuleCatalog(registration); err != nil {
+		t.Fatalf("SyncModuleCatalog: %v", err)
+	}
+
+	got := findRequiredPermissionDefinition(iammw.RequiredPermissionDefinitions(), downstreamCode)
+	if got.Code != downstreamCode {
+		t.Fatalf("expected downstream permission %q mirrored into strict registry, got %#v", downstreamCode, got)
+	}
+	if got.Name != "Downstream Designer Menu" {
+		t.Fatalf("unexpected mirrored permission metadata: %#v", got)
 	}
 }
 

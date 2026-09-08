@@ -32,7 +32,7 @@ func TestAdminNamespaceScopesOnlyIncludesAdminCapableRoles(t *testing.T) {
 		{
 			Status:           RoleStatusActive,
 			NamespaceScopeID: 22,
-			Permissions:      iamentity.PermissionArray{iammw.PermissionCode("api:user:read").Code},
+			Permissions:      iamentity.PermissionArray{iammw.PermissionCode("user:api:read").Code},
 		},
 	}
 

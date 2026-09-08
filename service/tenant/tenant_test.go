@@ -3,15 +3,15 @@ package tenant
 import (
 	"context"
 	"database/sql"
-	"gochen/ident"
-	"gochen/testkit"
 	"testing"
+
+	"gochen/testkit"
 
 	iamauth "gochen-iam/auth"
 	iammw "gochen-iam/middleware"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
 	"gochen/db"
 	"gochen/db/dialect"
 	"gochen/db/orm"
@@ -74,13 +74,14 @@ func TestTenantService_ListTenants_FiltersSoftDeletedRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry, ident.NewUUIDGenerator())
+	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
-		SubjectID:     1,
-		Permissions:   []string{"api:tenant:*"},
+		SubjectID:   1,
+		Permissions: []string{"tenant:api:*"},
+
 		ActiveScopeID: 1,
 	})
 	if err != nil {

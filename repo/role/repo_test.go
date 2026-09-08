@@ -8,7 +8,8 @@ import (
 	"testing"
 
 	iamentity "gochen-iam/entity"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/db"
 	"gochen/db/dialect"
@@ -52,11 +53,28 @@ func (m *capturingModel) Save(_ context.Context, entity any, _ ...orm.QueryOptio
 	m.savedEntity = entity
 	return nil
 }
+
+type fakeResult struct{ rows int64 }
+
+func (r fakeResult) RowsAffected() (int64, error) { return r.rows, nil }
+func (r fakeResult) LastInsertId() (int64, error) { return 0, nil }
+
 func (m *capturingModel) UpdateValues(context.Context, map[string]any, ...orm.QueryOption) error {
 	return nil
 }
 func (m *capturingModel) Delete(context.Context, ...orm.QueryOption) error { return nil }
-func (m *capturingModel) Association(any, string) orm.IAssociation         { return nil }
+
+func (m *capturingModel) SaveWithResult(_ context.Context, entity any, _ ...orm.QueryOption) (sql.Result, error) {
+	m.savedEntity = entity
+	return fakeResult{rows: 1}, nil
+}
+func (m *capturingModel) UpdateValuesWithResult(context.Context, map[string]any, ...orm.QueryOption) (sql.Result, error) {
+	return fakeResult{rows: 1}, nil
+}
+func (m *capturingModel) DeleteWithResult(context.Context, ...orm.QueryOption) (sql.Result, error) {
+	return fakeResult{rows: 1}, nil
+}
+func (m *capturingModel) Association(any, string) orm.IAssociation { return nil }
 
 type fakeOrm struct {
 	baseRoleModel *capturingModel
@@ -121,6 +139,9 @@ func withTenantPrincipal(t *testing.T, ctx context.Context, tenantID string) con
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
+	derived = scoped.WithConstraint(derived, scoped.SingleEntityConstraint("iam.role", scoped.WriteConstraint{
+		Resources: []scoped.ResourceConstraint{{Kind: "iam.role", TenantID: tenantID, ManagedScopeID: 1}},
+	}))
 	return derived
 }
 
@@ -275,7 +296,11 @@ func TestRoleRepo_Update_StripsAssociationsBeforeSave(t *testing.T) {
 	role.SetID(7)
 
 	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
+	ctx = scoped.WithConstraint(ctx, scoped.SingleEntityConstraint("iam.role", scoped.WriteConstraint{
+		Resources: []scoped.ResourceConstraint{{Kind: "iam.role", ResourceID: "7", TenantID: "tenant-a", ManagedScopeID: 1, Revision: "0"}},
+	}))
 	if err := r.Update(ctx, role); err != nil {
+
 		t.Fatalf("Update: %v", err)
 	}
 

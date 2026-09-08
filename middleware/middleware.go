@@ -1,11 +1,11 @@
 package middleware
 
 import (
+	"slices"
 	"strings"
 
 	iamauth "gochen-iam/auth"
 	"gochen-iam/tenant"
-	"gochen/auth/http"
 	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"
@@ -118,7 +118,7 @@ func PermissionMiddleware(required PermissionSpec) httpx.Middleware {
 		requiredPermission = mergePermissionDefinition(requiredPermission, enriched)
 	}
 
-	base := authhttp.PermissionMiddleware(permissionSpecFromDefinition(requiredPermission))
+	base := httpx.PermissionMiddleware(permissionChecker{}, requiredPermission.Code)
 	return func(ctx httpx.IContext, next func() error) error {
 		reqCtx := ctx.RequestContext()
 		if reqCtx == nil || GetUserID(reqCtx) == 0 {
@@ -128,6 +128,16 @@ func PermissionMiddleware(required PermissionSpec) httpx.Middleware {
 				Permission: requiredPermission.Code,
 			})
 			return errors.NewCode(errors.Unauthorized, "用户未认证")
+		}
+		// 单租户模式与 PlatformScopeMiddleware 一致；多租户模式必须匹配声明的授权域。
+		if len(requiredPermission.Scopes) > 0 && !tenant.Current().IsSingle() &&
+			!slices.Contains(requiredPermission.Scopes, iamauth.ActiveScopeKind(reqCtx)) {
+			recordAuthzDenied(ctx, AuditRecord{
+				Decision:   "deny",
+				Reason:     "当前授权域不允许访问此权限",
+				Permission: requiredPermission.Code,
+			})
+			return errors.NewCode(errors.Forbidden, "当前授权域不允许访问此权限")
 		}
 
 		called := false

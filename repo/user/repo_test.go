@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	iamentity "gochen-iam/entity"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
 	"gochen/contextx"
 	"gochen/db"
 	"gochen/db/dialect"

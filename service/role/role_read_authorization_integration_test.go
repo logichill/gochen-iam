@@ -9,8 +9,9 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
-	auth "gochen/auth"
-	dbquery "gochen/db/query"
+	auth "gochen-runtime/host/authz"
+	dbquery "gochen/app/query"
+	"gochen/auth/scoped"
 	"gochen/errors"
 )
 
@@ -41,11 +42,7 @@ func TestRoleRepositoryQueryCountExcludesPlatformScopeFromTenantDataScope(t *tes
 	}
 
 	ctx := iamauth.BindActiveScopeContext(env.backgroundCtx, 1, string(iammw.ScopeTenant))
-	ctx, err := auth.WithDataScope(ctx, auth.DataScope{
-		ActiveScopeID:   1,
-		VisibleScopeIDs: []int64{1},
-		Mode:            auth.ScopeModeScoped,
-	})
+	ctx, err := scoped.WithDataScope(ctx, scoped.Filtered(1))
 	if err != nil {
 		t.Fatalf("bind tenant data scope: %v", err)
 	}

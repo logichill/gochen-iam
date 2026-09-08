@@ -11,7 +11,8 @@ import (
 	scoperepo "gochen-iam/repo/scope"
 	tenantrepo "gochen-iam/repo/tenant"
 	"gochen-iam/tenant"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/domain/crud"
 	"gochen/errors"
@@ -24,10 +25,10 @@ func TestScopeAuthorizerRequirePermissionInTenant_FixedModeShortCircuitsScopeLoo
 	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
 	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
 
-	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "api:role:read")
+	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "role:api:read")
 	authorizer := NewScopeAuthorizer(nil, nil)
 
-	if err := authorizer.RequirePermissionInTenant(reqCtx, "api:role:read", ""); err != nil {
+	if err := authorizer.RequirePermissionInTenant(reqCtx, "role:api:read", ""); err != nil {
 		t.Fatalf("RequirePermissionInTenant: %v", err)
 	}
 }
@@ -36,10 +37,10 @@ func TestScopeAuthorizerRequirePermissionInTenant_FixedModeRejectsMismatchedTena
 	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
 	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
 
-	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "api:role:read")
+	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "role:api:read")
 	authorizer := NewScopeAuthorizer(nil, nil)
 
-	if err := authorizer.RequirePermissionInTenant(reqCtx, "api:role:read", "tenant-b"); err == nil {
+	if err := authorizer.RequirePermissionInTenant(reqCtx, "role:api:read", "tenant-b"); err == nil {
 		t.Fatalf("expected mismatched tenant to be rejected")
 	}
 }
@@ -48,10 +49,10 @@ func TestScopeAuthorizerRequirePermissionInTenant_FixedModeStillRequiresPermissi
 	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
 	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
 
-	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "api:role:list")
+	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "role:api:list")
 	authorizer := NewScopeAuthorizer(nil, nil)
 
-	if err := authorizer.RequirePermissionInTenant(reqCtx, "api:role:read", ""); err == nil {
+	if err := authorizer.RequirePermissionInTenant(reqCtx, "role:api:read", ""); err == nil {
 		t.Fatalf("expected missing permission to be rejected")
 	}
 }
@@ -61,14 +62,14 @@ func TestScopeAuthorizerRequirePermissionInTenant_UsesPrincipalOutsideHTTP(t *te
 	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
-		Permissions: []string{"api:role:read"},
+		Permissions: []string{"role:api:read"},
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
 
 	authorizer := NewScopeAuthorizer(nil, nil)
-	if err := authorizer.RequirePermissionInTenant(ctx, "api:role:read", ""); err != nil {
+	if err := authorizer.RequirePermissionInTenant(ctx, "role:api:read", ""); err != nil {
 		t.Fatalf("RequirePermissionInTenant: %v", err)
 	}
 }
@@ -100,7 +101,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 	ctx := context.Background()
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     7,
-		Permissions:   []string{"api:role:read"},
+		Permissions:   []string{"role:api:read"},
 		ActiveScopeID: 1,
 	})
 	if err != nil {
@@ -111,11 +112,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 		t.Fatalf("WithTenantID: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iamentity.ScopeTypePlatform))
-	ctx, err = auth.WithDataScope(ctx, auth.DataScope{
-		ActiveScopeID:   1,
-		VisibleScopeIDs: []int64{1, 2, 3},
-		Mode:            auth.ScopeModeScoped,
-	})
+	ctx, err = scoped.WithDataScope(ctx, scoped.Filtered(1, 2, 3))
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)
 	}
@@ -167,7 +164,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 	}
 
 	authorizer := NewScopeAuthorizer(scopeRepo, tenantRepo)
-	if err := authorizer.RequirePermissionInTenant(ctx, "api:role:read", "tenant-b"); err != nil {
+	if err := authorizer.RequirePermissionInTenant(ctx, "role:api:read", "tenant-b"); err != nil {
 		t.Fatalf("RequirePermissionInTenant: %v", err)
 	}
 }
@@ -208,7 +205,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_DoesNotHealMissingTenantRootSc
 	ctx := context.Background()
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     7,
-		Permissions:   []string{"api:role:read"},
+		Permissions:   []string{"role:api:read"},
 		ActiveScopeID: 1,
 	})
 	if err != nil {
@@ -221,7 +218,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_DoesNotHealMissingTenantRootSc
 	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iamentity.ScopeTypePlatform))
 
 	authorizer := NewScopeAuthorizer(scopeRepo, tenantRepo)
-	err = authorizer.RequirePermissionInTenant(ctx, "api:role:read", "tenant-b")
+	err = authorizer.RequirePermissionInTenant(ctx, "role:api:read", "tenant-b")
 	if !errors.Is(err, errors.Internal) {
 		t.Fatalf("RequirePermissionInTenant error = %v, want INTERNAL_ERROR", err)
 	}

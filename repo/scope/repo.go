@@ -9,10 +9,11 @@ import (
 	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
+	"gochen-runtime/db/orm/repo"
+	"gochen/auth/scoped"
 	"gochen/db/orm"
-	"gochen/db/orm/repo"
 	"gochen/errors"
-	"gochen/ident"
+	"gochen/gen"
 )
 
 type ScopeRepo struct {
@@ -21,7 +22,7 @@ type ScopeRepo struct {
 	rebuildMu sync.Mutex
 }
 
-func NewScopeRepository(o orm.IOrm, idGenerator ident.IGenerator[int64]) (*ScopeRepo, error) {
+func NewScopeRepository(o orm.IOrm, idGenerator gen.IGenerator[int64]) (*ScopeRepo, error) {
 	base, err := repo.NewRepo[*iamentity.Scope, int64](
 		o,
 		"scopes",
@@ -252,13 +253,16 @@ func (r *ScopeRepo) RebuildVisibilityMap(ctx context.Context) error {
 }
 
 func (r *ScopeRepo) CreateWithConstraint(ctx context.Context, scope *iamentity.Scope, guard iamaccess.WriteConstraint) error {
-	return r.Repo.CreateWithConstraint(assocguard.BindContext(ctx, guard), scope, guard.Unwrap())
+	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+	return r.Repo.Create(boundCtx, scope)
 }
 
 func (r *ScopeRepo) UpdateWithConstraint(ctx context.Context, scope *iamentity.Scope, guard iamaccess.WriteConstraint) error {
-	return r.Repo.UpdateWithConstraint(assocguard.BindContext(ctx, guard), scope, guard.Unwrap())
+	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+	return r.Repo.Update(boundCtx, scope)
 }
 
 func (r *ScopeRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
-	return r.Repo.DeleteWithConstraint(assocguard.BindContext(ctx, guard), id, guard.Unwrap())
+	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
+	return r.Repo.Delete(boundCtx, id)
 }

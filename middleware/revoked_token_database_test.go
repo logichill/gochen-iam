@@ -13,8 +13,8 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
+	"gochen-runtime/db/sql/stdsql"
 	"gochen/db"
-	"gochen/db/sql/stdsql"
 )
 
 func TestEnsureDatabaseRevokedTokenSchemaIncludesExpiryIndexForMySQL(t *testing.T) {

@@ -2,8 +2,8 @@ package role
 
 import (
 	"context"
-	"gochen/ident"
-	"gochen/logging"
+	"gochen/gen"
+	"gochen/observe/logging"
 	"gochen/testkit"
 	"path/filepath"
 	"testing"
@@ -15,7 +15,8 @@ import (
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
 	usersvc "gochen-iam/service/user"
-	auth "gochen/auth"
+	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/contextx"
 
 	"gorm.io/driver/sqlite"
@@ -76,12 +77,12 @@ func setupRoleBatchTest(t *testing.T) *roleBatchTestEnv {
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
 	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry, ident.NewUUIDGenerator())
+	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
 	if err != nil {
 		t.Fatalf("NewIAMAuthorizer: %v", err)
 	}
 
-	roleService := NewRoleService(roleRepo, userRepo, groupRepo, nil, authorizer, nil, ident.NewUUIDGenerator(), logging.NewNoopLogger())
+	roleService := NewRoleService(roleRepo, userRepo, groupRepo, nil, authorizer, nil, gen.NewUUIDGenerator(), logging.NewNoopLogger())
 	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, nil, authorizer, logging.NewNoopLogger())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -98,6 +99,16 @@ func setupRoleBatchTest(t *testing.T) *roleBatchTestEnv {
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
+	ctx = scoped.WithConstraint(ctx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
+		return scoped.WriteConstraint{
+			Resources: []scoped.ResourceConstraint{{
+				Kind:           entityType,
+				TenantID:       "test-tenant",
+				ManagedScopeID: 1,
+				Revision:       "0",
+			}},
+		}, true
+	}))
 
 	return &roleBatchTestEnv{
 		db:            db,
@@ -139,7 +150,7 @@ func (env *roleBatchTestEnv) createTestRole(t *testing.T, name string) *iamentit
 		Code:             name,
 		Name:             name,
 		Description:      "批量角色分配测试",
-		Permissions:      iamentity.PermissionArray([]string{"api:test:read"}),
+		Permissions:      iamentity.PermissionArray([]string{"test:api:read"}),
 		Status:           svc.RoleStatusActive,
 	}
 	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
