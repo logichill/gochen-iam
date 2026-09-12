@@ -712,7 +712,8 @@ func (r *GroupRepo) CountByLevel(ctx context.Context) (map[int]int64, error) {
 		return nil, err
 	}
 	err = query.
-		Select("level", "COUNT(*) as count").
+		Select("level").
+		SelectExprUnsafe(repo.AllowUnsafeSelectExpr(), "COUNT(*) as count").
 		GroupBy("level").
 		Find(&results)
 	if err != nil {

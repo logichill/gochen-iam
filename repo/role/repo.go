@@ -589,7 +589,8 @@ func (r *RoleRepo) CountByStatus(ctx context.Context) (map[string]int64, error) 
 		return nil, err
 	}
 	err = query.
-		Select("status", "COUNT(*) as count").
+		Select("status").
+		SelectExprUnsafe(repo.AllowUnsafeSelectExpr(), "COUNT(*) as count").
 		GroupBy("status").
 		Find(&results)
 	if err != nil {

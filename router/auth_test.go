@@ -107,7 +107,7 @@ func (s *authRoutesUserServiceStub) UserProfile(context.Context, int64) (*iament
 	return nil, nil
 }
 
-func newAuthJSONContext(t *testing.T, path string, body string, headers ...map[string]string) *nethttp.Context {
+func newAuthJSONContext(t *testing.T, path string, body string, headers ...map[string]string) (*nethttp.Context, *httptest.ResponseRecorder) {
 	t.Helper()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "http://example.com"+path, strings.NewReader(body))
@@ -121,17 +121,16 @@ func newAuthJSONContext(t *testing.T, path string, body string, headers ...map[s
 	if err != nil {
 		t.Fatalf("NewBaseContext: %v", err)
 	}
-	return ctx
+	return ctx, rec
 }
 
-func responseAccessToken(t *testing.T, ctx *nethttp.Context) string {
+func responseAccessToken(t *testing.T, recorder *httptest.ResponseRecorder) string {
 	t.Helper()
 	var response struct {
 		Data struct {
 			Token string `json:"token"`
 		} `json:"data"`
 	}
-	recorder := ctx.ResponseWriter().(*httptest.ResponseRecorder)
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
@@ -164,7 +163,7 @@ func TestAuthRoutesRefreshTokenUsesTenantHeaderAndScopeClaims(t *testing.T) {
 		t.Fatalf("GenerateToken: %v", err)
 	}
 
-	ctx := newAuthJSONContext(t, "/api/v1/auth/refresh", `{"token":"`+token+`"}`, map[string]string{"X-Tenant-ID": "tenant-b"})
+	ctx, _ := newAuthJSONContext(t, "/api/v1/auth/refresh", `{"token":"`+token+`"}`, map[string]string{"X-Tenant-ID": "tenant-b"})
 
 	if err := routes.refreshToken(ctx); err != nil {
 		t.Fatalf("refreshToken: %v", err)
@@ -190,11 +189,10 @@ func TestAuthRoutesCSRFIssuesReadableBootstrapToken(t *testing.T) {
 		CSRFCookieName:          iammw.CSRFCookieName,
 		CSRFCookiePath:          "/",
 	})
-	ctx := newAuthJSONContext(t, "/api/v1/auth/csrf", "")
+	ctx, recorder := newAuthJSONContext(t, "/api/v1/auth/csrf", "")
 	if err := routes.csrfToken(ctx); err != nil {
 		t.Fatalf("csrfToken: %v", err)
 	}
-	recorder := ctx.ResponseWriter().(*httptest.ResponseRecorder)
 	var response struct {
 		Data map[string]string `json:"data"`
 	}
@@ -236,10 +234,12 @@ func TestAuthRoutesRefreshTokenRejectsRotatedTokenReplay(t *testing.T) {
 	}
 	body := `{"token":"` + token + `"}`
 	headers := map[string]string{"X-Tenant-ID": "tenant-b"}
-	if err := routes.refreshToken(newAuthJSONContext(t, "/api/v1/auth/refresh", body, headers)); err != nil {
+	ctx, _ := newAuthJSONContext(t, "/api/v1/auth/refresh", body, headers)
+	if err := routes.refreshToken(ctx); err != nil {
 		t.Fatalf("first refreshToken: %v", err)
 	}
-	if err := routes.refreshToken(newAuthJSONContext(t, "/api/v1/auth/refresh", body, headers)); !errors.Is(err, errors.Unauthorized) {
+	ctx, _ = newAuthJSONContext(t, "/api/v1/auth/refresh", body, headers)
+	if err := routes.refreshToken(ctx); !errors.Is(err, errors.Unauthorized) {
 		t.Fatalf("expected replayed token to be unauthorized, got %v", err)
 	}
 }
@@ -271,7 +271,8 @@ func TestAuthRoutesRefreshTokenRejectsConcurrentReplay(t *testing.T) {
 	errs := make(chan error, 2)
 	for range 2 {
 		go func() {
-			errs <- routes.refreshToken(newAuthJSONContext(t, "/api/v1/auth/refresh", body, headers))
+			ctx, _ := newAuthJSONContext(t, "/api/v1/auth/refresh", body, headers)
+			errs <- routes.refreshToken(ctx)
 		}()
 	}
 	<-arrived
@@ -322,7 +323,7 @@ func TestAuthRoutesRefreshTokenFallsBackToInstalledResolver(t *testing.T) {
 		t.Fatalf("GenerateToken: %v", err)
 	}
 
-	ctx := newAuthJSONContext(t, "/api/v1/auth/refresh", `{"token":"`+token+`"}`, map[string]string{"X-Tenant-ID": "tenant-b"})
+	ctx, _ := newAuthJSONContext(t, "/api/v1/auth/refresh", `{"token":"`+token+`"}`, map[string]string{"X-Tenant-ID": "tenant-b"})
 
 	if err := routes.refreshToken(ctx); err != nil {
 		t.Fatalf("refreshToken: %v", err)
@@ -345,7 +346,7 @@ func TestAuthRoutesRegister_UsesTenantFromHeaderWhenRequired(t *testing.T) {
 	routes := NewAuthRoutes(service)
 	routes.authConfig = &iammw.AuthConfig{RequireTenant: true, TenantHeader: "X-Tenant-ID"}
 
-	ctx := newAuthJSONContext(t, "/api/v1/auth/register", `{"username":"tester","email":"tester@example.com","password":"secret123"}`, map[string]string{"X-Tenant-ID": "tenant-a"})
+	ctx, _ := newAuthJSONContext(t, "/api/v1/auth/register", `{"username":"tester","email":"tester@example.com","password":"secret123"}`, map[string]string{"X-Tenant-ID": "tenant-a"})
 
 	if err := routes.register(ctx); err != nil {
 		t.Fatalf("register: %v", err)
@@ -376,11 +377,10 @@ func TestAuthRoutesLogin_ReturnsActivationToken(t *testing.T) {
 	routes := NewAuthRoutes(service)
 	routes.authConfig = &iammw.AuthConfig{SecretKey: "test-secret", ActivationTTL: time.Hour, RequireTenant: true, TenantHeader: "X-Tenant-ID"}
 
-	ctx := newAuthJSONContext(t, "/api/v1/auth/login", `{"username":"tester","password":"secret123"}`, map[string]string{"X-Tenant-ID": "tenant-a"})
+	ctx, rec := newAuthJSONContext(t, "/api/v1/auth/login", `{"username":"tester","password":"secret123"}`, map[string]string{"X-Tenant-ID": "tenant-a"})
 	if err := routes.login(ctx); err != nil {
 		t.Fatalf("login: %v", err)
 	}
-	rec := ctx.ResponseWriter().(*httptest.ResponseRecorder)
 	if !strings.Contains(rec.Body.String(), "activation_token") {
 		t.Fatalf("expected activation token in response, got %s", rec.Body.String())
 	}
@@ -399,15 +399,14 @@ func TestAuthRoutesActivateScope_GeneratesAccessToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateActivationToken: %v", err)
 	}
-	ctx := newAuthJSONContext(t, "/api/v1/auth/activate-scope", `{"activation_token":"`+activationToken+`","scope_id":101}`)
+	ctx, rec := newAuthJSONContext(t, "/api/v1/auth/activate-scope", `{"activation_token":"`+activationToken+`","scope_id":101}`)
 	if err := routes.activateScope(ctx); err != nil {
 		t.Fatalf("activateScope: %v", err)
 	}
-	rec := ctx.ResponseWriter().(*httptest.ResponseRecorder)
 	if !strings.Contains(rec.Body.String(), "token") {
 		t.Fatalf("expected access token in response, got %s", rec.Body.String())
 	}
-	claims, err := iammw.ParseToken(responseAccessToken(t, ctx), routes.authConfig.SecretKey)
+	claims, err := iammw.ParseToken(responseAccessToken(t, rec), routes.authConfig.SecretKey)
 	if err != nil {
 		t.Fatalf("ParseToken: %v", err)
 	}
@@ -440,7 +439,7 @@ func TestAuthRoutesLogoutRevokesCurrentToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
 	}
-	ctx := newAuthJSONContext(t, "/api/v1/auth/logout", "", map[string]string{
+	ctx, _ := newAuthJSONContext(t, "/api/v1/auth/logout", "", map[string]string{
 		"Authorization": "Bearer " + token,
 	})
 	if err := routes.logout(ctx); err != nil {
@@ -464,7 +463,7 @@ func TestAuthRoutesLogoutRequiresCSRFForValidCookieToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
 	}
-	ctx := newAuthJSONContext(t, "/api/v1/auth/logout", "")
+	ctx, _ := newAuthJSONContext(t, "/api/v1/auth/logout", "")
 	ctx.Request().AddCookie(&http.Cookie{Name: iammw.AccessTokenCookieName, Value: token})
 	ctx.Request().AddCookie(&http.Cookie{Name: iammw.CSRFCookieName, Value: "csrf-value"})
 	if err := routes.logout(ctx); !errors.Is(err, errors.Forbidden) {
@@ -474,7 +473,7 @@ func TestAuthRoutesLogoutRequiresCSRFForValidCookieToken(t *testing.T) {
 		t.Fatalf("CSRF rejection must not revoke the token: %v", err)
 	}
 
-	ctx = newAuthJSONContext(t, "/api/v1/auth/logout", "", map[string]string{
+	ctx, _ = newAuthJSONContext(t, "/api/v1/auth/logout", "", map[string]string{
 		iammw.CSRFHeaderName: "csrf-value",
 	})
 	ctx.Request().AddCookie(&http.Cookie{Name: iammw.AccessTokenCookieName, Value: token})
@@ -495,14 +494,14 @@ func TestAuthRoutesLogoutClearsStaleCookieIdempotently(t *testing.T) {
 		AccessTokenCookieSecure:   &secure,
 		AccessTokenCookieSameSite: "lax",
 	})
-	ctx := newAuthJSONContext(t, "/api/v1/auth/logout", "")
+	ctx, rec := newAuthJSONContext(t, "/api/v1/auth/logout", "")
 	ctx.Request().AddCookie(&http.Cookie{Name: iammw.AccessTokenCookieName, Value: "expired-or-invalid-token"})
 	ctx.Request().AddCookie(&http.Cookie{Name: iammw.CSRFCookieName, Value: "stale-csrf-token"})
 	if err := routes.logout(ctx); err != nil {
 		t.Fatalf("logout with stale cookie: %v", err)
 	}
 	var accessCleared, csrfCleared bool
-	for _, cookie := range ctx.ResponseWriter().(*httptest.ResponseRecorder).Result().Cookies() {
+	for _, cookie := range rec.Result().Cookies() {
 		if cookie.Name == iammw.AccessTokenCookieName && cookie.MaxAge < 0 {
 			accessCleared = true
 		}
@@ -531,7 +530,7 @@ func TestAuthRoutesActivateScope_RejectsMismatchedBindingVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateActivationToken: %v", err)
 	}
-	ctx := newAuthJSONContext(t, "/api/v1/auth/activate-scope", `{"activation_token":"`+activationToken+`","scope_id":101}`)
+	ctx, _ := newAuthJSONContext(t, "/api/v1/auth/activate-scope", `{"activation_token":"`+activationToken+`","scope_id":101}`)
 	err = routes.activateScope(ctx)
 	if !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("expected forbidden, got %v", err)
