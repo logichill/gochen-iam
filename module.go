@@ -2,6 +2,7 @@ package iam
 
 import (
 	"context"
+	"reflect"
 	"strings"
 
 	iammw "gochen-iam/middleware"
@@ -20,14 +21,28 @@ import (
 	tenantsvc "gochen-iam/service/tenant"
 	usersvc "gochen-iam/service/user"
 	iamtenant "gochen-iam/tenant"
+	"gochen-runtime/di"
 	"gochen-runtime/host"
 	auth "gochen-runtime/host/authz"
 	"gochen-runtime/host/module"
+	"gochen-runtime/host/module/initcap"
 	"gochen/db"
 	"gochen/errors"
 	"gochen/httpx"
 	"gochen/observe/logging"
 )
+
+var authConfigCapability = initcap.NewKey[*iammw.AuthConfig]("gochen-iam.auth_config")
+
+// ModuleAuthConfig 将应用级认证配置注入所有模块的初始化上下文。
+func ModuleAuthConfig(config *iammw.AuthConfig) initcap.Setter {
+	return initcap.Set(authConfigCapability, config)
+}
+
+// AuthConfigFrom 从模块初始化上下文读取应用级认证配置。
+func AuthConfigFrom(opts module.ModuleInitOptions) (*iammw.AuthConfig, bool) {
+	return module.CapabilityFrom(opts, authConfigCapability)
+}
 
 // NewModule 使用应用主数据库装配 IAM 领域模块。
 func NewModule(
@@ -49,14 +64,7 @@ func NewModule(
 	if err := iammw.InstallDefaultRevokedTokenStore(store); err != nil {
 		return nil, err
 	}
-	authConfig := iammw.DefaultAuthConfig()
-	authConfig.RevokedTokenStore = store
-	authRoutesProvider := func(userService iamrouter.IUserService) *iamrouter.AuthRoutes {
-		return iamrouter.NewAuthRoutesWithConfig(userService, authConfig)
-	}
-	authConfigValidatorProvider := func(resolver *iamservice.AuthContextResolver) *authConfigValidator {
-		return newAuthConfigValidator(resolver, authConfig)
-	}
+	m := &iamModule{revokedTokenStore: store}
 	base, err := host.Module("iam").
 		Name("IAM").
 		Extension(auth.Catalog{
@@ -74,7 +82,6 @@ func NewModule(
 			// Services
 			iamservice.NewScopeAuthorizer,
 			newAuthContextResolver,
-			iamservice.InstallAuthContextResolver,
 			iamservice.NewIAMAuthorizer,
 			tenantsvc.NewTenantService,
 			scopesvc.NewScopeService,
@@ -84,26 +91,31 @@ func NewModule(
 			menusvc.NewMenuService,
 		).
 		RouteRegistrar(
-			authRoutesProvider,
+			func(userService iamrouter.IUserService, authConfig *iammw.AuthConfig) *iamrouter.AuthRoutes {
+				return iamrouter.NewAuthRoutesWithConfig(userService, authConfig)
+			},
 			iamrouter.NewUserRoutes,
 			iamrouter.NewRoleRoutes,
 			iamrouter.NewGroupRoutes,
 			iamrouter.NewTenantRoutes,
 			iamrouter.NewScopeRoutes,
 			iamrouter.NewMenuRoutes,
-			authConfigValidatorProvider,
+			func(resolver *iamservice.AuthContextResolver, authConfig *iammw.AuthConfig) *authConfigValidator {
+				return newAuthConfigValidator(resolver, authConfig)
+			},
 		).
 		// IAM 模块既包含匿名可访问的登录/注册端点，也包含需要鉴权的管理端点。
 		// 使用 OptionalAuthMiddleware 统一解析 token（若存在），供后续 PermissionMiddleware 等使用。
 		Middleware(
 			iammw.AuditMiddleware(logging.ComponentLogger("iam.middleware.audit", logger), nil),
-			iamModuleAuthMiddleware(authConfig),
+			m.runAuthMiddleware,
 		).
 		Build()
 	if err != nil {
 		return nil, err
 	}
-	return &iamModule{IModule: base}, nil
+	m.IModule = base
+	return m, nil
 }
 
 func iamModuleAuthMiddleware(authConfig *iammw.AuthConfig) httpx.Middleware {
@@ -137,12 +149,53 @@ func isIAMAnonymousAuthPath(path string) bool {
 // newAuthContextResolver binds the resolver to IAM's single authoritative user
 // service. Keeping the concrete dependency here avoids ambiguous automatic
 // interface adaptation during module registration.
-func newAuthContextResolver(scopeAuthorizer *iamservice.ScopeAuthorizer, userService *usersvc.UserService) *iamservice.AuthContextResolver {
-	return iamservice.NewAuthContextResolver(scopeAuthorizer, userService)
+func newAuthContextResolver(scopeAuthorizer *iamservice.ScopeAuthorizer, userService *usersvc.UserService, config *iammw.AuthConfig) *iamservice.AuthContextResolver {
+	resolver := iamservice.NewAuthContextResolver(scopeAuthorizer, userService)
+	config.ContextResolver = resolver
+	return resolver
 }
 
 type iamModule struct {
 	module.IModule
+	authConfig        *iammw.AuthConfig
+	revokedTokenStore iammw.RevokedTokenStore
+	authMiddleware    httpx.Middleware
+}
+
+func (m *iamModule) Init(opts module.ModuleInitOptions) error {
+	if m == nil || m.IModule == nil {
+		return errors.NewCode(errors.InvalidInput, "IAM module is nil")
+	}
+	authConfig, ok := AuthConfigFrom(opts)
+	if !ok || authConfig == nil {
+		return errors.NewCode(errors.Dependency, "IAM auth config capability is unavailable")
+	}
+	authConfig.RevokedTokenStore = m.revokedTokenStore
+	if err := iammw.InstallDefaultRevokedTokenStore(m.revokedTokenStore); err != nil {
+		return err
+	}
+	// 应用路由可在 IAM 初始化前注册同一配置，所有入口必须共享该实例。
+	if opts.Resolver.IsRegistered(reflect.TypeFor[*iammw.AuthConfig]()) {
+		registered, err := di.Resolve[*iammw.AuthConfig](opts.Resolver)
+		if err != nil {
+			return err
+		}
+		if registered != authConfig {
+			return errors.NewCode(errors.Conflict, "IAM auth config differs from application auth config")
+		}
+	} else if err := di.RegisterInstance[*iammw.AuthConfig](opts.Registry, authConfig); err != nil {
+		return errors.Wrap(err, errors.Dependency, "register IAM auth config")
+	}
+	m.authConfig = authConfig
+	m.authMiddleware = iamModuleAuthMiddleware(authConfig)
+	return m.IModule.Init(opts)
+}
+
+func (m *iamModule) runAuthMiddleware(ctx httpx.IContext, next func() error) error {
+	if m == nil || m.authMiddleware == nil {
+		return errors.NewCode(errors.Dependency, "IAM auth middleware is unavailable")
+	}
+	return m.authMiddleware(ctx, next)
 }
 
 func (m *iamModule) RegisterRoutes(ctx context.Context) error {
@@ -172,7 +225,12 @@ func (m *iamModule) AuthzRegistration() auth.ModuleRegistration {
 
 // PublicFeatures 声明前端可在登录前读取的 IAM 部署模式。
 func (m *iamModule) PublicFeatures() []module.PublicFeature {
-	return []module.PublicFeature{{Key: "tenant_mode", Value: string(iamtenant.Current().Mode)}}
+	authConfig := m.authConfig
+	if authConfig == nil {
+		return nil
+	}
+	policy := iamtenant.NormalizePolicy(authConfig.TenantPolicy)
+	return []module.PublicFeature{{Key: "tenant_mode", Value: string(policy.Mode)}}
 }
 
 // authConfigValidator 在启动期对鉴权配置做 fail-fast 校验。
@@ -184,21 +242,19 @@ type authConfigValidator struct {
 	config *iammw.AuthConfig
 }
 
-// NewAuthConfigValidator 创建鉴权配置Validator。
-//
-// 通过显式依赖 AuthContextResolver，确保 access token 运行时 resolver 在模块启动期完成安装。
-func NewAuthConfigValidator(_ *iamservice.AuthContextResolver) *authConfigValidator {
-	return &authConfigValidator{config: iammw.DefaultAuthConfig()}
-}
-
 func newAuthConfigValidator(_ *iamservice.AuthContextResolver, config *iammw.AuthConfig) *authConfigValidator {
 	return &authConfigValidator{config: config}
 }
 
 // RegisterRoutes 注册路由集合。
 func (v *authConfigValidator) RegisterRoutes(httpx.IRouteGroup) error {
-	if err := iammw.ValidateAuthConfig(v.config); err != nil {
-		return errors.Wrap(err, errors.Internal, "auth config validation failed")
+	if v.config == nil {
+		return errors.NewCode(errors.InvalidInput, "auth config is required")
+	}
+	if v.config.Enabled || v.config.SecretKey != "" {
+		if err := iammw.ValidateAuthConfig(v.config); err != nil {
+			return errors.Wrap(err, errors.Internal, "auth config validation failed")
+		}
 	}
 	if err := iammw.EnsureStrictPermissionRegistryLoaded(); err != nil {
 		return errors.Wrap(err, errors.Internal, "strict permission registry validation failed")

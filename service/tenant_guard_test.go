@@ -134,10 +134,8 @@ func TestPreflightTenant_WithoutPermissionStillChecksTenant(t *testing.T) {
 }
 
 func TestRequireTenantMatch_FixedModeUsesConfiguredTenant(t *testing.T) {
-	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
-	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
-
 	reqCtx := newTenantGuardRequestContext(t, "ignored")
+	reqCtx = reqCtx.WithContext(tenant.WithPolicy(reqCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "single-tenant"}))
 
 	tenantID, err := RequireTenantMatch(reqCtx, "")
 	if err != nil {
@@ -149,10 +147,8 @@ func TestRequireTenantMatch_FixedModeUsesConfiguredTenant(t *testing.T) {
 }
 
 func TestRequireTenantMatch_SingleModeRejectsMismatchedTarget(t *testing.T) {
-	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
-	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
-
 	reqCtx := newTenantGuardRequestContext(t, "ignored")
+	reqCtx = reqCtx.WithContext(tenant.WithPolicy(reqCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "single-tenant"}))
 
 	if _, err := RequireTenantMatch(reqCtx, "tenant-b"); err == nil {
 		t.Fatalf("expected fixed tenant mismatch to be rejected")
@@ -160,10 +156,8 @@ func TestRequireTenantMatch_SingleModeRejectsMismatchedTarget(t *testing.T) {
 }
 
 func TestRequireTenantPermission_SingleModeStillChecksPermission(t *testing.T) {
-	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
-	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
-
 	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "user:api:read")
+	reqCtx = reqCtx.WithContext(tenant.WithPolicy(reqCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "single-tenant"}))
 
 	tenantID, err := RequireTenantPermission(reqCtx, NewScopeAuthorizer(nil, nil), "user:api:read", "")
 	if err != nil {
@@ -175,10 +169,8 @@ func TestRequireTenantPermission_SingleModeStillChecksPermission(t *testing.T) {
 }
 
 func TestRequireTenantPermission_SingleModeRejectsMissingPermission(t *testing.T) {
-	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
-	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
-
 	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "user:api:list")
+	reqCtx = reqCtx.WithContext(tenant.WithPolicy(reqCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "single-tenant"}))
 
 	err := iammw.RequirePermission(reqCtx, "user:api:read")
 	if err == nil {

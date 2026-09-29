@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/subtle"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -21,11 +20,6 @@ import (
 )
 
 const (
-	envAccessTokenTTL      = "AUTH_ACCESS_TOKEN_TTL"
-	envAllowQueryToken     = "AUTH_ALLOW_QUERY_TOKEN"
-	envRequireTenant       = "AUTH_REQUIRE_TENANT"
-	envAllowTenantQuery    = "AUTH_ALLOW_TENANT_QUERY"
-	envTenantHeader        = "AUTH_TENANT_HEADER"
 	defaultAccessTokenTTL  = 24 * time.Hour
 	defaultActivationTTL   = 10 * time.Minute
 	defaultTenantHeaderKey = httpx.HeaderTenantID
@@ -56,21 +50,26 @@ const (
 	CSRFHeaderName = "X-CSRF-Token"
 )
 
-// AuthConfig 认证配置
+// AuthConfig 是应用实例独立持有的认证配置。
+// 同一应用的中间件与 IAM 模块必须共用该指针，启动装配完成后不得修改。
 type AuthConfig struct {
-	SecretKey    string   `json:"secret_key" yaml:"secret_key"`
-	TokenHeader  string   `json:"token_header" yaml:"token_header"`
-	TokenPrefix  string   `json:"token_prefix" yaml:"token_prefix"`
-	SkipPaths    []string `json:"skip_paths" yaml:"skip_paths"`
-	RequiredRole string   `json:"required_role" yaml:"required_role"`
+	SecretKey    string        `json:"secret_key" yaml:"secret_key"`
+	TokenHeader  string        `json:"token_header" yaml:"token_header"`
+	TokenPrefix  string        `json:"token_prefix" yaml:"token_prefix"`
+	SkipPaths    []string      `json:"skip_paths" yaml:"skip_paths"`
+	RequiredRole string        `json:"required_role" yaml:"required_role"`
+	Environment  string        `json:"-" yaml:"-"`
+	TenantPolicy tenant.Policy `json:"-" yaml:"-"`
+	Enabled      bool          `json:"-" yaml:"-"`
 
-	AccessTokenTTL   time.Duration       `json:"-" yaml:"-"`
-	ActivationTTL    time.Duration       `json:"-" yaml:"-"`
-	AllowQueryToken  bool                `json:"-" yaml:"-"`
-	RequireTenant    bool                `json:"-" yaml:"-"`
-	AllowTenantQuery bool                `json:"-" yaml:"-"`
-	TenantHeader     string              `json:"-" yaml:"-"`
-	ContextResolver  AuthContextResolver `json:"-" yaml:"-"`
+	AccessTokenTTL   time.Duration `json:"-" yaml:"-"`
+	ActivationTTL    time.Duration `json:"-" yaml:"-"`
+	AllowQueryToken  bool          `json:"-" yaml:"-"`
+	RequireTenant    bool          `json:"-" yaml:"-"`
+	AllowTenantQuery bool          `json:"-" yaml:"-"`
+	TenantHeader     string        `json:"-" yaml:"-"`
+	// ContextResolver 由 IAM 模块在启动期绑定；独立使用中间件时须显式注入。
+	ContextResolver AuthContextResolver `json:"-" yaml:"-"`
 
 	// Cookie 传输配置；AccessTokenCookieName 为空时禁用 Cookie 认证。
 	AccessTokenCookieName     string `json:"-" yaml:"-"`
@@ -86,44 +85,11 @@ type AuthConfig struct {
 	RevokedTokenStore RevokedTokenStore `json:"-" yaml:"-"`
 }
 
-var installedAuthContextResolver AuthContextResolver
-
-// InstallAuthContextResolver 注册 access token 运行时上下文还原器。
-func InstallAuthContextResolver(resolver AuthContextResolver) {
-	installedAuthContextResolver = resolver
-}
-
-func resolveAuthContextResolver(config *AuthConfig) AuthContextResolver {
-	if config != nil && config.ContextResolver != nil {
-		return config.ContextResolver
-	}
-	return installedAuthContextResolver
-}
-
-// ResolveInstalledAuthContextResolver 返回当前安装的 access token 上下文还原器。
-func ResolveInstalledAuthContextResolver() AuthContextResolver {
-	return installedAuthContextResolver
-}
-
-// DefaultAuthConfig 默认认证配置
-// 必须设置 AUTH_SECRET 环境变量
-func DefaultAuthConfig() *AuthConfig {
-	secret := os.Getenv("AUTH_SECRET")
-
-	ttl := defaultAccessTokenTTL
-	if v := os.Getenv(envAccessTokenTTL); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			ttl = d
-		}
-	}
-
-	tenantHeader := os.Getenv(envTenantHeader)
-	if tenantHeader == "" {
-		tenantHeader = defaultTenantHeaderKey
-	}
-
+// DefaultAuthConfigForEnvironment 返回不读取进程环境的标准认证配置。
+// 空环境采用非开发环境的安全策略；后续校验和 Cookie 写入也不再读取 APP_ENV。
+func DefaultAuthConfigForEnvironment(environment string) *AuthConfig {
 	return &AuthConfig{
-		SecretKey:                 secret,
+		Environment:               strings.TrimSpace(environment),
 		TokenHeader:               "Authorization",
 		TokenPrefix:               "Bearer ",
 		AccessTokenCookieName:     AccessTokenCookieName,
@@ -133,12 +99,10 @@ func DefaultAuthConfig() *AuthConfig {
 		CSRFCookiePath:            "/",
 		CSRFHeaderName:            CSRFHeaderName,
 		RevokedTokenStore:         sharedRevokedTokenStore,
-		AccessTokenTTL:            ttl,
+		AccessTokenTTL:            defaultAccessTokenTTL,
 		ActivationTTL:             defaultActivationTTL,
-		AllowQueryToken:           (os.Getenv(envAllowQueryToken) == "true" || os.Getenv(envAllowQueryToken) == "1") && isDevEnv(),
-		RequireTenant:             os.Getenv(envRequireTenant) == "true" || os.Getenv(envRequireTenant) == "1",
-		AllowTenantQuery:          os.Getenv(envAllowTenantQuery) == "true" || os.Getenv(envAllowTenantQuery) == "1",
-		TenantHeader:              tenantHeader,
+		TenantHeader:              defaultTenantHeaderKey,
+		TenantPolicy:              tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: tenant.DefaultSingleTenantID},
 		SkipPaths: []string{
 			"/api/v1/auth/login",
 			"/api/v1/auth/csrf",
@@ -156,30 +120,40 @@ func DefaultAuthConfig() *AuthConfig {
 	}
 }
 
-// isDevEnv 检查是否为开发/测试环境
-// 通过 APP_ENV 环境变量判断
-func isDevEnv() bool {
-	env := os.Getenv("APP_ENV")
-	return env == "development" || env == "dev" || env == "test" || env == "testing"
+func isDevEnvironment(environment string) bool {
+	switch strings.ToLower(strings.TrimSpace(environment)) {
+	case "development", "dev", "test", "testing":
+		return true
+	default:
+		return false
+	}
 }
 
-// IsDevEnv 对外暴露统一的 dev/test 环境判定。
-func IsDevEnv() bool { return isDevEnv() }
+func isAuthConfigDevEnv(config *AuthConfig) bool {
+	return config != nil && isDevEnvironment(config.Environment)
+}
+
+func bindAuthTenantPolicy(reqCtx httpx.IRequestContext, config *AuthConfig) httpx.IRequestContext {
+	if reqCtx == nil {
+		return nil
+	}
+	return reqCtx.WithContext(tenant.WithPolicy(reqCtx, tenant.NormalizePolicy(config.TenantPolicy)))
+}
 
 // ValidateAuthConfig 验证认证配置是否完整
 // 应在应用启动时调用；缺少必要配置时返回错误（生产环境还会附加更严格的安全约束校验）。
 func ValidateAuthConfig(config *AuthConfig) error {
 	if config == nil {
-		config = DefaultAuthConfig()
+		return errors.NewCode(errors.InvalidInput, "auth config is required")
 	}
 	if config.SecretKey == "" {
-		return errors.NewCode(errors.Internal, "必须设置 AUTH_SECRET 环境变量")
+		return errors.NewCode(errors.Internal, "auth secret is required")
 	}
 	// 生产环境禁止允许 query token，避免 token 泄露到 URL/日志链路。
-	if !isDevEnv() && config.AllowQueryToken {
+	if !isAuthConfigDevEnv(config) && config.AllowQueryToken {
 		return errors.NewCode(errors.Internal, "生产环境禁止启用 AUTH_ALLOW_QUERY_TOKEN")
 	}
-	if !isDevEnv() && !isPersistentRevokedTokenStore(config.RevokedTokenStore) {
+	if !isAuthConfigDevEnv(config) && !isPersistentRevokedTokenStore(config.RevokedTokenStore) {
 		return errors.NewCode(errors.Internal, "非开发环境必须配置持久化 token 吊销存储")
 	}
 	return nil
@@ -203,7 +177,9 @@ func matchSkipPath(path, skipPath string) bool {
 //   - 将身份与权限信息注入 IRequestContext，供后续基于请求上下文的 RBAC 辅助函数使用。
 func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 	if config == nil {
-		config = DefaultAuthConfig()
+		return func(httpx.IContext, func() error) error {
+			return errors.NewCode(errors.InvalidInput, "auth config is required")
+		}
 	}
 	var validateOnce sync.Once
 	var validateErr error
@@ -254,9 +230,9 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return err
 		}
 
-		reqCtx := ctx.RequestContext()
+		reqCtx := bindAuthTenantPolicy(ctx.RequestContext(), config)
 
-		tenantID, err := tenant.ResolveRequestTenantID(readRequestTenantID(ctx, config), "", config.RequireTenant)
+		tenantID, err := tenant.ResolveRequestTenantIDWithPolicy(tenant.NormalizePolicy(config.TenantPolicy), readRequestTenantID(ctx, config), "", config.RequireTenant)
 		if err != nil {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision: "deny",
@@ -264,7 +240,7 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 			})
 			return err
 		}
-		reqCtx, err = InjectClaimsRequestContext(reqCtx, tenantID, claims, resolveAuthContextResolver(config))
+		reqCtx, err = InjectClaimsRequestContext(reqCtx, tenantID, claims, config.ContextResolver)
 		if err != nil {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision: "deny",
@@ -283,7 +259,9 @@ func AuthMiddleware(config *AuthConfig) httpx.Middleware {
 // OptionalAuthMiddleware 可选认证中间件
 func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 	if config == nil {
-		config = DefaultAuthConfig()
+		return func(httpx.IContext, func() error) error {
+			return errors.NewCode(errors.InvalidInput, "auth config is required")
+		}
 	}
 	var validateOnce sync.Once
 	var validateErr error
@@ -302,12 +280,12 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return err
 		}
 
-		reqCtx := ctx.RequestContext()
+		reqCtx := bindAuthTenantPolicy(ctx.RequestContext(), config)
 		requestTenantID := readRequestTenantID(ctx, config)
 		tenantID := requestTenantID
-		if tenant.Current().IsSingle() {
+		if tenant.NormalizePolicy(config.TenantPolicy).IsSingle() {
 			var err error
-			tenantID, err = tenant.ResolveRequestTenantID(requestTenantID, "", config.RequireTenant)
+			tenantID, err = tenant.ResolveRequestTenantIDWithPolicy(tenant.NormalizePolicy(config.TenantPolicy), requestTenantID, "", config.RequireTenant)
 			if err != nil {
 				recordAuthzDenied(ctx, AuditRecord{
 					Decision: "deny",
@@ -326,8 +304,9 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 				return err
 			}
 			reqCtx = reqCtx.WithContext(derived)
-			ctx.SetContext(reqCtx)
 		}
+		// 即使没有 tenant ID，也必须让后续授权读取同一显式租户策略。
+		ctx.SetContext(reqCtx)
 
 		// 尝试获取token
 		token := extractToken(ctx, config)
@@ -365,7 +344,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			return err
 		}
 
-		tenantID, err = tenant.ResolveRequestTenantID(requestTenantID, tenantID, config.RequireTenant)
+		tenantID, err = tenant.ResolveRequestTenantIDWithPolicy(tenant.NormalizePolicy(config.TenantPolicy), requestTenantID, tenantID, config.RequireTenant)
 		if err != nil {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision: "deny",
@@ -373,7 +352,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 			})
 			return err
 		}
-		reqCtx, err = InjectClaimsRequestContext(reqCtx, tenantID, claims, resolveAuthContextResolver(config))
+		reqCtx, err = InjectClaimsRequestContext(reqCtx, tenantID, claims, config.ContextResolver)
 		if err != nil {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision: "deny",
@@ -391,7 +370,7 @@ func OptionalAuthMiddleware(config *AuthConfig) httpx.Middleware {
 // extractTokenFromHeadersAndQuery 提取令牌从请求头集合And查询。
 func extractTokenFromHeadersAndQuery(getHeader func(string) string, getQuery func(string) string, config *AuthConfig) string {
 	if config == nil {
-		config = DefaultAuthConfig()
+		return ""
 	}
 	if getHeader != nil {
 		authHeader := getHeader(config.TokenHeader)
@@ -417,7 +396,7 @@ func ExtractAccessToken(ctx httpx.IContext, config *AuthConfig) string {
 
 func extractToken(ctx httpx.IContext, config *AuthConfig) string {
 	if config == nil {
-		config = DefaultAuthConfig()
+		return ""
 	}
 	if token := extractTokenFromHeadersAndQuery(ctx.Header, ctx.Query, config); token != "" {
 		return token
@@ -452,7 +431,7 @@ func ValidateAccessToken(ctx context.Context, token string, config *AuthConfig) 
 		return nil, errors.NewCode(errors.InvalidInput, "ctx is nil")
 	}
 	if config == nil {
-		config = DefaultAuthConfig()
+		return nil, errors.NewCode(errors.InvalidInput, "auth config is required")
 	}
 	claims, err := ParseToken(token, config.SecretKey)
 	if err != nil {
@@ -621,7 +600,7 @@ func cookieSecure(config *AuthConfig) bool {
 	if config != nil && config.AccessTokenCookieSecure != nil {
 		return *config.AccessTokenCookieSecure
 	}
-	return !isDevEnv()
+	return !isAuthConfigDevEnv(config)
 }
 
 func cookieSameSite(config *AuthConfig) http.SameSite {
@@ -678,7 +657,7 @@ func WriteAccessTokenCookie(ctx httpx.IContext, token string, config *AuthConfig
 		return
 	}
 	if config == nil {
-		config = DefaultAuthConfig()
+		return
 	}
 	name := accessCookieName(config)
 	if name == "" {
@@ -706,7 +685,7 @@ func ClearAccessTokenCookie(ctx httpx.IContext, config *AuthConfig) {
 		return
 	}
 	if config == nil {
-		config = DefaultAuthConfig()
+		return
 	}
 	name := accessCookieName(config)
 	if name == "" {
@@ -893,7 +872,7 @@ func (s *sharedRevokedTokenStoreProxy) IsRevoked(ctx context.Context, jti string
 
 var sharedRevokedTokenStore = newSharedRevokedTokenStoreProxy()
 
-// InstallDefaultRevokedTokenStore 替换 DefaultAuthConfig 使用的共享吊销存储。
+// InstallDefaultRevokedTokenStore 替换标准认证配置使用的共享吊销存储。
 func InstallDefaultRevokedTokenStore(store RevokedTokenStore) error {
 	return sharedRevokedTokenStore.install(store)
 }
@@ -985,7 +964,7 @@ func WriteCSRFCookie(ctx httpx.IContext, config *AuthConfig) string {
 		return ""
 	}
 	if config == nil {
-		config = DefaultAuthConfig()
+		return ""
 	}
 	if accessCookieName(config) == "" {
 		return ""
@@ -1018,7 +997,7 @@ func EnsureCSRFCookie(ctx httpx.IContext, config *AuthConfig) string {
 		return ""
 	}
 	if config == nil {
-		config = DefaultAuthConfig()
+		return ""
 	}
 	if accessCookieName(config) == "" {
 		return ""
@@ -1042,7 +1021,7 @@ func ClearCSRFCookie(ctx httpx.IContext, config *AuthConfig) {
 		return
 	}
 	if config == nil {
-		config = DefaultAuthConfig()
+		return
 	}
 	if accessCookieName(config) == "" {
 		return

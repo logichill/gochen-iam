@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -10,6 +11,8 @@ import (
 	iammw "gochen-iam/middleware"
 	scoperepo "gochen-iam/repo/scope"
 	"gochen-iam/tenant"
+	"gochen/cache"
+	"gochen/clock"
 	"gochen/domain/crud"
 	"gochen/errors"
 	"gochen/testkit"
@@ -172,7 +175,7 @@ func TestAuthContextResolverVisibleScopesRespectTenantMode(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(tenant.EnvTenantMode, string(tt.mode))
+			ctx := tenant.WithPolicy(context.Background(), tenant.Policy{Mode: tt.mode})
 			provider := &authSnapshotProviderStub{snapshot: &ActiveScopeSession{
 				UserID:         7,
 				ActiveScopeID:  tenantRootID,
@@ -187,7 +190,7 @@ func TestAuthContextResolverVisibleScopesRespectTenantMode(t *testing.T) {
 				Permissions:    []string{"user:api:list"},
 			}
 
-			resolved, err := resolver.ResolveAuthContext(context.Background(), claims)
+			resolved, err := resolver.ResolveAuthContext(ctx, claims)
 			if err != nil {
 				t.Fatalf("ResolveAuthContext: %v", err)
 			}
@@ -197,7 +200,7 @@ func TestAuthContextResolverVisibleScopesRespectTenantMode(t *testing.T) {
 			}
 
 			resolved.VisibleScopeIDs[0] = 999
-			cached, err := resolver.ResolveAuthContext(context.Background(), claims)
+			cached, err := resolver.ResolveAuthContext(ctx, claims)
 			if err != nil {
 				t.Fatalf("ResolveAuthContext cached: %v", err)
 			}
@@ -233,15 +236,57 @@ func cachedAuthContextResolver(provider AuthSnapshotProvider) *AuthContextResolv
 		authSnapshotProvider: provider,
 		cacheTTL:             time.Minute,
 		now:                  time.Now,
-		cache:                make(map[string]authContextCacheEntry),
+		cache:                cache.New[string, authContextCacheEntry](cache.Config{MaxSize: authContextCacheMaxSize, TTL: time.Minute}),
 	}
-	resolver.cache[authContextCacheKey(11, "binding-v1")] = authContextCacheEntry{
+	resolver.cache.Set(authContextCacheKey(11, "binding-v1"), authContextCacheEntry{
 		resolved: iammw.ResolvedAuthContext{
 			ActiveScopeID:   11,
 			ActiveScopeKind: string(iammw.ScopeTenant),
 			VisibleScopeIDs: []int64{11},
 		},
 		expiresAt: time.Now().Add(time.Minute),
-	}
+	})
 	return resolver
+}
+
+func TestAuthContextCacheHasFixedExpiryDespiteFrequentHits(t *testing.T) {
+	clk := clock.NewManualClock(time.Unix(0, 0))
+	r := &AuthContextResolver{
+		cacheTTL: time.Minute, now: clk.Now,
+		cache: cache.New[string, authContextCacheEntry](cache.Config{MaxSize: 2, TTL: time.Minute, Clock: clk}),
+	}
+	r.storeCached("binding", iammw.ResolvedAuthContext{VisibleScopeIDs: []int64{11}})
+	for i := 0; i < 5; i++ {
+		clk.Advance(10 * time.Second)
+		if _, ok := r.loadCached("binding"); !ok {
+			t.Fatal("cache expired early")
+		}
+	}
+	clk.Advance(10 * time.Second)
+	if _, ok := r.loadCached("binding"); ok {
+		t.Fatal("frequent hits extended authorization expiry")
+	}
+	r.storeCached("binding", iammw.ResolvedAuthContext{VisibleScopeIDs: []int64{12}})
+	got, ok := r.loadCached("binding")
+	if !ok || got.VisibleScopeIDs[0] != 12 {
+		t.Fatalf("cache did not refresh: %+v", got)
+	}
+}
+
+func TestAuthContextCacheBoundsBindingVersionsAndInvalidates(t *testing.T) {
+	r := NewAuthContextResolver(&ScopeAuthorizer{}, &authSnapshotProviderStub{})
+	for i := 0; i <= authContextCacheMaxSize; i++ {
+		r.storeCached(authContextCacheKey(11, fmt.Sprint(i)), iammw.ResolvedAuthContext{})
+	}
+	if r.cache.Size() != authContextCacheMaxSize {
+		t.Fatalf("cache size = %d", r.cache.Size())
+	}
+	if _, ok := r.loadCached(authContextCacheKey(11, "0")); ok {
+		t.Fatal("oldest binding was not evicted")
+	}
+	last := fmt.Sprint(authContextCacheMaxSize)
+	r.InvalidateBinding(11, last)
+	if _, ok := r.loadCached(authContextCacheKey(11, last)); ok {
+		t.Fatal("invalidated binding remains cached")
+	}
 }

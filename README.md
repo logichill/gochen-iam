@@ -111,7 +111,9 @@
 
 ### 关键环境变量
 
-`middleware.DefaultAuthConfig()` 当前会读取：
+应用在配置加载阶段调用 `config.ApplyEnvOverrides`，再用 `config.NewAuthConfig(runtimeConfig, environment)` 构造认证配置，通过 `iam.ModuleAuthConfig` 注入模块，并把同一配置传给中间件和 `router.NewAuthRoutesWithConfig`。认证配置与租户策略在运行期不再读取进程环境，传入 `nil` 认证配置会被拒绝。
+
+`config.ApplyEnvOverrides` 支持：
 
 - `AUTH_SECRET`
 - `AUTH_ACCESS_TOKEN_TTL`
@@ -127,6 +129,8 @@
 - `AUTH_ALLOW_QUERY_TOKEN` 仅允许 dev/test 环境开启
 - `AUTH_REQUIRE_TENANT` 控制业务请求是否必须显式提供请求租户
 - 单租户模式只影响业务 tenant 归一化，不影响 active scope 选择模型
+- 非 HTTP 调用通过 `tenant.WithPolicy(ctx, policy)` 绑定单租户策略；未绑定策略时按租户隔离处理，要求上下文提供 tenant ID
+- 权限目录调用点仅由 `router.PermissionCatalogOptions.ExposeCallsites` 显式控制，不再读取 `AUTH_EXPOSE_PERMISSION_CALLSITES`
 
 ## 授权（RBAC + Scope）
 
@@ -173,11 +177,18 @@ registry := authz.NewRegistry()
 if err := iamservice.InstallIAMPermissionCatalog(registry); err != nil {
     return err
 }
-err := host.Run(ctx,
+app := quick.New(
     config.WithCatalogRegistrar(authz.NewCatalogRegistrar(registry)),
-    config.WithModules(iamModuleCtor, workflowModuleCtor),
+    config.WithModuleCapabilities(iam.ModuleAuthConfig(authConfig)),
 )
+app.Modules(iamModuleCtor)
+app.Group("").Use(iammw.AuthMiddleware(authConfig)).Modules(workflowModuleCtor)
+err := app.Run(ctx)
 ```
+
+上述入口使用 `gochen-runtime/quick` 与 `gochen-runtime/host/config`。IAM 单独注册，内部区分登录和受保护路由；业务模块在认证分组中继承 middleware。默认前缀按模块 ID 推导，不再维护按 ID 索引的 HTTP 配置表。
+
+每个应用独立创建一份 `*iammw.AuthConfig`，所有认证中间件与 `ModuleAuthConfig` 共用该指针；若在 DI 注册配置，也必须是同一实例。IAM 在启动期为该配置绑定 `ContextResolver`，启动后不得修改配置。独立使用中间件或认证路由时须显式注入解析器，不再支持进程级全局安装或隐式回退。
 
 漏装同步钩子的后果：下游模块的 `xxx:menu:view` 等未挂中间件的权限码不会进入 registry，授予角色时会被判为"未知权限"。
 

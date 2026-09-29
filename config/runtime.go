@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	iammw "gochen-iam/middleware"
 	"gochen-iam/tenant"
 	"gochen/httpx"
 )
@@ -34,6 +35,26 @@ type RuntimeConfig struct {
 	RequireTenant    bool          `json:"require_tenant" yaml:"require_tenant" env:"AUTH_REQUIRE_TENANT"`
 	AllowTenantQuery bool          `json:"allow_tenant_query" yaml:"allow_tenant_query" env:"AUTH_ALLOW_TENANT_QUERY"`
 	TenantHeader     string        `json:"tenant_header" yaml:"tenant_header" env:"AUTH_TENANT_HEADER" default:"X-Tenant-ID"`
+}
+
+// NewAuthConfig 将 IAM 运行配置转换成可注入的认证配置。
+//
+// environment 来自应用配置，而不是进程环境；这样认证安全模式与应用配置保持同一
+// 来源，组合根无需通过 os.Setenv 把结构化配置桥接回 IAM。
+func NewAuthConfig(cfg *RuntimeConfig, environment string) *iammw.AuthConfig {
+	cfg = NormalizeRuntimeConfig(cfg)
+	authConfig := iammw.DefaultAuthConfigForEnvironment(environment)
+	authConfig.SecretKey = cfg.SecretKey
+	authConfig.AccessTokenTTL = cfg.AccessTokenTTL
+	authConfig.AllowQueryToken = cfg.AllowQueryToken
+	authConfig.RequireTenant = cfg.RequireTenant
+	authConfig.AllowTenantQuery = cfg.AllowTenantQuery
+	authConfig.TenantHeader = cfg.TenantHeader
+	authConfig.TenantPolicy = tenant.NormalizePolicy(tenant.Policy{
+		Mode:           tenant.Mode(cfg.TenantMode),
+		SingleTenantID: cfg.SingleTenantID,
+	})
+	return authConfig
 }
 
 // DefaultRuntimeConfig 返回标准默认运行配置。
@@ -129,20 +150,6 @@ func ApplyEnvOverridesWithLookup(cfg *RuntimeConfig, lookup func(string) (string
 	return NormalizeRuntimeConfig(cfg)
 }
 
-// ApplyRuntimeEnv 把运行配置回填到环境变量，供 gochen-iam 旧路径继续消费。
-func ApplyRuntimeEnv(cfg *RuntimeConfig) {
-	cfg = NormalizeRuntimeConfig(cfg)
-
-	setOrUnsetEnv(tenant.EnvTenantMode, cfg.TenantMode)
-	setOrUnsetEnv(tenant.EnvSingleTenantID, cfg.SingleTenantID)
-	setOrUnsetEnv(envAuthSecret, cfg.SecretKey)
-	setOrUnsetEnv(envAccessTokenTTL, cfg.AccessTokenTTL.String())
-	setOrUnsetEnv(envAllowQueryToken, strconv.FormatBool(cfg.AllowQueryToken))
-	setOrUnsetEnv(envRequireTenant, strconv.FormatBool(cfg.RequireTenant))
-	setOrUnsetEnv(envAllowTenantQuery, strconv.FormatBool(cfg.AllowTenantQuery))
-	setOrUnsetEnv(envTenantHeader, cfg.TenantHeader)
-}
-
 // ValidateRuntimeConfig 校验当前运行配置是否满足运行要求。
 func ValidateRuntimeConfig(cfg *RuntimeConfig, appEnv string, authEnabled bool) error {
 	cfg = NormalizeRuntimeConfig(cfg)
@@ -179,12 +186,4 @@ func isDevEnv(appEnv string) bool {
 
 func isProdEnv(appEnv string) bool {
 	return strings.EqualFold(strings.TrimSpace(appEnv), "production")
-}
-
-func setOrUnsetEnv(key, value string) {
-	if strings.TrimSpace(value) == "" {
-		_ = os.Unsetenv(key)
-		return
-	}
-	_ = os.Setenv(key, value)
 }

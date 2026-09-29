@@ -22,6 +22,7 @@ import (
 	svc "gochen-iam/service"
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
+	"gochen-iam/tenant"
 
 	auth "gochen-runtime/host/authz"
 	"gochen/auth/scoped"
@@ -781,8 +782,7 @@ func TestUserServiceGetUserPermissionsRequiresActiveUser(t *testing.T) {
 func TestUserServiceSingleTenantUsesOneRootScopeForRBAC(t *testing.T) {
 	env := setupUserServiceTest(t)
 	defer env.teardown(t)
-	t.Setenv("IAM_TENANT_MODE", "single")
-	t.Setenv("IAM_SINGLE_TENANT_ID", env.tenantID)
+	env.backgroundCtx = tenant.WithPolicy(env.backgroundCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: env.tenantID})
 
 	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, &svc.RegisterRequest{
 		Username: "single_rbac_user",
@@ -860,8 +860,7 @@ func TestUserServiceAuthSnapshotQueryCountIsBounded(t *testing.T) {
 				t.Run(strconv.Itoa(bindingCount), func(t *testing.T) {
 					env := setupUserServiceTest(t)
 					defer env.teardown(t)
-					t.Setenv("IAM_TENANT_MODE", mode)
-					t.Setenv("IAM_SINGLE_TENANT_ID", env.tenantID)
+					env.backgroundCtx = tenant.WithPolicy(env.backgroundCtx, tenant.Policy{Mode: tenant.Mode(mode), SingleTenantID: env.tenantID})
 
 					user := &iamentity.User{
 						TenantID:       env.tenantID,
@@ -936,8 +935,7 @@ func TestUserServiceAuthSnapshotQueryCountIsBounded(t *testing.T) {
 func TestUserServiceSingleTenantProjectsAncestorGrantIntoRootScope(t *testing.T) {
 	env := setupUserServiceTest(t)
 	defer env.teardown(t)
-	t.Setenv("IAM_TENANT_MODE", "single")
-	t.Setenv("IAM_SINGLE_TENANT_ID", env.tenantID)
+	env.backgroundCtx = tenant.WithPolicy(env.backgroundCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: env.tenantID})
 
 	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, &svc.RegisterRequest{
 		Username: "single_platform_admin",
@@ -1010,8 +1008,7 @@ func TestUserServiceSingleTenantProjectsAncestorGrantIntoRootScope(t *testing.T)
 func TestUserServiceSingleTenantRejectsExplicitOrExistingNonCoveringGrant(t *testing.T) {
 	env := setupUserServiceTest(t)
 	defer env.teardown(t)
-	t.Setenv("IAM_TENANT_MODE", "single")
-	t.Setenv("IAM_SINGLE_TENANT_ID", env.tenantID)
+	env.backgroundCtx = tenant.WithPolicy(env.backgroundCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: env.tenantID})
 
 	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, &svc.RegisterRequest{
 		Username: "single_invalid_grant",
@@ -1188,8 +1185,7 @@ func TestUserServiceActivateDeactivate(t *testing.T) {
 func TestUserServiceActivateUserRejectsPlatformOwnedUserFromTenantScopeInSingleTenant(t *testing.T) {
 	env := setupUserServiceTest(t)
 	defer env.teardown(t)
-	t.Setenv("IAM_TENANT_MODE", "single")
-	t.Setenv("IAM_SINGLE_TENANT_ID", env.tenantID)
+	env.backgroundCtx = tenant.WithPolicy(env.backgroundCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: env.tenantID})
 
 	platformScope, err := iamservice.NewScopeAuthorizer(env.scopeRepo, env.tenantRepo).EnsurePlatformScope(env.backgroundCtx)
 	if err != nil {

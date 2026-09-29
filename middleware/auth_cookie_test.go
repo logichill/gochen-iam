@@ -39,7 +39,7 @@ func TestExtractTokenPrefersHeaderThenCookie(t *testing.T) {
 }
 
 func TestWriteAndClearAccessTokenCookie(t *testing.T) {
-	cfg := DefaultAuthConfig()
+	cfg := DefaultAuthConfigForEnvironment("test")
 	cfg.SecretKey = "secret"
 	secure := false
 	cfg.AccessTokenCookieSecure = &secure
@@ -132,7 +132,7 @@ func TestEmptyAccessTokenCookieNameDisablesCookieTransport(t *testing.T) {
 
 func TestSetCookieOnContextAppendsMultipleCookies(t *testing.T) {
 	secure := false
-	cfg := DefaultAuthConfig()
+	cfg := DefaultAuthConfigForEnvironment("test")
 	cfg.AccessTokenCookieSecure = &secure
 
 	w := httptest.NewRecorder()

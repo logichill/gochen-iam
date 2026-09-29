@@ -9,6 +9,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
+	"gochen-iam/tenant"
 	auth "gochen-runtime/host/authz"
 	dbquery "gochen/app/query"
 	"gochen/auth/scoped"
@@ -58,8 +59,7 @@ func TestRoleRepositoryQueryCountExcludesPlatformScopeFromTenantDataScope(t *tes
 func TestRoleServiceRoleUsersRequiresPlatformScopeForPlatformOwnedRole(t *testing.T) {
 	env := setupRoleBatchTest(t)
 	defer env.teardown(t)
-	t.Setenv("IAM_TENANT_MODE", "single")
-	t.Setenv("IAM_SINGLE_TENANT_ID", env.tenantID)
+	env.backgroundCtx = tenant.WithPolicy(env.backgroundCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: env.tenantID})
 
 	const platformScopeID int64 = 2
 	role := &iamentity.Role{

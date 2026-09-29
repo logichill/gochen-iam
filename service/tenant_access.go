@@ -21,7 +21,7 @@ type tenantAccessResolution struct {
 func resolveTenantAccess(ctx context.Context, targetTenantID string) (tenantAccessResolution, error) {
 	targetTenantID = strings.TrimSpace(targetTenantID)
 
-	if tenant.Current().IsSingle() {
+	if tenant.CurrentContext(ctx).IsSingle() {
 		tenantID, err := tenant.NormalizeTenantID(ctx, targetTenantID)
 		if err != nil {
 			return tenantAccessResolution{}, err

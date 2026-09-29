@@ -345,7 +345,7 @@ func (s *UserService) resolveAvailableScopes(ctx context.Context, user *iamentit
 	if user == nil {
 		return nil, "", errors.NewCode(errors.InvalidInput, "user is required")
 	}
-	if tenant.Current().IsSingle() {
+	if tenant.CurrentContext(ctx).IsSingle() {
 		return s.resolveSingleTenantScope(ctx, user)
 	}
 
@@ -732,7 +732,7 @@ func (s *UserService) AssignRoleBinding(ctx context.Context, userID, roleID int6
 	}
 
 	targetScopeID := role.NamespaceScopeID
-	if tenant.Current().IsSingle() {
+	if tenant.CurrentContext(ctx).IsSingle() {
 		if s.scopeAuthorizer == nil {
 			return errors.NewCode(errors.Dependency, "single tenant authorization requires scope authorizer")
 		}
@@ -921,7 +921,7 @@ func (s *UserService) ensureGrantScopeVisible(ctx context.Context, grantScopeID 
 	if grantScopeID <= 0 || s.scopeAuthorizer == nil {
 		return nil
 	}
-	if tenant.Current().IsSingle() {
+	if tenant.CurrentContext(ctx).IsSingle() {
 		tenantID, err := svc.TenantIDFromContext(ctx)
 		if err != nil {
 			return err
@@ -1085,7 +1085,7 @@ func (s *UserService) resolveRoleForScope(ctx context.Context, tenantID string, 
 	}
 	role, err = s.roleRepo.Get(tenantGlobalCtx, roleID)
 	if err == nil {
-		if !tenant.Current().IsSingle() || role == nil || s.scopeAuthorizer == nil {
+		if !tenant.CurrentContext(ctx).IsSingle() || role == nil || s.scopeAuthorizer == nil {
 			return role, false, nil
 		}
 		rootScope, resolveErr := s.scopeAuthorizer.ResolveTenantScope(ctx, tenantID)

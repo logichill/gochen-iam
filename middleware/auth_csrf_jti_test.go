@@ -81,7 +81,7 @@ func TestCSRFDoubleSubmitUsesConfiguredTokenHeader(t *testing.T) {
 }
 
 func TestOptionalAuthSkipsPublicIAMAuthRoutesWithStaleCookie(t *testing.T) {
-	cfg := DefaultAuthConfig()
+	cfg := DefaultAuthConfigForEnvironment("test")
 	secure := false
 	cfg.AccessTokenCookieSecure = &secure
 	middleware := OptionalAuthMiddleware(cfg)
@@ -116,7 +116,7 @@ func TestOptionalAuthSkipsPublicIAMAuthRoutesWithStaleCookie(t *testing.T) {
 }
 
 func TestRevokedJTIIsRejected(t *testing.T) {
-	cfg := DefaultAuthConfig()
+	cfg := DefaultAuthConfigForEnvironment("test")
 	cfg.SecretKey = "secret"
 	secure := false
 	cfg.AccessTokenCookieSecure = &secure

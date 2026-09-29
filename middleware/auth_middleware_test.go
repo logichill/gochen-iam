@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	iamauth "gochen-iam/auth"
+	iamtenant "gochen-iam/tenant"
 	auth "gochen-runtime/host/authz"
 	"gochen-runtime/http/nethttp"
 	"gochen/contextx"
@@ -32,7 +33,7 @@ func TestOptionalAuthMiddleware_NoToken_PassThrough(t *testing.T) {
 	resetRequiredPermissionsRegistryForTest()
 	RegisterRequiredPermissions("iam:api:test")
 
-	mw := OptionalAuthMiddleware(&AuthConfig{SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer "})
+	mw := OptionalAuthMiddleware(&AuthConfig{Environment: "test", SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer "})
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
 	called := false
 	if err := mw(ctx, func() error { called = true; return nil }); err != nil {
@@ -43,12 +44,35 @@ func TestOptionalAuthMiddleware_NoToken_PassThrough(t *testing.T) {
 	}
 }
 
+func TestOptionalAuthMiddleware_BindsExplicitTenantPolicyWithoutTenantID(t *testing.T) {
+	t.Setenv(iamtenant.EnvTenantMode, string(iamtenant.ModeSingle))
+	t.Setenv(iamtenant.EnvSingleTenantID, "environment-tenant")
+
+	resetRequiredPermissionsRegistryForTest()
+	RegisterRequiredPermissions("iam:api:test")
+
+	mw := OptionalAuthMiddleware(&AuthConfig{
+		Environment:  "test",
+		SecretKey:    "test-secret",
+		TenantPolicy: iamtenant.Policy{Mode: iamtenant.ModeTenant},
+	})
+	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
+	if err := mw(ctx, func() error {
+		if policy := iamtenant.CurrentContext(ctx.RequestContext()); policy.Mode != iamtenant.ModeTenant {
+			t.Fatalf("tenant policy = %+v, want tenant mode", policy)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("expected nil, got %v", err)
+	}
+}
+
 func TestOptionalAuthMiddleware_InvalidToken_Returns401(t *testing.T) {
 	t.Setenv("APP_ENV", "test")
 	resetRequiredPermissionsRegistryForTest()
 	RegisterRequiredPermissions("iam:api:test")
 
-	mw := OptionalAuthMiddleware(&AuthConfig{SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer "})
+	mw := OptionalAuthMiddleware(&AuthConfig{Environment: "test", SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer "})
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users", map[string]string{"Authorization": "Bearer invalid-token"})
 
 	if err := mw(ctx, func() error { return nil }); !errors.Is(err, errors.Unauthorized) {
@@ -57,13 +81,10 @@ func TestOptionalAuthMiddleware_InvalidToken_Returns401(t *testing.T) {
 }
 
 func TestOptionalAuthMiddleware_FixedModeInjectsTenantWithoutHeaderOrToken(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "single")
-	t.Setenv("IAM_SINGLE_TENANT_ID", "single-tenant")
-
 	resetRequiredPermissionsRegistryForTest()
 	RegisterRequiredPermissions("iam:api:test")
 
-	mw := OptionalAuthMiddleware(&AuthConfig{SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer ", RequireTenant: true})
+	mw := OptionalAuthMiddleware(&AuthConfig{Environment: "test", SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer ", RequireTenant: true, TenantPolicy: iamtenant.Policy{Mode: iamtenant.ModeSingle, SingleTenantID: "single-tenant"}})
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
 	called := false
 	err := mw(ctx, func() error {
@@ -93,7 +114,8 @@ func TestOptionalAuthMiddleware_RequiresTenantHeaderInTenantMode(t *testing.T) {
 		t.Fatalf("GenerateToken: %v", err)
 	}
 
-	mw := OptionalAuthMiddleware(&AuthConfig{
+	mw := OptionalAuthMiddleware(&AuthConfig{TenantPolicy: iamtenant.Policy{Mode: iamtenant.ModeTenant},
+		Environment:     "test",
 		SecretKey:       "test-secret",
 		TokenHeader:     "Authorization",
 		TokenPrefix:     "Bearer ",
@@ -120,7 +142,8 @@ func TestOptionalAuthMiddleware_BindsTenantAndPrincipalFromToken(t *testing.T) {
 		t.Fatalf("GenerateToken: %v", err)
 	}
 
-	mw := OptionalAuthMiddleware(&AuthConfig{
+	mw := OptionalAuthMiddleware(&AuthConfig{TenantPolicy: iamtenant.Policy{Mode: iamtenant.ModeTenant},
+		Environment:     "test",
 		SecretKey:       "test-secret",
 		TokenHeader:     "Authorization",
 		TokenPrefix:     "Bearer ",
@@ -161,7 +184,7 @@ func TestAuthMiddleware_RequiresToken(t *testing.T) {
 	resetRequiredPermissionsRegistryForTest()
 	RegisterRequiredPermissions("iam:api:test")
 
-	mw := AuthMiddleware(&AuthConfig{SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer "})
+	mw := AuthMiddleware(&AuthConfig{Environment: "test", SecretKey: "test-secret", TokenHeader: "Authorization", TokenPrefix: "Bearer "})
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/users")
 	if err := mw(ctx, func() error { return nil }); !errors.Is(err, errors.Unauthorized) {
 		t.Fatalf("expected unauthorized, got %v", err)
@@ -180,7 +203,8 @@ func TestAuthMiddleware_AllowsPlatformScopeCrossTenantHeader(t *testing.T) {
 		t.Fatalf("GenerateToken: %v", err)
 	}
 
-	mw := AuthMiddleware(&AuthConfig{
+	mw := AuthMiddleware(&AuthConfig{TenantPolicy: iamtenant.Policy{Mode: iamtenant.ModeTenant},
+		Environment:     "test",
 		SecretKey:       "test-secret",
 		TokenHeader:     "Authorization",
 		TokenPrefix:     "Bearer ",
@@ -228,6 +252,7 @@ func TestAuthMiddleware_GlobalWildcardPassesPermissionMiddleware(t *testing.T) {
 	}
 
 	mw := AuthMiddleware(&AuthConfig{
+		Environment:     "test",
 		SecretKey:       "test-secret",
 		TokenHeader:     "Authorization",
 		TokenPrefix:     "Bearer ",

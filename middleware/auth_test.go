@@ -218,7 +218,7 @@ func TestParseTokenRejectsNonHS256HMAC(t *testing.T) {
 	}
 }
 
-func TestIsDevEnv(t *testing.T) {
+func TestIsDevEnvironment(t *testing.T) {
 	tests := []struct {
 		name     string
 		appEnv   string
@@ -235,14 +235,8 @@ func TestIsDevEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Unsetenv("APP_ENV")
-			if tt.appEnv != "" {
-				os.Setenv("APP_ENV", tt.appEnv)
-			}
-			defer func() { os.Unsetenv("APP_ENV") }()
-
-			if result := isDevEnv(); result != tt.expected {
-				t.Errorf("isDevEnv() = %v, expected %v", result, tt.expected)
+			if result := isDevEnvironment(tt.appEnv); result != tt.expected {
+				t.Errorf("isDevEnvironment(tt.appEnv) = %v, expected %v", result, tt.expected)
 			}
 		})
 	}
@@ -275,6 +269,33 @@ func TestValidateAuthConfig_ProductionRejectsMemoryRevokedTokenStore(t *testing.
 	config := &AuthConfig{SecretKey: "my-secret-key", RevokedTokenStore: newMemoryRevokedTokenStore()}
 	if err := ValidateAuthConfig(config); err == nil {
 		t.Fatal("expected production config to reject memory revoked token store")
+	}
+}
+
+func TestExplicitAuthEnvironmentDoesNotReadProcessEnvironment(t *testing.T) {
+	for _, environment := range []string{"", "   ", "production", "test"} {
+		t.Run("environment="+environment, func(t *testing.T) {
+			cfg := DefaultAuthConfigForEnvironment(environment)
+			cfg.SecretKey = "test-secret"
+			cfg.RevokedTokenStore = newMemoryRevokedTokenStore()
+			for _, processEnvironment := range []string{"test", "production"} {
+				t.Setenv("APP_ENV", processEnvironment)
+				wantDev := environment == "test"
+				if err := ValidateAuthConfig(cfg); (err == nil) != wantDev {
+					t.Fatalf("APP_ENV=%s: memory store validation = %v", processEnvironment, err)
+				}
+				cfg.RevokedTokenStore = persistentRevokedTokenStoreStub{}
+				cfg.AllowQueryToken = true
+				if err := ValidateAuthConfig(cfg); (err == nil) != wantDev {
+					t.Fatalf("APP_ENV=%s: query token validation = %v", processEnvironment, err)
+				}
+				if cookieSecure(cfg) == wantDev {
+					t.Fatalf("APP_ENV=%s: unexpected Secure cookie policy", processEnvironment)
+				}
+				cfg.AllowQueryToken = false
+				cfg.RevokedTokenStore = newMemoryRevokedTokenStore()
+			}
+		})
 	}
 }
 
@@ -368,7 +389,7 @@ func TestResolveRequestTenantID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tenantID, err := tenant.ResolveRequestTenantID(tt.requestTenant, tt.currentTenant, tt.requireTenant)
+			tenantID, err := tenant.ResolveRequestTenantIDWithPolicy(tenant.Policy{Mode: tenant.ModeTenant}, tt.requestTenant, tt.currentTenant, tt.requireTenant)
 			if tt.wantCode != "" {
 				if !errors.Is(err, tt.wantCode) {
 					t.Fatalf("expected %s, got %v", tt.wantCode, err)
@@ -385,35 +406,34 @@ func TestResolveRequestTenantID(t *testing.T) {
 	}
 }
 
-func TestDefaultAuthConfig_Development_NoSecret(t *testing.T) {
-	os.Unsetenv("AUTH_SECRET")
-	os.Setenv("APP_ENV", "development")
-	defer os.Unsetenv("APP_ENV")
-
-	config := DefaultAuthConfig()
-	if config.SecretKey != "" {
-		t.Errorf("expected empty secret key in development without AUTH_SECRET, got '%s'", config.SecretKey)
+func TestDefaultAuthConfigForEnvironmentIgnoresProcessEnvironment(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("AUTH_SECRET", "environment-secret")
+	t.Setenv("AUTH_ALLOW_QUERY_TOKEN", "true")
+	t.Setenv("AUTH_ACCESS_TOKEN_TTL", "1m")
+	t.Setenv("IAM_TENANT_MODE", "tenant")
+	config := DefaultAuthConfigForEnvironment("production")
+	if config.Environment != "production" || config.SecretKey != "" || config.AllowQueryToken ||
+		config.AccessTokenTTL != defaultAccessTokenTTL || config.TenantPolicy.Mode != tenant.ModeSingle {
+		t.Fatal("default config unexpectedly read process environment")
 	}
 }
 
-func TestDefaultAuthConfig_Production_NoSecret(t *testing.T) {
-	os.Unsetenv("AUTH_SECRET")
-	os.Setenv("APP_ENV", "production")
-	defer os.Unsetenv("APP_ENV")
-
-	config := DefaultAuthConfig()
-	if config.SecretKey != "" {
-		t.Errorf("expected empty secret key in production without AUTH_SECRET, got '%s'", config.SecretKey)
+func TestAuthEntryPointsRejectMissingConfig(t *testing.T) {
+	t.Setenv("APP_ENV", "test")
+	t.Setenv("AUTH_SECRET", "environment-secret")
+	if err := ValidateAuthConfig(nil); !errors.Is(err, errors.InvalidInput) {
+		t.Fatalf("ValidateAuthConfig(nil) = %v", err)
 	}
-}
-
-func TestDefaultAuthConfig_WithEnvSecret(t *testing.T) {
-	os.Setenv("AUTH_SECRET", "env-secret-key")
-	defer os.Unsetenv("AUTH_SECRET")
-
-	config := DefaultAuthConfig()
-	if config.SecretKey != "env-secret-key" {
-		t.Errorf("expected secret from env 'env-secret-key', got '%s'", config.SecretKey)
+	for _, middleware := range []httpx.Middleware{AuthMiddleware(nil), OptionalAuthMiddleware(nil)} {
+		called := false
+		err := middleware(newTestHTTPContext(t, "GET", "/api/v1/users"), func() error { called = true; return nil })
+		if !errors.Is(err, errors.InvalidInput) || called {
+			t.Fatalf("missing config: err=%v next=%v", err, called)
+		}
+	}
+	if _, err := ValidateAccessToken(context.Background(), "token", nil); !errors.Is(err, errors.InvalidInput) {
+		t.Fatalf("ValidateAccessToken(nil config) = %v", err)
 	}
 }
 

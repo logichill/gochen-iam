@@ -10,6 +10,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
+	iamtenant "gochen-iam/tenant"
 	authz "gochen-runtime/host/authz"
 	"gochen-runtime/http/nethttp"
 	"gochen/errors"
@@ -37,8 +38,6 @@ func (r *tenantAuthorizationRepo) Delete(context.Context, int64) error {
 }
 
 func TestTenantCRUDRequiresActionPermission(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "single")
-	t.Setenv("IAM_SINGLE_TENANT_ID", "default")
 	read := svc.TenantPermissionSet.Code(iammw.ActionRead)
 	write := svc.TenantPermissionSet.Code(iammw.ActionWrite)
 	for _, tt := range []struct {
@@ -65,7 +64,7 @@ func TestTenantCRUDRequiresActionPermission(t *testing.T) {
 			if err := NewTenantRoutes(nil, repo, nil, nil, nil, nil, nil).RegisterRoutes(root); err != nil {
 				t.Fatal(err)
 			}
-			base, err := authz.WithPrincipal(context.Background(), authz.Principal{SubjectID: 7, Permissions: tt.permissions})
+			base, err := authz.WithPrincipal(iamtenant.WithPolicy(context.Background(), iamtenant.Policy{Mode: iamtenant.ModeSingle}), authz.Principal{SubjectID: 7, Permissions: tt.permissions})
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -4,18 +4,16 @@ import (
 	"testing"
 
 	iamauth "gochen-iam/auth"
+	"gochen-iam/tenant"
 	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"
 )
 
 func TestPlatformScopeMiddlewareSingleModeAcceptsAuthenticatedTenantScope(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "single")
-	t.Setenv("IAM_SINGLE_TENANT_ID", "test-tenant")
-
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/iam/menus")
 	requestCtx := bindPlatformScopeTestIdentity(t, ctx.RequestContext(), 7, "tenant")
-	ctx.SetContext(requestCtx)
+	ctx.SetContext(requestCtx.WithContext(tenant.WithPolicy(requestCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "test-tenant"})))
 	called := false
 	if err := PlatformScopeMiddleware()(ctx, func() error { called = true; return nil }); err != nil {
 		t.Fatalf("expected single mode to accept authenticated tenant root scope: %v", err)
@@ -26,8 +24,6 @@ func TestPlatformScopeMiddlewareSingleModeAcceptsAuthenticatedTenantScope(t *tes
 }
 
 func TestPlatformScopeMiddlewareTenantModeStillRejectsTenantScope(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "tenant")
-
 	ctx := newTestHTTPContext(t, "GET", "/api/v1/iam/menus")
 	requestCtx := bindPlatformScopeTestIdentity(t, ctx.RequestContext(), 7, "tenant")
 	ctx.SetContext(requestCtx)

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	iamauth "gochen-iam/auth"
+	"gochen-iam/tenant"
 	authz "gochen-runtime/host/authz"
 	"gochen/errors"
 )
@@ -29,8 +30,7 @@ func TestPermissionMiddlewareEnforcesDeclaredScopes(t *testing.T) {
 		{name: "single tenant", mode: "single", allowed: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("IAM_TENANT_MODE", tt.mode)
-			base, err := authz.WithPrincipal(context.Background(), authz.Principal{
+			base, err := authz.WithPrincipal(tenant.WithPolicy(context.Background(), tenant.Policy{Mode: tenant.Mode(tt.mode)}), authz.Principal{
 				SubjectID: 7, ActiveScopeID: 101, Permissions: []string{"*:*:*"},
 			})
 			if err != nil {

@@ -130,7 +130,7 @@ func PermissionMiddleware(required PermissionSpec) httpx.Middleware {
 			return errors.NewCode(errors.Unauthorized, "用户未认证")
 		}
 		// 单租户模式与 PlatformScopeMiddleware 一致；多租户模式必须匹配声明的授权域。
-		if len(requiredPermission.Scopes) > 0 && !tenant.Current().IsSingle() &&
+		if len(requiredPermission.Scopes) > 0 && !tenant.CurrentContext(reqCtx).IsSingle() &&
 			!slices.Contains(requiredPermission.Scopes, iamauth.ActiveScopeKind(reqCtx)) {
 			recordAuthzDenied(ctx, AuditRecord{
 				Decision:   "deny",
@@ -205,7 +205,7 @@ func PlatformScopeMiddleware() httpx.Middleware {
 		if reqCtx == nil || GetUserID(reqCtx) == 0 {
 			return errors.NewCode(errors.Unauthorized, "用户未认证")
 		}
-		if tenant.Current().IsSingle() {
+		if tenant.CurrentContext(reqCtx).IsSingle() {
 			return next()
 		}
 		if iamauth.ActiveScopeKind(reqCtx) != string(ScopePlatform) {

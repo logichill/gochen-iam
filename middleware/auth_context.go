@@ -42,6 +42,13 @@ func InjectClaimsRequestContext(
 	baseCtx := context.Context(reqCtx)
 	var err error
 	var runtime *ResolvedAuthContext
+	// ResolveAuthContext 需要在租户隔离仓储中读取用户与授权快照。
+	if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
+		baseCtx, err = contextx.WithTenantID(baseCtx, tenantID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if claims.UserID > 0 {
 		baseCtx, err = contextx.WithUserID(baseCtx, claims.UserID)
 		if err != nil {
@@ -70,13 +77,6 @@ func InjectClaimsRequestContext(
 	if err != nil {
 		return nil, err
 	}
-	if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
-		baseCtx, err = contextx.WithTenantID(baseCtx, tenantID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	bound := reqCtx.WithContext(baseCtx)
 	bound = iamauth.WithPermissions(bound, claims.Permissions)
 	if claims.ActiveScopeID > 0 {

@@ -8,57 +8,42 @@ import (
 	"gochen/errors"
 )
 
-func TestCurrent_DefaultIsSingleMode(t *testing.T) {
-	// 不设置任何环境变量，验证默认为 single 模式
-	policy := Current()
-	if policy.Mode != ModeSingle {
-		t.Fatalf("expected single mode as default, got %s", policy.Mode)
+func TestNormalizePolicyDefaults(t *testing.T) {
+	for _, input := range []Policy{{}, {Mode: ModeSingle}, {Mode: "unexpected"}} {
+		policy := NormalizePolicy(input)
+		if policy.Mode != ModeSingle || policy.SingleTenantID != DefaultSingleTenantID {
+			t.Fatalf("NormalizePolicy(%+v) = %+v", input, policy)
+		}
 	}
-	if policy.SingleTenantID != DefaultSingleTenantID {
-		t.Fatalf("expected default tenant id %s, got %s", DefaultSingleTenantID, policy.SingleTenantID)
-	}
-}
-
-func TestCurrent_TenantModeWhenExplicitlySet(t *testing.T) {
-	t.Setenv(EnvTenantMode, string(ModeTenant))
-
-	policy := Current()
-	if policy.Mode != ModeTenant {
-		t.Fatalf("expected tenant mode, got %s", policy.Mode)
+	if policy := NormalizePolicy(Policy{Mode: ModeTenant}); policy.Mode != ModeTenant {
+		t.Fatalf("expected tenant mode, got %+v", policy)
 	}
 }
 
-func TestCurrent_SingleModeFallsBackToDefaultTenantID(t *testing.T) {
+func TestCurrentContextRequiresExplicitSinglePolicy(t *testing.T) {
 	t.Setenv(EnvTenantMode, string(ModeSingle))
-	t.Setenv(EnvSingleTenantID, "")
-
-	policy := Current()
-	if policy.Mode != ModeSingle {
-		t.Fatalf("expected single mode, got %s", policy.Mode)
+	t.Setenv(EnvSingleTenantID, "environment-tenant")
+	for _, ctx := range []context.Context{nil, context.Background()} {
+		if policy := CurrentContext(ctx); policy.Mode != ModeTenant {
+			t.Fatalf("missing policy must preserve tenant isolation, got %+v", policy)
+		}
+		if _, ok := PolicyFromContext(ctx); ok {
+			t.Fatal("unexpected explicit policy")
+		}
 	}
-	if policy.SingleTenantID != DefaultSingleTenantID {
-		t.Fatalf("expected default single tenant id %s, got %s", DefaultSingleTenantID, policy.SingleTenantID)
+	if _, err := ResolveTenantID(context.Background()); !errors.Is(err, errors.Validation) {
+		t.Fatalf("missing tenant must fail, got %v", err)
 	}
-}
-
-func TestCurrent_InvalidModeFallsBackToDefaultSinglePolicy(t *testing.T) {
-	t.Setenv(EnvTenantMode, "unexpected")
-	t.Setenv(EnvSingleTenantID, "")
-
-	policy := Current()
-	if policy.Mode != ModeSingle {
-		t.Fatalf("expected single mode fallback, got %s", policy.Mode)
-	}
-	if policy.SingleTenantID != DefaultSingleTenantID {
-		t.Fatalf("expected default single tenant id %s, got %s", DefaultSingleTenantID, policy.SingleTenantID)
+	ctx := WithPolicy(context.Background(), Policy{Mode: ModeSingle, SingleTenantID: "configured-tenant"})
+	if policy := CurrentContext(ctx); policy.SingleTenantID != "configured-tenant" {
+		t.Fatalf("explicit policy = %+v", policy)
 	}
 }
 
 func TestResolveTenantID_SingleModeIgnoresContextTenant(t *testing.T) {
-	t.Setenv(EnvTenantMode, string(ModeSingle))
-	t.Setenv(EnvSingleTenantID, "single-tenant")
+	policy := Policy{Mode: ModeSingle, SingleTenantID: "single-tenant"}
 
-	tenantID, err := ResolveTenantID(context.Background())
+	tenantID, err := ResolveTenantID(WithPolicy(context.Background(), policy))
 	if err != nil {
 		t.Fatalf("ResolveTenantID: %v", err)
 	}
@@ -68,20 +53,18 @@ func TestResolveTenantID_SingleModeIgnoresContextTenant(t *testing.T) {
 }
 
 func TestNormalizeTenantID_SingleModeRejectsMismatch(t *testing.T) {
-	t.Setenv(EnvTenantMode, string(ModeSingle))
-	t.Setenv(EnvSingleTenantID, "single-tenant")
+	policy := Policy{Mode: ModeSingle, SingleTenantID: "single-tenant"}
 
-	_, err := NormalizeTenantID(context.Background(), "other-tenant")
+	_, err := NormalizeTenantID(WithPolicy(context.Background(), policy), "other-tenant")
 	if !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("expected Forbidden, got %v", err)
 	}
 }
 
 func TestResolveRequestTenantID_SingleModeIgnoresCurrentTenantMismatch(t *testing.T) {
-	t.Setenv(EnvTenantMode, string(ModeSingle))
-	t.Setenv(EnvSingleTenantID, "single-tenant")
+	policy := Policy{Mode: ModeSingle, SingleTenantID: "single-tenant"}
 
-	tenantID, err := ResolveRequestTenantID("", "other-tenant", true)
+	tenantID, err := ResolveRequestTenantIDWithPolicy(policy, "", "other-tenant", true)
 	if err != nil {
 		t.Fatalf("expected nil, got %v", err)
 	}
@@ -91,9 +74,9 @@ func TestResolveRequestTenantID_SingleModeIgnoresCurrentTenantMismatch(t *testin
 }
 
 func TestResolveRequestTenantID_RequestHeaderWins(t *testing.T) {
-	t.Setenv(EnvTenantMode, string(ModeTenant))
+	policy := Policy{Mode: ModeTenant}
 
-	tenantID, err := ResolveRequestTenantID("tenant-b", "tenant-a", true)
+	tenantID, err := ResolveRequestTenantIDWithPolicy(policy, "tenant-b", "tenant-a", true)
 	if err != nil {
 		t.Fatalf("ResolveRequestTenantID: %v", err)
 	}

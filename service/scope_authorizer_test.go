@@ -22,10 +22,8 @@ import (
 )
 
 func TestScopeAuthorizerRequirePermissionInTenant_FixedModeShortCircuitsScopeLookup(t *testing.T) {
-	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
-	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
-
 	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "role:api:read")
+	reqCtx = reqCtx.WithContext(tenant.WithPolicy(reqCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "single-tenant"}))
 	authorizer := NewScopeAuthorizer(nil, nil)
 
 	if err := authorizer.RequirePermissionInTenant(reqCtx, "role:api:read", ""); err != nil {
@@ -34,10 +32,8 @@ func TestScopeAuthorizerRequirePermissionInTenant_FixedModeShortCircuitsScopeLoo
 }
 
 func TestScopeAuthorizerRequirePermissionInTenant_FixedModeRejectsMismatchedTenant(t *testing.T) {
-	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
-	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
-
 	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "role:api:read")
+	reqCtx = reqCtx.WithContext(tenant.WithPolicy(reqCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "single-tenant"}))
 	authorizer := NewScopeAuthorizer(nil, nil)
 
 	if err := authorizer.RequirePermissionInTenant(reqCtx, "role:api:read", "tenant-b"); err == nil {
@@ -46,10 +42,8 @@ func TestScopeAuthorizerRequirePermissionInTenant_FixedModeRejectsMismatchedTena
 }
 
 func TestScopeAuthorizerRequirePermissionInTenant_FixedModeStillRequiresPermission(t *testing.T) {
-	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
-	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
-
 	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "ignored"), "role:api:list")
+	reqCtx = reqCtx.WithContext(tenant.WithPolicy(reqCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "single-tenant"}))
 	authorizer := NewScopeAuthorizer(nil, nil)
 
 	if err := authorizer.RequirePermissionInTenant(reqCtx, "role:api:read", ""); err == nil {
@@ -58,10 +52,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_FixedModeStillRequiresPermissi
 }
 
 func TestScopeAuthorizerRequirePermissionInTenant_UsesPrincipalOutsideHTTP(t *testing.T) {
-	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeSingle))
-	t.Setenv(tenant.EnvSingleTenantID, "single-tenant")
-
-	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
+	ctx, err := auth.WithPrincipal(tenant.WithPolicy(context.Background(), tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "single-tenant"}), auth.Principal{
 		Permissions: []string{"role:api:read"},
 	})
 	if err != nil {

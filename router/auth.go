@@ -19,16 +19,8 @@ type AuthRoutes struct {
 	authConfig  *iammw.AuthConfig
 }
 
-// NewAuthRoutes 创建认证路由注册器
-func NewAuthRoutes(userService IUserService) *AuthRoutes {
-	return NewAuthRoutesWithConfig(userService, nil)
-}
-
 // NewAuthRoutesWithConfig 使用统一认证配置创建认证路由注册器。
 func NewAuthRoutesWithConfig(userService IUserService, config *iammw.AuthConfig) *AuthRoutes {
-	if config == nil {
-		config = iammw.DefaultAuthConfig()
-	}
 	return &AuthRoutes{
 		userService: userService,
 		authConfig:  config,
@@ -47,6 +39,9 @@ func authRequestContext(ctx httpx.IContext) context.Context {
 
 // RegisterRoutes 注册路由。
 func (ar *AuthRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
+	if ar.authConfig == nil {
+		return errors.NewCode(errors.InvalidInput, "auth config is required")
+	}
 	authGroup := group.Group("/auth")
 
 	authGroup.POST("/register", ar.register)
@@ -84,7 +79,7 @@ func (ar *AuthRoutes) readRequestTenantID(ctx httpx.IContext) string {
 	}
 	cfg := ar.authConfig
 	if cfg == nil {
-		cfg = iammw.DefaultAuthConfig()
+		return ""
 	}
 	tenantID := strings.TrimSpace(ctx.Header(cfg.TenantHeader))
 	if tenantID == "" && cfg.AllowTenantQuery {
@@ -98,29 +93,23 @@ func (ar *AuthRoutes) ensureTenantContext(ctx httpx.IContext) (httpx.IRequestCon
 	currentTenantID := contextx.TenantID(reqCtx)
 	cfg := ar.authConfig
 	if cfg == nil {
-		cfg = iammw.DefaultAuthConfig()
+		return reqCtx, "", errors.NewCode(errors.InvalidInput, "auth config is required")
 	}
-	tenantID, err := tenant.ResolveRequestTenantID(ar.readRequestTenantID(ctx), currentTenantID, cfg.RequireTenant)
+	tenantID, err := tenant.ResolveRequestTenantIDWithPolicy(cfg.TenantPolicy, ar.readRequestTenantID(ctx), currentTenantID, cfg.RequireTenant)
 	if err != nil {
 		return reqCtx, "", err
 	}
 	if tenantID == "" || currentTenantID == tenantID {
-		return reqCtx, tenantID, nil
+		return reqCtx.WithContext(tenant.WithPolicy(reqCtx, cfg.TenantPolicy)), tenantID, nil
 	}
 	derived, err := contextx.WithTenantID(reqCtx, tenantID)
 	if err != nil {
 		return reqCtx, "", err
 	}
 	reqCtx = reqCtx.WithContext(derived)
+	reqCtx = reqCtx.WithContext(tenant.WithPolicy(reqCtx, cfg.TenantPolicy))
 	ctx.SetContext(reqCtx)
 	return reqCtx, tenantID, nil
-}
-
-func (ar *AuthRoutes) authContextResolver() iammw.AuthContextResolver {
-	if ar != nil && ar.authConfig != nil && ar.authConfig.ContextResolver != nil {
-		return ar.authConfig.ContextResolver
-	}
-	return iammw.ResolveInstalledAuthContextResolver()
 }
 
 // 认证处理器方法
@@ -313,12 +302,11 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 		return errors.NewCode(errors.Unauthorized, "token 不支持安全轮转")
 	}
 
-	reqCtx := ctx.RequestContext()
-	tenantID, err := tenant.ResolveRequestTenantID(ar.readRequestTenantID(ctx), contextx.TenantID(reqCtx), ar.authConfig.RequireTenant)
+	reqCtx, tenantID, err := ar.ensureTenantContext(ctx)
 	if err != nil {
 		return err
 	}
-	reqCtx, err = iammw.InjectClaimsRequestContext(reqCtx, tenantID, claims, ar.authContextResolver())
+	reqCtx, err = iammw.InjectClaimsRequestContext(reqCtx, tenantID, claims, ar.authConfig.ContextResolver)
 	if err != nil {
 		return err
 	}

@@ -7,6 +7,7 @@ import (
 
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
+	"gochen-iam/tenant"
 	auth "gochen-runtime/host/authz"
 	"gochen/auth/scoped"
 	"gochen/contextx"
@@ -193,7 +194,7 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx = iamauth.BindActiveScopeContext(ctx, 7, "tenant")
+	ctx = iamauth.BindActiveScopeContext(tenant.WithPolicy(ctx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "erp-demo"}), 7, "tenant")
 
 	decision, err := authorizer.Authorize(ctx, "tenant:api:write", &iamentity.Tenant{})
 	if err != nil {
@@ -208,8 +209,6 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 }
 
 func TestIAMAuthorizerDeniesPlatformOwnedUserOutsidePlatformScopeInSingleTenant(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "single")
-	t.Setenv("IAM_SINGLE_TENANT_ID", "erp-demo")
 	registry, err := NewIAMAuthzRegistry()
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
@@ -227,7 +226,7 @@ func TestIAMAuthorizerDeniesPlatformOwnedUserOutsidePlatformScopeInSingleTenant(
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx = iamauth.BindActiveScopeContext(ctx, 7, "tenant")
+	ctx = iamauth.BindActiveScopeContext(tenant.WithPolicy(ctx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "erp-demo"}), 7, "tenant")
 	ctx, err = contextx.WithTenantID(ctx, "erp-demo")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
@@ -252,8 +251,6 @@ func TestIAMAuthorizerDeniesPlatformOwnedUserOutsidePlatformScopeInSingleTenant(
 }
 
 func TestIAMAuthorizerAllowsPlatformOwnedUserInPlatformScope(t *testing.T) {
-	t.Setenv("IAM_TENANT_MODE", "single")
-	t.Setenv("IAM_SINGLE_TENANT_ID", "erp-demo")
 	registry, err := NewIAMAuthzRegistry()
 	if err != nil {
 		t.Fatalf("NewIAMAuthzRegistry: %v", err)
@@ -271,7 +268,7 @@ func TestIAMAuthorizerAllowsPlatformOwnedUserInPlatformScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx = iamauth.BindActiveScopeContext(ctx, 1, "platform")
+	ctx = iamauth.BindActiveScopeContext(tenant.WithPolicy(ctx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "erp-demo"}), 1, "platform")
 	ctx, err = contextx.WithTenantID(ctx, "erp-demo")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
@@ -315,7 +312,7 @@ func TestIAMAuthorizerAllowsPlatformScopedMenuWrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
-	ctx = iamauth.BindActiveScopeContext(ctx, 1, "platform")
+	ctx = iamauth.BindActiveScopeContext(tenant.WithPolicy(ctx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "erp-demo"}), 1, "platform")
 
 	decision, err := authorizer.Authorize(ctx, "menu:api:write", &iamentity.MenuItem{})
 	if err != nil {

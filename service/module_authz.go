@@ -41,7 +41,9 @@ func RegisterIAMPermissionCatalog() {
 //
 //	registry := authz.NewRegistry()
 //	if err := iamservice.InstallIAMPermissionCatalog(registry); err != nil { ... }
-//	host.Run(ctx, config.WithCatalogRegistrar(authz.NewCatalogRegistrar(registry)), ...)
+//	app := quick.New(config.WithCatalogRegistrar(authz.NewCatalogRegistrar(registry)))
+//	app.Modules(iamModuleCtor)
+//	err := app.Run(ctx)
 func InstallIAMPermissionCatalog(registry IModuleCatalogSyncRegistry) error {
 	if registry == nil {
 		return errors.NewCode(errors.InvalidInput, "authz registry is nil")

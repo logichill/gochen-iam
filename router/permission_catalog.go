@@ -1,8 +1,6 @@
 package router
 
 import (
-	"os"
-
 	iammw "gochen-iam/middleware"
 	"gochen/errors"
 	"gochen/httpx"
@@ -31,21 +29,10 @@ func RegisterPermissionCatalogRoute(group httpx.IRouteGroup, options PermissionC
 			"required_permissions":            iammw.RequiredPermissions(),
 			"required_permission_definitions": iammw.RequiredPermissionDefinitions(),
 		}
-		if shouldExposePermissionCallsites(options.ExposeCallsites) {
+		if options.ExposeCallsites {
 			resp["required_permissions_callsites"] = iammw.RequiredPermissionsWithRedactedCallsites()
 		}
 		return httpx.WriteSuccess(ctx, resp)
 	})
 	return nil
-}
-
-func shouldExposePermissionCallsites(explicit bool) bool {
-	if explicit {
-		return true
-	}
-	if !iammw.IsDevEnv() {
-		return false
-	}
-	value := os.Getenv("AUTH_EXPOSE_PERMISSION_CALLSITES")
-	return value == "true" || value == "1"
 }

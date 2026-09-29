@@ -12,6 +12,7 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
+	iamtenant "gochen-iam/tenant"
 	auth "gochen-runtime/host/authz"
 	"gochen-runtime/http/nethttp"
 	"gochen/contextx"
@@ -19,11 +20,14 @@ import (
 )
 
 type routerFixedAuthContextResolver struct {
-	kind string
+	kind         string
+	checkContext func(context.Context)
 }
 
 func (r routerFixedAuthContextResolver) ResolveAuthContext(ctx context.Context, claims *iammw.JWTClaims) (*iammw.ResolvedAuthContext, error) {
-	_ = ctx
+	if r.checkContext != nil {
+		r.checkContext(ctx)
+	}
 	return &iammw.ResolvedAuthContext{
 		ActiveScopeID:   claims.ActiveScopeID,
 		ActiveScopeKind: r.kind,
@@ -141,10 +145,15 @@ func responseAccessToken(t *testing.T, recorder *httptest.ResponseRecorder) stri
 }
 
 func TestAuthRoutesRefreshTokenUsesTenantHeaderAndScopeClaims(t *testing.T) {
+	t.Setenv("IAM_TENANT_MODE", "single")
+	t.Setenv("IAM_SINGLE_TENANT_ID", "environment-tenant")
 	var gotTenant string
 	service := &authRoutesUserServiceStub{
 		snapshotFn: func(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error) {
 			gotTenant = contextx.TenantID(ctx)
+			if policy, ok := iamtenant.PolicyFromContext(ctx); !ok || policy.Mode != iamtenant.ModeTenant {
+				t.Fatalf("refresh policy = %+v, bound=%v; want explicit tenant policy", policy, ok)
+			}
 			principal, ok := auth.PrincipalFromContext(ctx)
 			if !ok {
 				t.Fatalf("expected principal in refresh context")
@@ -155,8 +164,14 @@ func TestAuthRoutesRefreshTokenUsesTenantHeaderAndScopeClaims(t *testing.T) {
 			return &svc.ActiveScopeSession{UserID: userID, ActiveScopeID: activeScopeID, BindingVersion: "binding-v2", Permissions: []string{"read"}}, nil
 		},
 	}
-	routes := NewAuthRoutes(service)
-	routes.authConfig = &iammw.AuthConfig{SecretKey: "test-secret", AccessTokenTTL: time.Hour, TenantHeader: "X-Tenant-ID", ContextResolver: routerFixedAuthContextResolver{kind: "platform"}}
+	routes := NewAuthRoutesWithConfig(service, &iammw.AuthConfig{SecretKey: "test-secret", AccessTokenTTL: time.Hour, TenantHeader: "X-Tenant-ID", TenantPolicy: iamtenant.Policy{Mode: iamtenant.ModeTenant}, ContextResolver: routerFixedAuthContextResolver{
+		kind: "platform",
+		checkContext: func(ctx context.Context) {
+			if policy, ok := iamtenant.PolicyFromContext(ctx); !ok || policy.Mode != iamtenant.ModeTenant {
+				t.Fatalf("resolver policy = %+v, bound=%v; want explicit tenant policy", policy, ok)
+			}
+		},
+	}})
 
 	token, err := iammw.GenerateToken(1, 101, "binding-v1", []string{"read"}, "test-secret")
 	if err != nil {
@@ -170,6 +185,53 @@ func TestAuthRoutesRefreshTokenUsesTenantHeaderAndScopeClaims(t *testing.T) {
 	}
 	if gotTenant != "tenant-b" {
 		t.Fatalf("expected tenant-b, got %s", gotTenant)
+	}
+}
+
+func TestAuthRoutesRefreshTokenUsesConfiguredSingleTenant(t *testing.T) {
+	t.Setenv("IAM_TENANT_MODE", "single")
+	t.Setenv("IAM_SINGLE_TENANT_ID", "environment-tenant")
+	policy := iamtenant.Policy{Mode: iamtenant.ModeSingle, SingleTenantID: "configured-tenant"}
+	for _, header := range []string{"", policy.SingleTenantID} {
+		t.Run("header="+header, func(t *testing.T) {
+			checks := 0
+			checkContext := func(ctx context.Context) {
+				t.Helper()
+				checks++
+				if actual, ok := iamtenant.PolicyFromContext(ctx); !ok || actual != policy {
+					t.Fatalf("policy = %+v, bound=%v; want %+v", actual, ok, policy)
+				}
+				if tenantID, err := iamtenant.ResolveTenantID(ctx); err != nil || tenantID != policy.SingleTenantID {
+					t.Fatalf("resolved tenant = %q, err=%v", tenantID, err)
+				}
+				if tenantID := contextx.TenantID(ctx); tenantID != policy.SingleTenantID {
+					t.Fatalf("context tenant = %q, want %q", tenantID, policy.SingleTenantID)
+				}
+			}
+			service := &authRoutesUserServiceStub{
+				snapshotFn: func(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error) {
+					checkContext(ctx)
+					return &svc.ActiveScopeSession{UserID: userID, ActiveScopeID: activeScopeID, BindingVersion: "binding-v2", Permissions: []string{"read"}}, nil
+				},
+			}
+			config := iammw.DefaultAuthConfigForEnvironment("test")
+			config.SecretKey = "test-secret"
+			config.TenantPolicy = policy
+			config.RevokedTokenStore = iammw.NewMemoryRevokedTokenStore()
+			config.ContextResolver = routerFixedAuthContextResolver{kind: "tenant", checkContext: checkContext}
+			routes := NewAuthRoutesWithConfig(service, config)
+			token, err := iammw.GenerateToken(1, 101, "binding-v1", []string{"read"}, config.SecretKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, _ := newAuthJSONContext(t, "/api/v1/auth/refresh", `{"token":"`+token+`"}`, map[string]string{"X-Tenant-ID": header})
+			if err := routes.refreshToken(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if checks != 2 {
+				t.Fatalf("context checks = %d, want resolver and service", checks)
+			}
+		})
 	}
 }
 
@@ -220,14 +282,14 @@ func TestAuthRoutesRefreshTokenRejectsRotatedTokenReplay(t *testing.T) {
 			return &svc.ActiveScopeSession{UserID: 1, ActiveScopeID: 101, BindingVersion: "binding-v2", Permissions: []string{"read"}}, nil
 		},
 	}
-	routes := NewAuthRoutes(service)
-	routes.authConfig = &iammw.AuthConfig{
+	routes := NewAuthRoutesWithConfig(service, &iammw.AuthConfig{
 		SecretKey:         "test-secret",
 		AccessTokenTTL:    time.Hour,
 		TenantHeader:      "X-Tenant-ID",
+		TenantPolicy:      iamtenant.Policy{Mode: iamtenant.ModeTenant},
 		ContextResolver:   routerFixedAuthContextResolver{kind: "platform"},
 		RevokedTokenStore: iammw.NewMemoryRevokedTokenStore(),
-	}
+	})
 	token, err := iammw.GenerateToken(1, 101, "binding-v1", []string{"read"}, "test-secret")
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
@@ -254,14 +316,14 @@ func TestAuthRoutesRefreshTokenRejectsConcurrentReplay(t *testing.T) {
 			return &svc.ActiveScopeSession{UserID: 1, ActiveScopeID: 101, BindingVersion: "binding-v2", Permissions: []string{"read"}}, nil
 		},
 	}
-	routes := NewAuthRoutes(service)
-	routes.authConfig = &iammw.AuthConfig{
+	routes := NewAuthRoutesWithConfig(service, &iammw.AuthConfig{
 		SecretKey:         "test-secret",
 		AccessTokenTTL:    time.Hour,
 		TenantHeader:      "X-Tenant-ID",
+		TenantPolicy:      iamtenant.Policy{Mode: iamtenant.ModeTenant},
 		ContextResolver:   routerFixedAuthContextResolver{kind: "platform"},
 		RevokedTokenStore: iammw.NewMemoryRevokedTokenStore(),
-	}
+	})
 	token, err := iammw.GenerateToken(1, 101, "binding-v1", []string{"read"}, "test-secret")
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
@@ -296,13 +358,7 @@ func TestAuthRoutesRefreshTokenRejectsConcurrentReplay(t *testing.T) {
 	}
 }
 
-func TestAuthRoutesRefreshTokenFallsBackToInstalledResolver(t *testing.T) {
-	previous := iammw.ResolveInstalledAuthContextResolver()
-	iammw.InstallAuthContextResolver(routerFixedAuthContextResolver{kind: "platform"})
-	t.Cleanup(func() {
-		iammw.InstallAuthContextResolver(previous)
-	})
-
+func TestAuthRoutesRefreshTokenUsesConfiguredResolver(t *testing.T) {
 	service := &authRoutesUserServiceStub{
 		snapshotFn: func(ctx context.Context, userID, activeScopeID int64) (*svc.ActiveScopeSession, error) {
 			principal, ok := auth.PrincipalFromContext(ctx)
@@ -315,8 +371,7 @@ func TestAuthRoutesRefreshTokenFallsBackToInstalledResolver(t *testing.T) {
 			return &svc.ActiveScopeSession{UserID: userID, ActiveScopeID: activeScopeID, BindingVersion: "binding-v2", Permissions: []string{"read"}}, nil
 		},
 	}
-	routes := NewAuthRoutes(service)
-	routes.authConfig = &iammw.AuthConfig{SecretKey: "test-secret", AccessTokenTTL: time.Hour, TenantHeader: "X-Tenant-ID"}
+	routes := NewAuthRoutesWithConfig(service, &iammw.AuthConfig{SecretKey: "test-secret", AccessTokenTTL: time.Hour, TenantHeader: "X-Tenant-ID", TenantPolicy: iamtenant.Policy{Mode: iamtenant.ModeTenant}, ContextResolver: routerFixedAuthContextResolver{kind: "platform"}})
 
 	token, err := iammw.GenerateToken(1, 101, "binding-v1", []string{"read"}, "test-secret")
 	if err != nil {
@@ -343,8 +398,7 @@ func TestAuthRoutesRegister_UsesTenantFromHeaderWhenRequired(t *testing.T) {
 			return &iamentity.User{TenantID: tenantID, Username: req.Username}, nil
 		},
 	}
-	routes := NewAuthRoutes(service)
-	routes.authConfig = &iammw.AuthConfig{RequireTenant: true, TenantHeader: "X-Tenant-ID"}
+	routes := NewAuthRoutesWithConfig(service, &iammw.AuthConfig{RequireTenant: true, TenantHeader: "X-Tenant-ID", TenantPolicy: iamtenant.Policy{Mode: iamtenant.ModeTenant}})
 
 	ctx, _ := newAuthJSONContext(t, "/api/v1/auth/register", `{"username":"tester","email":"tester@example.com","password":"secret123"}`, map[string]string{"X-Tenant-ID": "tenant-a"})
 
@@ -374,8 +428,7 @@ func TestAuthRoutesLogin_ReturnsActivationToken(t *testing.T) {
 			}, nil
 		},
 	}
-	routes := NewAuthRoutes(service)
-	routes.authConfig = &iammw.AuthConfig{SecretKey: "test-secret", ActivationTTL: time.Hour, RequireTenant: true, TenantHeader: "X-Tenant-ID"}
+	routes := NewAuthRoutesWithConfig(service, &iammw.AuthConfig{SecretKey: "test-secret", ActivationTTL: time.Hour, RequireTenant: true, TenantHeader: "X-Tenant-ID", TenantPolicy: iamtenant.Policy{Mode: iamtenant.ModeTenant}})
 
 	ctx, rec := newAuthJSONContext(t, "/api/v1/auth/login", `{"username":"tester","password":"secret123"}`, map[string]string{"X-Tenant-ID": "tenant-a"})
 	if err := routes.login(ctx); err != nil {
@@ -392,8 +445,7 @@ func TestAuthRoutesActivateScope_GeneratesAccessToken(t *testing.T) {
 			return &svc.ActiveScopeSession{UserID: userID, ActiveScopeID: activeScopeID, BindingVersion: "binding-v1", Permissions: []string{"*:*:*"}}, nil
 		},
 	}
-	routes := NewAuthRoutes(service)
-	routes.authConfig = &iammw.AuthConfig{SecretKey: "test-secret", AccessTokenTTL: 30 * time.Minute, AccessTokenCookieName: iammw.AccessTokenCookieName}
+	routes := NewAuthRoutesWithConfig(service, &iammw.AuthConfig{SecretKey: "test-secret", AccessTokenTTL: 30 * time.Minute, AccessTokenCookieName: iammw.AccessTokenCookieName})
 
 	activationToken, err := iammw.GenerateActivationToken(1, "binding-v1", []int64{101}, "test-secret", time.Hour)
 	if err != nil {
@@ -428,13 +480,12 @@ func TestAuthRoutesActivateScope_GeneratesAccessToken(t *testing.T) {
 
 func TestAuthRoutesLogoutRevokesCurrentToken(t *testing.T) {
 	store := iammw.NewMemoryRevokedTokenStore()
-	routes := NewAuthRoutes(&authRoutesUserServiceStub{})
-	routes.authConfig = &iammw.AuthConfig{
+	routes := NewAuthRoutesWithConfig(&authRoutesUserServiceStub{}, &iammw.AuthConfig{
 		SecretKey:         "test-secret",
 		TokenHeader:       "Authorization",
 		TokenPrefix:       "Bearer ",
 		RevokedTokenStore: store,
-	}
+	})
 	token, err := iammw.GenerateToken(7, 101, "binding-v1", nil, routes.authConfig.SecretKey)
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
@@ -523,8 +574,7 @@ func TestAuthRoutesActivateScope_RejectsMismatchedBindingVersion(t *testing.T) {
 			return &svc.ActiveScopeSession{UserID: userID, ActiveScopeID: activeScopeID, BindingVersion: "binding-v2", Permissions: []string{"*:*:*"}}, nil
 		},
 	}
-	routes := NewAuthRoutes(service)
-	routes.authConfig = &iammw.AuthConfig{SecretKey: "test-secret", AccessTokenTTL: time.Hour}
+	routes := NewAuthRoutesWithConfig(service, &iammw.AuthConfig{SecretKey: "test-secret", AccessTokenTTL: time.Hour})
 
 	activationToken, err := iammw.GenerateActivationToken(1, "binding-v1", []int64{101}, "test-secret", time.Hour)
 	if err != nil {
