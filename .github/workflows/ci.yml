@@ -10,12 +10,34 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gochen-iam
+    env:
+      GOWORK: "off"
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: gochen-iam
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/gochen
+          ref: ${{ vars.GOCHEN_CORE_REF }}
+          path: gochen
+          token: ${{ secrets.GOCHEN_READ_TOKEN || github.token }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/gochen-runtime
+          ref: ${{ vars.GOCHEN_RUNTIME_REF }}
+          path: gochen-runtime
+          token: ${{ secrets.GOCHEN_READ_TOKEN || github.token }}
+          persist-credentials: false
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: gochen-iam/go.mod
           cache: true
+          cache-dependency-path: gochen-iam/go.sum
 
       - name: gofmt
         run: |
