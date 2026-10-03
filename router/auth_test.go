@@ -276,6 +276,45 @@ func TestAuthRoutesCSRFIssuesReadableBootstrapToken(t *testing.T) {
 	}
 }
 
+func TestAuthRoutesRefreshCookieRequiresCSRF(t *testing.T) {
+	service := &authRoutesUserServiceStub{
+		snapshotFn: func(context.Context, int64, int64) (*svc.ActiveScopeSession, error) {
+			return &svc.ActiveScopeSession{UserID: 1, ActiveScopeID: 101, BindingVersion: "binding-v1"}, nil
+		},
+	}
+	routes := NewAuthRoutesWithConfig(service, &iammw.AuthConfig{
+		SecretKey: "test-secret", AccessTokenTTL: time.Hour,
+		AccessTokenCookieName: iammw.AccessTokenCookieName,
+		TenantHeader:          "X-Tenant-ID", TenantPolicy: iamtenant.Policy{Mode: iamtenant.ModeTenant},
+		ContextResolver:   routerFixedAuthContextResolver{kind: "platform"},
+		RevokedTokenStore: iammw.NewMemoryRevokedTokenStore(),
+	})
+	token, err := iammw.GenerateToken(1, 101, "binding-v1", nil, routes.authConfig.SecretKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, csrf := range []string{"", "wrong", "csrf-value"} {
+		ctx, _ := newAuthJSONContext(t, "/api/v1/auth/refresh", "", map[string]string{
+			"X-Tenant-ID": "tenant-b", iammw.CSRFHeaderName: csrf,
+		})
+		ctx.Request().AddCookie(&http.Cookie{Name: iammw.AccessTokenCookieName, Value: token})
+		ctx.Request().AddCookie(&http.Cookie{Name: iammw.CSRFCookieName, Value: "csrf-value"})
+		err := routes.refreshToken(ctx)
+		if csrf == "csrf-value" {
+			if err != nil {
+				t.Fatalf("refresh with matching CSRF: %v", err)
+			}
+			continue
+		}
+		if !errors.Is(err, errors.Forbidden) {
+			t.Fatalf("CSRF %q: expected Forbidden, got %v", csrf, err)
+		}
+		if _, err := iammw.ValidateAccessToken(t.Context(), token, routes.authConfig); err != nil {
+			t.Fatalf("CSRF rejection revoked the token: %v", err)
+		}
+	}
+}
+
 func TestAuthRoutesRefreshTokenRejectsRotatedTokenReplay(t *testing.T) {
 	service := &authRoutesUserServiceStub{
 		snapshotFn: func(context.Context, int64, int64) (*svc.ActiveScopeSession, error) {

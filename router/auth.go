@@ -287,6 +287,9 @@ func (ar *AuthRoutes) refreshToken(ctx httpx.IContext) error {
 	_ = ctx.BindJSON(&req)
 	token := strings.TrimSpace(req.Token)
 	if token == "" {
+		if err := iammw.EnforceCSRFDoubleSubmit(ctx, ar.authConfig); err != nil {
+			return err
+		}
 		token = iammw.ExtractAccessToken(ctx, ar.authConfig)
 	}
 	if token == "" {
