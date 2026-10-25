@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	iamauth "gochen-iam/auth"
+	"gochen-iam/tenant"
 	auth "gochen-runtime/host/authz"
 	"gochen/auth/scoped"
 	"gochen/contextx"
@@ -73,7 +74,16 @@ func InjectClaimsRequestContext(
 			return nil, err
 		}
 	}
-	baseCtx, err = auth.WithPrincipal(baseCtx, PrincipalFromClaims(claims, tenantID))
+	principal := PrincipalFromClaims(claims, tenantID)
+	if runtime != nil {
+		principal.ActiveScopeID = runtime.ActiveScopeID
+		principal.PermissionScopes = []string{runtime.ActiveScopeKind}
+		// 显式单租户策略允许持有平台权限的用户管理本部署，与 IAM 平台入口一致。
+		if tenant.CurrentContext(baseCtx).IsSingle() && !strings.EqualFold(runtime.ActiveScopeKind, string(auth.PermissionScopePlatform)) {
+			principal.PermissionScopes = append(principal.PermissionScopes, string(auth.PermissionScopePlatform))
+		}
+	}
+	baseCtx, err = auth.WithPrincipal(baseCtx, principal)
 	if err != nil {
 		return nil, err
 	}

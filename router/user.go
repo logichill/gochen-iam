@@ -63,7 +63,7 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	))
 
 	// 直接使用原生 shared 仓储接口（UserRepo 已实现 ICRUDRepository）
-	appService, err := iamsvc.NewCRUDApplication[*iamentity.User, int64](ur.userRepo, ur.userRepo)
+	appService, err := iamsvc.NewCRUDApplication[*iamentity.User, int64](ur.userRepo, ur.userRepo, &appcrud.Options[*iamentity.User, int64]{Hooks: TenantHooksForUser(ur.userRepo)})
 	if err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create user crud application").WithContext("route", "iam.user")
@@ -93,9 +93,6 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	builder, err := rest.NewApiBuilder[*iamentity.User, int64](
 		app,
 		rest.WithQuerySchema[*iamentity.User, int64](userQuerySchema),
-		rest.WithHooks[*iamentity.User, int64](func(h *appcrud.Hooks[*iamentity.User, int64]) {
-			*h = *TenantHooksForUser(ur.userRepo)
-		}),
 	)
 
 	if err != nil {

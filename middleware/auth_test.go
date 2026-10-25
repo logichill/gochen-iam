@@ -131,10 +131,13 @@ func TestAccessAndActivationTokensAreNotInterchangeable(t *testing.T) {
 func TestLegacyTokensWithoutTypeRemainPurposeBound(t *testing.T) {
 	const secretKey = "test-secret-key"
 	now := time.Now()
+	// legacy 形态（无 token_type）要求携带 JTI 才被接受，见
+	// TestLegacyAccessTokenWithoutJTIRejectedAsUnrevocable；本用例只锁定用途绑定。
 	legacyAccess := jwt.NewWithClaims(jwt.SigningMethodHS256, &JWTClaims{
 		UserID:        7,
 		ActiveScopeID: 11,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        "legacy-purpose-bound-jti",
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(now),
 		},

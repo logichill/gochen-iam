@@ -7,7 +7,7 @@ import (
 
 	iamaccess "gochen-iam/access"
 	iamauth "gochen-iam/auth"
-	iammw "gochen-iam/middleware"
+	iamperm "gochen-iam/permissions"
 	"gochen-iam/tenant"
 	auth "gochen-runtime/host/authz"
 	"gochen/auth/scoped"
@@ -202,7 +202,7 @@ func resourceKindUsesManagedScope(kind string) bool {
 
 func requiresPlatformScope(resources []scoped.Resource) bool {
 	for _, resource := range resources {
-		if strings.EqualFold(strings.TrimSpace(resource.OwnerID), string(iammw.ScopePlatform)) {
+		if strings.EqualFold(strings.TrimSpace(resource.OwnerID), string(iamperm.ScopePlatform)) {
 			return true
 		}
 		switch strings.TrimSpace(resource.Kind) {
@@ -236,8 +236,14 @@ func allowTenantAccess(
 		}
 		return false, err
 	}
-	if resolution.SkipScopeCheck || scopeAuthorizer == nil || principal.ActiveScopeID <= 0 {
+	if resolution.SkipScopeCheck {
 		return true, nil
+	}
+	if scopeAuthorizer == nil {
+		return false, errors.NewCode(errors.Internal, "scope authorizer is required for tenant scope verification")
+	}
+	if principal.ActiveScopeID <= 0 {
+		return false, nil
 	}
 
 	scopeCtx, err := BindTenantContext(ctx, resolution.TenantID)
@@ -276,11 +282,17 @@ func resolveTenantAccessForPrincipal(
 		}, nil
 	}
 
-	if strings.EqualFold(activeScopeKindFromContext(ctx), string(iammw.ScopePlatform)) {
+	if strings.EqualFold(activeScopeKindFromContext(ctx), string(iamperm.ScopePlatform)) {
 		if targetTenantID == "" {
-			return tenantAccessResolution{TenantID: strings.TrimSpace(contextx.TenantID(ctx))}, nil
+			return tenantAccessResolution{
+				TenantID:       strings.TrimSpace(contextx.TenantID(ctx)),
+				SkipScopeCheck: true,
+			}, nil
 		}
-		return tenantAccessResolution{TenantID: targetTenantID}, nil
+		return tenantAccessResolution{
+			TenantID:       targetTenantID,
+			SkipScopeCheck: true,
+		}, nil
 	}
 
 	tenantID, err := tenant.NormalizeTenantID(ctx, targetTenantID)

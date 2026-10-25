@@ -4,10 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	coredialect "gochen/db/dialect"
 	"strings"
 
+	"gochen-runtime/db/dialect"
 	"gochen/db"
-	"gochen/db/dialect"
 	"gochen/db/orm"
 	"gochen/errors"
 
@@ -84,7 +85,7 @@ func (m *scopeTestGormModel) Capabilities() orm.Capabilities {
 	)
 }
 
-func (m *scopeTestGormModel) Dialect() dialect.IDialect {
+func (m *scopeTestGormModel) Dialect() coredialect.IDialect {
 	return dialect.New(m.db.Dialector.Name())
 }
 

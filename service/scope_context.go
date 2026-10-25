@@ -20,7 +20,7 @@ func BindVisibleScopeContext(ctx context.Context, activeScopeID int64, visibleSc
 		return ctx, nil
 	}
 	scopeKind := ""
-	if iamauth.ActiveScopeIDFromContext(ctx) == activeScopeID {
+	if currentScopeID := iamauth.ActiveScopeIDFromContext(ctx); currentScopeID == activeScopeID || (currentScopeID == 0 && iamauth.ResolveManagedScopeID(ctx) == activeScopeID) {
 		scopeKind = iamauth.ActiveScopeKindFromContext(ctx)
 	}
 	boundCtx := iamauth.ClearActiveScopeContext(ctx)

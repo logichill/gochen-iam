@@ -6,6 +6,7 @@ import (
 	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
 	assocguard "gochen-iam/repo/internal/guard"
+	"gochen-iam/repo/internal/likesafe"
 	scoperesolver "gochen-iam/repo/internal/scope"
 	iamtenant "gochen-iam/tenant"
 	"gochen-runtime/db/orm/repo"
@@ -30,7 +31,7 @@ const (
 )
 
 func (r *GroupRepo) tenantScopedQuery(ctx context.Context) (*repo.ScopedQuery, error) {
-	query, err := r.Repo.ScopedQuery(ctx)
+	query, err := r.ScopedQuery(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +88,7 @@ func (r *GroupRepo) Create(ctx context.Context, group *iamentity.Group) (err err
 	if group == nil {
 		return errors.NewCode(errors.InvalidInput, "group cannot be nil")
 	}
-	if err := r.Repo.EnsureID(group); err != nil {
+	if err := r.EnsureID(group); err != nil {
 		return err
 	}
 	if group.ManagedScopeID == 0 {
@@ -191,7 +192,7 @@ func (r *GroupRepo) CreateWithConstraint(ctx context.Context, group *iamentity.G
 	if group == nil {
 		return errors.NewCode(errors.InvalidInput, "group cannot be nil")
 	}
-	if err := r.Repo.EnsureID(group); err != nil {
+	if err := r.EnsureID(group); err != nil {
 		return err
 	}
 	return appcrud.WithTx(ctx, r.Repo, func(txCtx context.Context) error {
@@ -236,7 +237,7 @@ func (r *GroupRepo) UpdateWithConstraint(ctx context.Context, group *iamentity.G
 
 func (r *GroupRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
 	boundCtx := r.boundContext(ctx, guard)
-	return r.Repo.Delete(boundCtx, id)
+	return r.Delete(boundCtx, id)
 }
 
 func (r *GroupRepo) boundContext(ctx context.Context, guard iamaccess.WriteConstraint) context.Context {
@@ -458,6 +459,9 @@ func (r *GroupRepo) repairDescendantHierarchy(
 	}
 	for _, child := range children {
 		child.SetParent(parent)
+		if child.Level > 10 {
+			return errors.NewCode(errors.Validation, "组织层级不能超过10级")
+		}
 		if err := updateChild(child); err != nil {
 			return err
 		}
@@ -634,29 +638,28 @@ func (r *GroupRepo) mutateGroupAssociationWithConstraint(
 	message string,
 	guard iamaccess.WriteConstraint,
 ) error {
-	if _, _, err := assocguard.RequirePair(guard, groupResourceKind, groupID, relatedKind, relatedID); err != nil {
-		return err
-	}
+	return assocguard.MutatePair(ctx, r, guard, groupResourceKind, groupID, relatedKind, relatedID, func(ctx context.Context) error {
 
-	group, err := r.getByID(ctx, groupID)
-	if err != nil {
-		return err
-	}
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return err
-	}
+		group, err := r.getByID(ctx, groupID)
+		if err != nil {
+			return err
+		}
+		model, err := r.ModelFor(ctx)
+		if err != nil {
+			return err
+		}
 
-	associationRef := model.Association(group, association)
-	if remove {
-		err = associationRef.Delete(ctx, related)
-	} else {
-		err = associationRef.Append(ctx, related)
-	}
-	if err != nil {
-		return errors.Wrap(err, errors.Database, message)
-	}
-	return nil
+		associationRef := model.Association(group, association)
+		if remove {
+			err = associationRef.Delete(ctx, related)
+		} else {
+			err = associationRef.Append(ctx, related)
+		}
+		if err != nil {
+			return errors.Wrap(err, errors.Database, message)
+		}
+		return nil
+	})
 }
 
 // GroupTree 获取组织树结构。
@@ -737,7 +740,8 @@ func (r *GroupRepo) SearchGroups(ctx context.Context, keyword string, limit int)
 	}
 	query.Preload("Parent", "Users")
 	if keyword != "" {
-		query.Where("name LIKE ? OR description LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
+		pattern := likesafe.ContainsPattern(keyword)
+		query.Where("(name LIKE ?"+likesafe.EscapeClause+" OR description LIKE ?"+likesafe.EscapeClause+")", pattern, pattern)
 	}
 	if limit > 0 {
 		query.Limit(limit)

@@ -94,7 +94,7 @@ func TestRoleCRUDHooks_CreateRejectsBuiltinWildcardPermissions(t *testing.T) {
 		Permissions: iamentity.PermissionArray{"*:api:*"},
 	}
 
-	err := hooks.BeforeCreate(tenantCtx(t, "tenant-a"), role)
+	err := hooks.Create.Before(tenantCtx(t, "tenant-a"), role)
 	if err == nil {
 		t.Fatalf("expected builtin wildcard permission to be rejected")
 	}
@@ -122,7 +122,7 @@ func TestRoleCRUDHooks_CreateAppliesServiceDefaults(t *testing.T) {
 		Status:   "inactive",
 	}
 
-	if err := hooks.BeforeCreate(tenantCtx(t, "tenant-a"), role); err != nil {
+	if err := hooks.Create.Before(tenantCtx(t, "tenant-a"), role); err != nil {
 		t.Fatalf("BeforeCreate: %v", err)
 	}
 	if role.GetTenantID() != "tenant-a" {
@@ -172,7 +172,7 @@ func TestRoleCRUDHooks_UpdateRejectsSystemRoleMutation(t *testing.T) {
 	updating.Code = "hacked"
 	updating.IsSystem = false
 
-	err := hooks.BeforeUpdate(tenantCtx(t, "tenant-a"), updating)
+	err := hooks.Update.Before(tenantCtx(t, "tenant-a"), updating)
 	if err == nil {
 		t.Fatalf("expected system role mutation to be rejected")
 	}
@@ -210,7 +210,7 @@ func TestRoleCRUDHooks_UpdateRestoresImmutableFields(t *testing.T) {
 	updating.IsSystem = true
 	updating.Permissions = iamentity.PermissionArray{"user:api:read"}
 
-	if err := hooks.BeforeUpdate(tenantCtx(t, "tenant-a"), updating); err != nil {
+	if err := hooks.Update.Before(tenantCtx(t, "tenant-a"), updating); err != nil {
 		t.Fatalf("BeforeUpdate: %v", err)
 	}
 	if updating.Code != "auditor" {
@@ -249,10 +249,10 @@ func TestRoleCRUDHooks_DeleteRejectsInUseAndCrossTenantRole(t *testing.T) {
 	governance := rolesvc.NewGovernance(repo, &roleUsageCounterStub{userUsage: map[int64]int64{3: 1}}, nil)
 	hooks := newScopeBackedRoleCRUDHooks(repo, nil, governance)
 
-	if err := hooks.BeforeDelete(tenantCtx(t, "tenant-a"), 3); !errors.Is(err, errors.Validation) {
+	if err := hooks.Delete.Before(tenantCtx(t, "tenant-a"), 3); !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected in-use role delete to fail with validation error, got %v", err)
 	}
-	if err := hooks.BeforeDelete(tenantCtx(t, "tenant-b"), 3); !errors.Is(err, errors.Forbidden) {
+	if err := hooks.Delete.Before(tenantCtx(t, "tenant-b"), 3); !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("expected cross-tenant delete to fail with forbidden error, got %v", err)
 	}
 }

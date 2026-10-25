@@ -10,6 +10,7 @@ import (
 
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
+	"gochen-iam/persistence/gormsetup"
 
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
@@ -35,7 +36,7 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
-	if err := iamentity.SetupJoinTables(db); err != nil {
+	if err := gormsetup.SetupJoinTables(db); err != nil {
 		t.Fatalf("setup join tables: %v", err)
 	}
 	if err := db.AutoMigrate(
@@ -153,6 +154,11 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 		logging.NewNoopLogger(),
 	)
 
+	// 上下文不含 ActiveScopeKind，真实目录已经提供完整作用域事实，创建应成功。
+	if _, err := roleService.CreateRole(ctx, &svc.CreateRoleRequest{TenantID: "tenant-a", Name: "resolved-tenant-role", Permissions: []string{svc.RolePermissionSet.Code(iammw.ActionWrite)}}); err != nil {
+		t.Fatalf("create with resolved scope: %v", err)
+	}
+
 	if err := roleService.AddPermission(ctx, role.ID, "menu:api:write"); err == nil {
 		t.Fatalf("expected tenant-scoped role to reject platform-only permission")
 	}
@@ -169,7 +175,7 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
-	if err := iamentity.SetupJoinTables(db); err != nil {
+	if err := gormsetup.SetupJoinTables(db); err != nil {
 		t.Fatalf("setup join tables: %v", err)
 	}
 	if err := db.AutoMigrate(

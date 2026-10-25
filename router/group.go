@@ -64,7 +64,7 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionManage).Scope(iammw.ScopePlatform, iammw.ScopeTenant),
 	))
 
-	appService, err := svc.NewCRUDApplication[*iamentity.Group, int64](gr.groupRepo, gr.groupRepo)
+	appService, err := svc.NewCRUDApplication[*iamentity.Group, int64](gr.groupRepo, gr.groupRepo, &appcrud.Options[*iamentity.Group, int64]{Hooks: newGroupCRUDHooks(gr.groupRepo, gr.groupService)})
 	if err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create group crud application").WithContext("route", "iam.group")
@@ -94,9 +94,6 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	builder, err := rest.NewApiBuilder[*iamentity.Group, int64](
 		app,
 		rest.WithQuerySchema[*iamentity.Group, int64](groupQuerySchema),
-		rest.WithHooks[*iamentity.Group, int64](func(h *appcrud.Hooks[*iamentity.Group, int64]) {
-			*h = *newGroupCRUDHooks(gr.groupRepo)
-		}),
 	)
 
 	if err != nil {
@@ -407,40 +404,52 @@ func (gr *GroupRoutes) getGroupStatistics(ctx httpx.IContext) error {
 	return httpx.WriteSuccess(ctx, stats)
 }
 
-func newGroupCRUDHooks(repo svc.IResourceContextRepository[*iamentity.Group, int64]) *appcrud.Hooks[*iamentity.Group, int64] {
+func newGroupCRUDHooks(repo svc.IResourceContextRepository[*iamentity.Group, int64], groupServices ...IGroupService) *appcrud.Hooks[*iamentity.Group, int64] {
 	return &appcrud.Hooks[*iamentity.Group, int64]{
-		BeforeCreate: func(ctx context.Context, group *iamentity.Group) error {
-			// 1. 租户隔离：从上下文注入 tenant_id
-			tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
-			if err != nil {
-				return err
-			}
-			managedScopeID := svc.ManagedScopeIDFromContext(ctx)
-			if managedScopeID <= 0 {
-				return errors.NewCode(errors.InvalidInput, "managed scope boundary is required")
-			}
-			group.SetTenantID(tenantID)
-			group.SetManagedScopeID(managedScopeID)
-			group.SetOwnerID(svc.TenantOwnerID(tenantID))
-			// 2. 层级准备
-			return prepareGroupHierarchy(ctx, repo, nil, group)
+		Create: appcrud.Stage[*iamentity.Group]{
+			Before: func(ctx context.Context, group *iamentity.Group) error {
+				// 1. 租户隔离：从上下文注入 tenant_id
+				tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
+				if err != nil {
+					return err
+				}
+				managedScopeID := svc.ManagedScopeIDFromContext(ctx)
+				if managedScopeID <= 0 {
+					return errors.NewCode(errors.InvalidInput, "managed scope boundary is required")
+				}
+				group.SetTenantID(tenantID)
+				group.SetManagedScopeID(managedScopeID)
+				group.SetOwnerID(svc.TenantOwnerID(tenantID))
+				// 2. 层级准备
+				return prepareGroupHierarchy(ctx, repo, nil, group)
+			},
 		},
-		BeforeUpdate: func(ctx context.Context, group *iamentity.Group) error {
-			if group == nil {
-				return errors.NewCode(errors.InvalidInput, "group cannot be nil")
-			}
-			current, _, err := loadTenantBoundEntity(ctx, repo, group.GetID())
-			if err != nil {
-				return err
-			}
-			// 更新时始终沿用已存在实体的租户，避免请求体伪造/遗漏 tenant_id。
-			group.SetTenantID(current.GetTenantID())
-			group.SetManagedScopeID(current.GetManagedScopeID())
-			group.SetOwnerID(current.GetOwnerID())
-			return prepareGroupHierarchy(ctx, repo, current, group)
+		Update: appcrud.Stage[*iamentity.Group]{
+			Before: func(ctx context.Context, group *iamentity.Group) error {
+				if group == nil {
+					return errors.NewCode(errors.InvalidInput, "group cannot be nil")
+				}
+				current, _, err := loadTenantBoundEntity(ctx, repo, group.GetID())
+				if err != nil {
+					return err
+				}
+				// 更新时始终沿用已存在实体的租户，避免请求体伪造/遗漏 tenant_id。
+				group.SetTenantID(current.GetTenantID())
+				group.SetManagedScopeID(current.GetManagedScopeID())
+				group.SetOwnerID(current.GetOwnerID())
+				return prepareGroupHierarchy(ctx, repo, current, group)
+			},
 		},
-		BeforeDelete: func(ctx context.Context, id int64) error {
-			return checkTenantOwnership(ctx, repo, id)
+		Delete: appcrud.Stage[int64]{
+			Before: func(ctx context.Context, id int64) error {
+				if err := checkTenantOwnership(ctx, repo, id); err != nil {
+					return err
+				}
+				if len(groupServices) > 0 && groupServices[0] != nil {
+					return groupServices[0].ValidateDelete(ctx, id)
+				}
+				return nil
+			},
 		},
 	}
 }

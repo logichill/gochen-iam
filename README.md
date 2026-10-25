@@ -316,12 +316,12 @@ repo / orm 默认围绕资源归属字段注入边界：
 
 ## 开发与验证
 
-常用验证命令：
+在本仓库目录下运行：
 
 ```bash
-cd /home/alex/data/priv/project/gochen-iam && go test ./... -count=1
-cd /home/alex/data/priv/project/gochen && go test ./... -count=1
-cd /home/alex/data/priv/project/alife && go test ./internal/progress/... ./internal/shop/... ./cmd/migrate -count=1
+go test ./... -count=1
+(cd ../gochen && go test ./... -count=1)
+(cd ../alife && go test ./internal/progress/... ./internal/shop/... ./cmd/migrate -count=1)
 ```
 
 工程约定：

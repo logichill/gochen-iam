@@ -3,14 +3,15 @@ package menu
 import (
 	"context"
 	"database/sql"
+	coredialect "gochen/db/dialect"
 	"gochen/testkit"
 	"reflect"
 	"testing"
 	"time"
 
 	iamentity "gochen-iam/entity"
+	"gochen-runtime/db/dialect"
 	"gochen/db"
-	"gochen/db/dialect"
 	"gochen/db/orm"
 )
 
@@ -33,7 +34,7 @@ func (m *capturingModel) Meta() *orm.ModelMeta { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities {
 	return nil
 }
-func (m *capturingModel) Dialect() dialect.IDialect { return dialect.New("") }
+func (m *capturingModel) Dialect() coredialect.IDialect { return dialect.New("") }
 
 func (m *capturingModel) First(ctx context.Context, dest any, opts ...orm.QueryOption) error {
 	m.firstCalls++

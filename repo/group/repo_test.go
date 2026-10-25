@@ -3,15 +3,16 @@ package group
 import (
 	"context"
 	"database/sql"
+	coredialect "gochen/db/dialect"
 	"gochen/testkit"
 	"testing"
 
 	iamentity "gochen-iam/entity"
+	"gochen-runtime/db/dialect"
 	auth "gochen-runtime/host/authz"
 	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/db"
-	"gochen/db/dialect"
 	"gochen/db/orm"
 )
 
@@ -32,8 +33,10 @@ type capturingModel struct {
 
 	firstFn          func(dest any) error
 	firstCalls       int
+	findCalls        int
 	associationCalls int
 	lastFirstOpts    orm.QueryOptions
+	lastOpts         orm.QueryOptions
 
 	lastAssociation *capturingAssociation
 	savedEntity     any
@@ -41,7 +44,7 @@ type capturingModel struct {
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities { return nil }
-func (m *capturingModel) Dialect() dialect.IDialect      { return dialect.New("") }
+func (m *capturingModel) Dialect() coredialect.IDialect  { return dialect.New("") }
 func (m *capturingModel) First(_ context.Context, dest any, opts ...orm.QueryOption) error {
 	m.firstCalls++
 	m.lastFirstOpts = orm.CollectQueryOptions(opts...)
@@ -50,7 +53,11 @@ func (m *capturingModel) First(_ context.Context, dest any, opts ...orm.QueryOpt
 	}
 	return nil
 }
-func (m *capturingModel) Find(context.Context, any, ...orm.QueryOption) error { return nil }
+func (m *capturingModel) Find(_ context.Context, _ any, opts ...orm.QueryOption) error {
+	m.findCalls++
+	m.lastOpts = orm.CollectQueryOptions(opts...)
+	return nil
+}
 func (m *capturingModel) Count(context.Context, ...orm.QueryOption) (int64, error) {
 	return 0, nil
 }

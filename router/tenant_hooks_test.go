@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"gochen/auth/scoped"
+	"gochen/contextx"
 	"strconv"
 	"strings"
 	"testing"
@@ -56,7 +57,7 @@ func TestTenantCRUDHooks_DeleteRejectsActiveTenant(t *testing.T) {
 	}
 	hooks := TenantHooksForTenant(repo, nil, &tenantDeleteGovernance{})
 
-	err := hooks.BeforeDelete(context.Background(), 1)
+	err := hooks.Delete.Before(context.Background(), 1)
 	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
@@ -79,7 +80,7 @@ func TestTenantCRUDHooks_DeleteRejectsOccupiedTenant(t *testing.T) {
 		countUsers: func(context.Context, string) (int64, error) { return 2, nil },
 	})
 
-	err := hooks.BeforeDelete(context.Background(), 2)
+	err := hooks.Delete.Before(context.Background(), 2)
 	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
@@ -131,7 +132,7 @@ func TestTenantCRUDHooks_DeleteRejectsRootScopeChildren(t *testing.T) {
 		},
 	})
 
-	err := hooks.BeforeDelete(context.Background(), 3)
+	err := hooks.Delete.Before(context.Background(), 3)
 	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
@@ -172,7 +173,7 @@ func TestTenantCRUDHooks_DeleteRemovesRootScope(t *testing.T) {
 		},
 	})
 
-	if err := hooks.BeforeDelete(context.Background(), 4); err != nil {
+	if err := hooks.Delete.Before(context.Background(), 4); err != nil {
 		t.Fatalf("expected delete hook to pass, got %v", err)
 	}
 	if deletedScopeID != rootScopeID {
@@ -180,5 +181,102 @@ func TestTenantCRUDHooks_DeleteRemovesRootScope(t *testing.T) {
 	}
 	if rebuildCalls != 1 {
 		t.Fatalf("expected visibility rebuild once, got %d", rebuildCalls)
+	}
+}
+
+type userHookRepoStub struct {
+	users map[int64]*iamentity.User
+}
+
+func (s *userHookRepoStub) Create(context.Context, *iamentity.User) error { return nil }
+func (s *userHookRepoStub) Update(context.Context, *iamentity.User) error { return nil }
+func (s *userHookRepoStub) Delete(context.Context, int64) error           { return nil }
+func (s *userHookRepoStub) Get(_ context.Context, id int64) (*iamentity.User, error) {
+	u, ok := s.users[id]
+	if !ok {
+		return nil, errors.NewCode(errors.NotFound, "用户不存在")
+	}
+	cp := &iamentity.User{
+		TenantID:       u.TenantID,
+		HomeTenantID:   u.HomeTenantID,
+		HomeScopeID:    u.HomeScopeID,
+		ManagedScopeID: u.ManagedScopeID,
+		OwnerID:        u.OwnerID,
+		Username:       u.Username,
+		Email:          u.Email,
+		Password:       u.Password,
+		Status:         u.Status,
+		Avatar:         u.Avatar,
+		LastLoginAt:    u.LastLoginAt,
+	}
+	cp.SetID(u.GetID())
+	return cp, nil
+}
+func (s *userHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (scoped.Resource, error) {
+	return scoped.Resource{Kind: "iam.user", ID: strconv.FormatInt(id, 10)}, nil
+}
+
+func TestTenantHooksForUser_PasswordHashed(t *testing.T) {
+	ctx, err := contextx.WithTenantID(context.Background(), "tenant-1")
+	if err != nil {
+		t.Fatalf("WithTenantID failed: %v", err)
+	}
+	ctx, err = scoped.WithDataScope(ctx, scoped.Filtered(10))
+	if err != nil {
+		t.Fatalf("WithDataScope failed: %v", err)
+	}
+
+	repo := &userHookRepoStub{users: make(map[int64]*iamentity.User)}
+	hooks := TenantHooksForUser(repo)
+
+	// 1. 创建用户时明文密码被哈希
+	user := &iamentity.User{
+		Username: "alice",
+		Email:    "alice@example.com",
+		Password: "password123",
+	}
+	if err := hooks.Create.Before(ctx, user); err != nil {
+		t.Fatalf("BeforeCreate failed: %v", err)
+	}
+	if user.Password == "password123" {
+		t.Fatalf("expected password to be hashed, but was plain text")
+	}
+	if !isBcryptHash(user.Password) {
+		t.Fatalf("expected valid bcrypt hash, got %s", user.Password)
+	}
+
+	// 2. 短密码被拒绝
+	shortUser := &iamentity.User{
+		Username: "bob",
+		Email:    "bob@example.com",
+		Password: "123",
+	}
+	if err := hooks.Create.Before(ctx, shortUser); !errors.Is(err, errors.Validation) {
+		t.Fatalf("expected validation error for short password, got: %v", err)
+	}
+
+	// 3. 更新时空密码继承已存在密码
+	user.SetID(101)
+	repo.users[101] = &iamentity.User{
+		TenantID: user.TenantID,
+		Password: user.Password,
+	}
+	updateUser := &iamentity.User{}
+	updateUser.SetID(101)
+	if err := hooks.Update.Before(ctx, updateUser); err != nil {
+		t.Fatalf("BeforeUpdate with empty password failed: %v", err)
+	}
+	if updateUser.Password != user.Password {
+		t.Fatalf("expected updated user to retain existing password hash")
+	}
+
+	// 4. 更新时传入新明文密码被哈希
+	updateUserWithNewPass := &iamentity.User{Password: "newsecret456"}
+	updateUserWithNewPass.SetID(101)
+	if err := hooks.Update.Before(ctx, updateUserWithNewPass); err != nil {
+		t.Fatalf("BeforeUpdate with new password failed: %v", err)
+	}
+	if updateUserWithNewPass.Password == "newsecret456" || !isBcryptHash(updateUserWithNewPass.Password) {
+		t.Fatalf("expected new password to be hashed")
 	}
 }

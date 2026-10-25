@@ -160,30 +160,6 @@ func PermissionMiddleware(required PermissionSpec) httpx.Middleware {
 	}
 }
 
-func permissionSpecFromDefinition(def PermissionDefinition) PermissionSpec {
-	spec := PermissionCode(def.Code)
-	if def.Name != "" {
-		spec = spec.Label(def.Name)
-	}
-	if def.Description != "" {
-		spec = spec.Desc(def.Description)
-	}
-	if len(def.Scopes) > 0 {
-		scopes := make([]ScopeType, 0, len(def.Scopes))
-		for _, scope := range def.Scopes {
-			scopes = append(scopes, ScopeType(scope))
-		}
-		spec = spec.Scope(scopes...)
-	}
-	if def.BuiltinOnly {
-		spec = spec.Builtin()
-	}
-	if def.RiskLevel != "" {
-		spec = spec.Risk(RiskLevel(def.RiskLevel))
-	}
-	return spec
-}
-
 // AdminOnlyMiddleware 要求当前 active scope 具备管理员级全量权限。
 //
 // 这里不再依赖 `system_admin` 角色名，而是依赖角色真正授予出的权限集合；

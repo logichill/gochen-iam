@@ -163,6 +163,49 @@ func TestDatabaseRevokedTokenStorePropagatesCanceledContext(t *testing.T) {
 	}
 }
 
+func TestDatabaseRevokedTokenStoreCleanupExpired(t *testing.T) {
+	database := openRevokedTokenTestDatabase(t, filepath.Join(t.TempDir(), "cleanup-expired.db"))
+	now := time.Now()
+	for _, rec := range []struct {
+		jti string
+		exp time.Time
+	}{
+		{"expired-1", now.Add(-revokedTokenClockSkew - time.Hour)},
+		{"expired-2", now.Add(-revokedTokenClockSkew - time.Minute)},
+		{"valid-1", now.Add(time.Hour)},
+	} {
+		if _, err := database.Exec(t.Context(),
+			"INSERT INTO iam_revoked_tokens (jti, expires_at) VALUES (?, ?)",
+			rec.jti,
+			rec.exp.Unix(),
+		); err != nil {
+			t.Fatalf("insert record: %v", err)
+		}
+	}
+
+	store, err := NewDatabaseRevokedTokenStore(database)
+	if err != nil {
+		t.Fatalf("NewDatabaseRevokedTokenStore: %v", err)
+	}
+
+	deleted, err := store.CleanupExpired(t.Context())
+	if err != nil {
+		t.Fatalf("CleanupExpired: %v", err)
+	}
+	if deleted != 2 {
+		t.Fatalf("expected 2 deleted rows, got %d", deleted)
+	}
+
+	revoked, err := store.IsRevoked(t.Context(), "valid-1")
+	if err != nil || !revoked {
+		t.Fatalf("valid-1 should remain revoked, got %v, %v", revoked, err)
+	}
+	revoked, err = store.IsRevoked(t.Context(), "expired-1")
+	if err != nil || revoked {
+		t.Fatalf("expired-1 should not be revoked, got %v, %v", revoked, err)
+	}
+}
+
 func openRevokedTokenTestDatabase(t *testing.T, path string) db.IDatabase {
 	t.Helper()
 	database, err := stdsql.New(db.DBConfig{

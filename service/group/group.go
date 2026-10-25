@@ -6,7 +6,7 @@ import (
 	"time"
 
 	iamentity "gochen-iam/entity"
-	iammw "gochen-iam/middleware"
+	iamperm "gochen-iam/permissions"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
@@ -78,7 +78,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 	if managedScopeID == 0 {
 		return nil, errors.NewCode(errors.InvalidInput, "managed scope is required")
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), &iamentity.Group{TenantID: tenantID})
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionWrite), &iamentity.Group{TenantID: tenantID})
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +168,15 @@ func (s *GroupService) UpdateGroup(
 		}
 	}
 
+	var descendants []*iamentity.Group
+	if parentChanged {
+		var err error
+		descendants, err = s.groupRepo.FindDescendants(tenantCtx, groupID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if parentChanged && candidate.ParentID != nil {
 		if *candidate.ParentID == (*group).GetID() {
 			return nil, errors.NewCode(errors.Validation, "不能将组织设置为自己的父组织")
@@ -179,7 +188,14 @@ func (s *GroupService) UpdateGroup(
 		if _, err := svc.PreflightSameTenant(tenantCtx, s.scopeAuthorizer, "", group.TenantID, parent.TenantID); err != nil {
 			return nil, err
 		}
-		if parent.Level >= svc.MaxGroupLevel {
+		maxDepth := 0
+		for _, d := range descendants {
+			rel := d.Level - group.Level
+			if rel > maxDepth {
+				maxDepth = rel
+			}
+		}
+		if parent.Level+1+maxDepth > svc.MaxGroupLevel {
 			return nil, errors.NewCode(errors.Validation, "组织层级不能超过10级")
 		}
 		if (*group).IsAncestorOf(parent) {
@@ -201,13 +217,9 @@ func (s *GroupService) UpdateGroup(
 	targets := make([]any, 0, 1)
 	targets = append(targets, group)
 	if parentChanged {
-		descendants, err := s.groupRepo.FindDescendants(tenantCtx, groupID)
-		if err != nil {
-			return nil, err
-		}
 		targets = appendGroupTargets(targets, descendants)
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), targets...)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionWrite), targets...)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +263,26 @@ func (s *GroupService) DeleteGroup(ctx context.Context, tenantID string, groupID
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionDelete), group)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionDelete), group)
+	if err != nil {
+		return err
+	}
+
+	if err := s.ValidateDelete(tenantCtx, groupID); err != nil {
+		return err
+	}
+
+	// 3. 删除组织
+	return s.groupRepo.DeleteWithConstraint(tenantCtx, groupID, guard)
+}
+
+// ValidateDelete 检查组织是否允许删除（检查是否有子组织和用户）。
+func (s *GroupService) ValidateDelete(ctx context.Context, groupID int64) error {
+	tenantID, err := svc.TenantIDFromContext(ctx)
+	if err != nil {
+		return err
+	}
+	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
 	if err != nil {
 		return err
 	}
@@ -274,8 +305,7 @@ func (s *GroupService) DeleteGroup(ctx context.Context, tenantID string, groupID
 		return errors.NewCode(errors.Validation, "不能删除有用户的组织，请先移除用户")
 	}
 
-	// 3. 删除组织
-	return s.groupRepo.DeleteWithConstraint(tenantCtx, groupID, guard)
+	return nil
 }
 
 // GroupTree 获取组织树
@@ -284,7 +314,7 @@ func (s *GroupService) GroupTree(ctx context.Context) ([]*svc.GroupTreeNode, err
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iamperm.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
@@ -309,7 +339,7 @@ func (s *GroupService) RootGroups(ctx context.Context, tenantID string) ([]*iame
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iamperm.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
@@ -325,7 +355,7 @@ func (s *GroupService) GroupsByLevel(ctx context.Context, level int) ([]*iamenti
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iamperm.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
@@ -341,7 +371,7 @@ func (s *GroupService) GroupUsers(ctx context.Context, groupID int64) ([]*iament
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), group); err != nil {
+	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionRead), group); err != nil {
 		return nil, err
 	}
 	return s.userRepo.FindByGroupID(tenantCtx, groupID)
@@ -357,7 +387,7 @@ func (s *GroupService) AddUserToGroup(ctx context.Context, groupID, userID int64
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), group, user)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionWrite), group, user)
 	if err != nil {
 		return err
 	}
@@ -374,7 +404,7 @@ func (s *GroupService) RemoveUserFromGroup(ctx context.Context, groupID, userID 
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), group, user)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionWrite), group, user)
 	if err != nil {
 		return err
 	}
@@ -416,7 +446,7 @@ func (s *GroupService) GroupRoles(ctx context.Context, groupID int64) ([]*iament
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), group); err != nil {
+	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionRead), group); err != nil {
 		return nil, err
 	}
 	return s.roleRepo.FindByGroupID(tenantCtx, groupID)
@@ -432,7 +462,7 @@ func (s *GroupService) AddGroupRole(ctx context.Context, groupID, roleID int64) 
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), group, role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionWrite), group, role)
 	if err != nil {
 		return err
 	}
@@ -449,7 +479,7 @@ func (s *GroupService) RemoveGroupRole(ctx context.Context, groupID, roleID int6
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iammw.ActionWrite), group, role)
+	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionWrite), group, role)
 	if err != nil {
 		return err
 	}
@@ -462,7 +492,7 @@ func (s *GroupService) GroupStatistics(ctx context.Context) (*svc.StatisticsResp
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iammw.ActionRead), tenantID); err != nil {
+	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iamperm.ActionRead), tenantID); err != nil {
 		return nil, err
 	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)

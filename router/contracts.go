@@ -48,6 +48,7 @@ type IGroupService interface {
 	AddGroupRole(ctx context.Context, groupID, roleID int64) error
 	RemoveGroupRole(ctx context.Context, groupID, roleID int64) error
 	GroupStatistics(ctx context.Context) (*svc.StatisticsResponse, error)
+	ValidateDelete(ctx context.Context, groupID int64) error
 }
 
 // IRoleService 定义角色服务能力接口。

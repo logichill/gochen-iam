@@ -99,7 +99,7 @@ func TestRequireTenantMatch_RejectsCrossTenantWithoutPlatformScope(t *testing.T)
 
 func TestRequireTenantPermission_ReusesTenantGuardWhenAuthorizerUnavailable(t *testing.T) {
 	t.Setenv(tenant.EnvTenantMode, string(tenant.ModeTenant))
-	reqCtx := newTenantGuardRequestContext(t, "tenant-a")
+	reqCtx := withPermissions(t, newTenantGuardRequestContext(t, "tenant-a"), "user:api:read")
 
 	tenantID, err := RequireTenantPermission(reqCtx, nil, "user:api:read", "tenant-a")
 	if err != nil {
@@ -179,5 +179,21 @@ func TestRequireTenantPermission_SingleModeRejectsMissingPermission(t *testing.T
 
 	if _, err := RequireTenantPermission(reqCtx, NewScopeAuthorizer(nil, nil), "user:api:read", ""); err == nil {
 		t.Fatalf("expected missing permission to be rejected even in single mode")
+	}
+}
+
+func TestRequirePermissionInTenant_NilScopeAuthorizerStillChecksPermission(t *testing.T) {
+	// 1. 无权限时被拒绝
+	reqCtxWithoutPerm := withPermissions(t, newTenantGuardRequestContext(t, "tenant-a"), "user:api:other")
+	err := RequirePermissionInTenant(reqCtxWithoutPerm, nil, "user:api:read", "tenant-a")
+	if err == nil {
+		t.Fatalf("expected RequirePermissionInTenant to reject when missing permission with nil scopeAuthorizer")
+	}
+
+	// 2. 有权限时通过
+	reqCtxWithPerm := withPermissions(t, newTenantGuardRequestContext(t, "tenant-a"), "user:api:read")
+	err = RequirePermissionInTenant(reqCtxWithPerm, nil, "user:api:read", "tenant-a")
+	if err != nil {
+		t.Fatalf("expected RequirePermissionInTenant to pass when permission is present: %v", err)
 	}
 }

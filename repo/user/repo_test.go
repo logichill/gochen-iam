@@ -3,14 +3,15 @@ package user
 import (
 	"context"
 	"database/sql"
+	coredialect "gochen/db/dialect"
 	"gochen/testkit"
 	"testing"
 
 	iamentity "gochen-iam/entity"
+	"gochen-runtime/db/dialect"
 	auth "gochen-runtime/host/authz"
 	"gochen/contextx"
 	"gochen/db"
-	"gochen/db/dialect"
 	"gochen/db/orm"
 )
 
@@ -30,24 +31,33 @@ type capturingModel struct {
 	meta *orm.ModelMeta
 
 	firstCalls       int
+	findCalls        int
 	createCalls      int
 	associationCalls int
 	lastFirstOpts    orm.QueryOptions
+	lastOpts         orm.QueryOptions
+	lastCountOpts    orm.QueryOptions
 
 	lastAssociation *capturingAssociation
 	savedEntity     any
+	lastUpdateOpts  orm.QueryOptions
 }
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities { return nil }
-func (m *capturingModel) Dialect() dialect.IDialect      { return dialect.New("") }
+func (m *capturingModel) Dialect() coredialect.IDialect  { return dialect.New("") }
 func (m *capturingModel) First(_ context.Context, _ any, opts ...orm.QueryOption) error {
 	m.firstCalls++
 	m.lastFirstOpts = orm.CollectQueryOptions(opts...)
 	return nil
 }
-func (m *capturingModel) Find(context.Context, any, ...orm.QueryOption) error { return nil }
-func (m *capturingModel) Count(context.Context, ...orm.QueryOption) (int64, error) {
+func (m *capturingModel) Find(_ context.Context, _ any, opts ...orm.QueryOption) error {
+	m.findCalls++
+	m.lastOpts = orm.CollectQueryOptions(opts...)
+	return nil
+}
+func (m *capturingModel) Count(_ context.Context, opts ...orm.QueryOption) (int64, error) {
+	m.lastCountOpts = orm.CollectQueryOptions(opts...)
 	return 0, nil
 }
 func (m *capturingModel) Create(context.Context, ...any) error {
@@ -58,7 +68,8 @@ func (m *capturingModel) Save(_ context.Context, entity any, _ ...orm.QueryOptio
 	m.savedEntity = entity
 	return nil
 }
-func (m *capturingModel) UpdateValues(context.Context, map[string]any, ...orm.QueryOption) error {
+func (m *capturingModel) UpdateValues(_ context.Context, _ map[string]any, opts ...orm.QueryOption) error {
+	m.lastUpdateOpts = orm.CollectQueryOptions(opts...)
 	return nil
 }
 func (m *capturingModel) Delete(context.Context, ...orm.QueryOption) error { return nil }
@@ -258,3 +269,126 @@ func requireCondition(t *testing.T, conditions []orm.Condition, expr string, wan
 	}
 	t.Fatalf("condition %q not found in %#v", expr, conditions)
 }
+
+func TestUserRepo_UpdateLastLogin_ScopedToTenant(t *testing.T) {
+	o := &fakeOrm{
+		baseModel:    &capturingModel{},
+		sessionModel: &capturingModel{},
+	}
+	r, err := NewUserRepository(o, testkit.NewInt64Sequence(1))
+	if err != nil {
+		t.Fatalf("NewUserRepository: %v", err)
+	}
+
+	// 1. Without tenant context, should fail
+	if err := r.UpdateLastLogin(context.Background(), 100); err == nil {
+		t.Fatal("expected error without tenant context, got nil")
+	}
+
+	// 2. With tenant context, should include tenant_id in where condition
+	ctx := withTenantPrincipal(t, context.Background(), "tenant-xyz")
+	if err := r.UpdateLastLogin(ctx, 100); err != nil {
+		t.Fatalf("UpdateLastLogin: %v", err)
+	}
+
+	where := o.baseModel.lastUpdateOpts.Where
+	requireCondition(t, where, "id = ? AND tenant_id = ? AND deleted_at IS NULL", int64(100), "tenant-xyz")
+}
+
+func TestUserRepo_Create_RequiresTenant(t *testing.T) {
+	o := &fakeOrm{
+		baseModel:    &capturingModel{},
+		sessionModel: &capturingModel{},
+	}
+	r, err := NewUserRepository(o, testkit.NewInt64Sequence(1))
+	if err != nil {
+		t.Fatalf("NewUserRepository: %v", err)
+	}
+
+	user := &iamentity.User{
+		Username: "alice",
+	}
+
+	// 1. 无租户上下文，必须拒绝创建并返回错误 (F16)
+	if err := r.Create(context.Background(), user); err == nil {
+		t.Fatal("expected error creating user without tenant in context, got nil")
+	}
+
+	// 2. 跨租户创建，必须返回 Forbidden
+	ctx := withTenantPrincipal(t, context.Background(), "tenant-alpha")
+	crossTenantUser := &iamentity.User{
+		Username: "bob",
+		TenantID: "tenant-beta",
+	}
+	if err := r.Create(ctx, crossTenantUser); err == nil {
+		t.Fatal("expected forbidden error on cross-tenant create, got nil")
+	}
+
+	// 3. 正常同租户创建成功
+	if err := r.Create(ctx, user); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if user.TenantID != "tenant-alpha" {
+		t.Fatalf("expected tenant_id 'tenant-alpha', got %q", user.TenantID)
+	}
+}
+
+func TestUserRepo_RoleByID_ScopedToTenant(t *testing.T) {
+	o := &fakeOrm{
+		baseModel:    &capturingModel{},
+		sessionModel: &capturingModel{},
+	}
+	r, err := NewUserRepository(o, testkit.NewInt64Sequence(1))
+	if err != nil {
+		t.Fatalf("NewUserRepository: %v", err)
+	}
+
+	// 1. 无租户上下文，必须失败
+	if _, err := r.roleByID(context.Background(), 10); err == nil {
+		t.Fatal("expected error without tenant context, got nil")
+	}
+
+	// 2. 有租户上下文，查询条件必须包含 tenant_id (F15)
+	ctx := withTenantPrincipal(t, context.Background(), "tenant-alpha")
+	_, _ = r.roleByID(ctx, 10)
+
+	where := o.baseModel.lastFirstOpts.Where
+	requireCondition(t, where, "tenant_id = ?", "tenant-alpha")
+	requireCondition(t, where, "id = ?", int64(10))
+}
+
+func TestUserRepo_CountByScopeID_ScopedToTenant(t *testing.T) {
+	o := &fakeOrm{
+		baseModel:    &capturingModel{},
+		sessionModel: &capturingModel{},
+	}
+	r, err := NewUserRepository(o, testkit.NewInt64Sequence(1))
+	if err != nil {
+		t.Fatalf("NewUserRepository: %v", err)
+	}
+
+	// 1. 无租户上下文（平台模式），不限定 tenant_id
+	if _, err := r.CountByHomeScopeID(context.Background(), 10); err != nil {
+		t.Fatalf("CountByHomeScopeID: %v", err)
+	}
+	where := o.baseModel.lastCountOpts.Where
+	requireCondition(t, where, "home_scope_id = ? AND deleted_at IS NULL", int64(10))
+
+	// 2. 传入租户上下文，CountByHomeScopeID 必须带 tenant_id 隔离过滤 (F50)
+	ctx := withTenantPrincipal(t, context.Background(), "tenant-alpha")
+	if _, err := r.CountByHomeScopeID(ctx, 10); err != nil {
+		t.Fatalf("CountByHomeScopeID: %v", err)
+	}
+	where = o.baseModel.lastCountOpts.Where
+	requireCondition(t, where, "tenant_id = ?", "tenant-alpha")
+	requireCondition(t, where, "home_scope_id = ? AND deleted_at IS NULL", int64(10))
+
+	// 3. CountByManagedScopeID 必须带 tenant_id 隔离过滤 (F50)
+	if _, err := r.CountByManagedScopeID(ctx, 20); err != nil {
+		t.Fatalf("CountByManagedScopeID: %v", err)
+	}
+	where = o.baseModel.lastCountOpts.Where
+	requireCondition(t, where, "tenant_id = ?", "tenant-alpha")
+	requireCondition(t, where, "managed_scope_id = ? AND deleted_at IS NULL", int64(20))
+}
+

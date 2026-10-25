@@ -12,11 +12,9 @@ import (
 type contextKey string
 
 const (
-	contextKeyRoles           contextKey = "auth_roles"
-	contextKeyPermissions     contextKey = "auth_permissions"
-	contextKeyPermSet         contextKey = "auth_permission_set"
-	contextKeyActiveScopeID   contextKey = "auth_active_scope_id"
-	contextKeyActiveScopeKind contextKey = "auth_active_scope_kind"
+	contextKeyRoles       contextKey = "auth_roles"
+	contextKeyPermissions contextKey = "auth_permissions"
+	contextKeyPermSet     contextKey = "auth_permission_set"
 )
 
 // WithRoles 将角色列表写入请求上下文。
@@ -88,85 +86,33 @@ func WithActiveScope(ctx httpx.IRequestContext, scopeID int64, scopeKind string)
 	if ctx == nil {
 		return nil
 	}
-	if scopeID > 0 {
-		ctx = ctx.WithValue(contextKeyActiveScopeID, scopeID)
-	}
-	if scopeKind != "" {
-		ctx = ctx.WithValue(contextKeyActiveScopeKind, scopeKind)
-	}
-	return ctx
+	return ctx.WithContext(authz.BindActiveScopeContext(ctx, scopeID, scopeKind))
 }
 
 // BindActiveScopeContext 将 active scope 元数据写入通用 context，便于 service/runtime 读取。
 func BindActiveScopeContext(ctx context.Context, scopeID int64, scopeKind string) context.Context {
-	if ctx == nil {
-		return nil
-	}
-	if scopeID > 0 {
-		ctx = context.WithValue(ctx, contextKeyActiveScopeID, scopeID)
-	}
-	if scopeKind = strings.TrimSpace(scopeKind); scopeKind != "" {
-		ctx = context.WithValue(ctx, contextKeyActiveScopeKind, scopeKind)
-	}
-	return ctx
+	return authz.BindActiveScopeContext(ctx, scopeID, scopeKind)
 }
 
 // ClearActiveScopeContext 清空通用 context 上的 active scope 元数据。
 func ClearActiveScopeContext(ctx context.Context) context.Context {
-	if ctx == nil {
-		return nil
-	}
-	ctx = context.WithValue(ctx, contextKeyActiveScopeID, int64(0))
-	ctx = context.WithValue(ctx, contextKeyActiveScopeKind, "")
-	return ctx
+	return authz.ClearActiveScopeContext(ctx)
 }
 
 func ActiveScopeID(ctx httpx.IRequestContext) int64 {
-	if ctx == nil {
-		return 0
-	}
-	if val := ctx.Value(contextKeyActiveScopeID); val != nil {
-		if scopeID, ok := val.(int64); ok {
-			return scopeID
-		}
-	}
-	return 0
+	return authz.ActiveScopeIDFromContext(ctx)
 }
 
 func ActiveScopeKind(ctx httpx.IRequestContext) string {
-	if ctx == nil {
-		return ""
-	}
-	if val := ctx.Value(contextKeyActiveScopeKind); val != nil {
-		if scopeKind, ok := val.(string); ok {
-			return scopeKind
-		}
-	}
-	return ""
+	return authz.ActiveScopeKindFromContext(ctx)
 }
 
 func ActiveScopeIDFromContext(ctx context.Context) int64 {
-	if ctx == nil {
-		return 0
-	}
-	if val := ctx.Value(contextKeyActiveScopeID); val != nil {
-		if scopeID, ok := val.(int64); ok {
-			return scopeID
-		}
-	}
-	return 0
+	return authz.ActiveScopeIDFromContext(ctx)
 }
 
 func ActiveScopeKindFromContext(ctx context.Context) string {
-	if ctx == nil {
-		return ""
-	}
-	if val := ctx.Value(contextKeyActiveScopeKind); val != nil {
-		if scopeKind, ok := val.(string); ok {
-			return strings.TrimSpace(scopeKind)
-		}
-	}
-	return ""
+	return authz.ActiveScopeKindFromContext(ctx)
 }
 
 // DefaultDataScopeResolver 为 IAM 仓储、服务与路由提供统一默认数据范围解析。

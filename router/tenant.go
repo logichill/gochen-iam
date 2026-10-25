@@ -72,7 +72,7 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.NewCode(errors.Unsupported, "tenant repository must support scoped query and write constraints").
 			WithContext("route", "iam.tenant")
 	}
-	appService, err := svc.NewCRUDApplication[*iamentity.Tenant, int64](scopedRepo, scopedRepo)
+	appService, err := svc.NewCRUDApplication[*iamentity.Tenant, int64](scopedRepo, scopedRepo, &appcrud.Options[*iamentity.Tenant, int64]{Hooks: TenantHooksForTenant(tr.tenantRepo, tr.scopeAuthorizer, tr.deleteGovernance)})
 	if err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create tenant crud application").WithContext("route", "iam.tenant")
@@ -101,9 +101,6 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 				cfg.Response.ResponseWrapper = tr.wrapTenantResponse
 			})
 		},
-		rest.WithHooks[*iamentity.Tenant, int64](func(h *appcrud.Hooks[*iamentity.Tenant, int64]) {
-			*h = *TenantHooksForTenant(tr.tenantRepo, tr.scopeAuthorizer, tr.deleteGovernance)
-		}),
 	)
 
 	if err != nil {

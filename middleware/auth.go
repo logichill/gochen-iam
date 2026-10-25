@@ -532,6 +532,10 @@ func GenerateActivationToken(userID int64, bindingVersion string, availableScope
 }
 
 // ParseToken 解析并验证 JWT 令牌
+//
+// legacy 兼容窗口：token_type 为空的旧版形态在 active_scope_id 有效之外，
+// 还必须携带非空 JTI 才被接受——吊销存储以 JTI 为键，无 JTI 的 access token
+// 一旦放行就永远无法吊销。
 func ParseToken(tokenStr, secretKey string) (*JWTClaims, error) {
 	if secretKey == "" {
 		return nil, errors.NewCode(errors.Unauthorized, "认证配置错误")
@@ -548,8 +552,11 @@ func ParseToken(tokenStr, secretKey string) (*JWTClaims, error) {
 	}
 
 	claims, ok := token.Claims.(*JWTClaims)
-	legacyAccess := claims != nil && claims.TokenType == "" && claims.ActiveScopeID > 0
-	if !ok || !token.Valid || (claims.TokenType != tokenTypeAccess && !legacyAccess) {
+	// 无 JTI 的 legacy 形态 token 不可吊销（吊销存储以 JTI 为键、对空键短路），
+	// 因此兼容分支要求 JTI 非空；空白 JTI 与存储的 TrimSpace 语义对齐后同样视为缺失。
+	legacyAccess := claims != nil && claims.TokenType == "" && claims.ActiveScopeID > 0 && strings.TrimSpace(claims.ID) != ""
+	if !ok || !token.Valid || (claims.TokenType != tokenTypeAccess && !legacyAccess) ||
+		claims.UserID <= 0 || claims.ActiveScopeID <= 0 || claims.ExpiresAt == nil || strings.TrimSpace(claims.ID) == "" {
 		return nil, errors.NewCode(errors.Unauthorized, "无效的token")
 	}
 
@@ -574,7 +581,7 @@ func ParseActivationToken(tokenStr, secretKey string) (*ActivationClaims, error)
 
 	claims, ok := token.Claims.(*ActivationClaims)
 	legacyActivation := claims != nil && claims.TokenType == "" && claims.UserID > 0 && len(claims.AvailableScopes) > 0
-	if !ok || !token.Valid || (claims.TokenType != tokenTypeActivation && !legacyActivation) || claims.UserID <= 0 {
+	if !ok || !token.Valid || (claims.TokenType != tokenTypeActivation && !legacyActivation) || claims.UserID <= 0 || claims.ExpiresAt == nil {
 		return nil, errors.NewCode(errors.Unauthorized, "无效的 activation token")
 	}
 	return claims, nil

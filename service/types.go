@@ -3,7 +3,7 @@ package service
 import (
 	"time"
 
-	iammw "gochen-iam/middleware"
+	iamperm "gochen-iam/permissions"
 )
 
 // 用户相关请求和响应类型
@@ -296,33 +296,33 @@ const (
 
 // 预定义权限
 var (
-	SystemPermissionSet = iammw.NewAPIPermissionSet(iammw.ResourceSystem, iammw.ReadWriteDeleteActions()...)
-	UserPermissionSet   = iammw.NewAPIPermissionSet(
-		iammw.ResourceUser,
-		iammw.JoinActions(iammw.ManageActions(), iammw.SelfActions())...,
+	SystemPermissionSet = iamperm.NewAPIPermissionSet(iamperm.ResourceSystem, iamperm.ReadWriteDeleteActions()...)
+	UserPermissionSet   = iamperm.NewAPIPermissionSet(
+		iamperm.ResourceUser,
+		iamperm.JoinActions(iamperm.ManageActions(), iamperm.SelfActions())...,
 	)
-	GroupPermissionSet  = iammw.NewAPIPermissionSet(iammw.ResourceGroup, iammw.ManageActions()...)
-	TaskPermissionSet   = iammw.NewAPIPermissionSet(iammw.ResourceTask, iammw.ReadWriteDeleteActions()...)
-	PointsPermissionSet = iammw.NewAPIPermissionSet(iammw.ResourcePoints, iammw.ReadWriteActions()...)
-	LevelPermissionSet  = iammw.NewAPIPermissionSet(iammw.ResourceLevel, iammw.ReadWriteActions()...)
-	PlanPermissionSet   = iammw.NewAPIPermissionSet(iammw.ResourcePlan, iammw.ReadWriteActions()...)
-	RolePermissionSet   = iammw.NewAPIPermissionSet(iammw.ResourceRole, iammw.ManageActions()...)
-	TenantPermissionSet = iammw.NewAPIPermissionSet(
-		iammw.ResourceTenant,
-		iammw.JoinActions(iammw.ManageActions(), []iammw.Action{iammw.ActionActivate})...,
+	GroupPermissionSet  = iamperm.NewAPIPermissionSet(iamperm.ResourceGroup, iamperm.ManageActions()...)
+	TaskPermissionSet   = iamperm.NewAPIPermissionSet(iamperm.ResourceTask, iamperm.ReadWriteDeleteActions()...)
+	PointsPermissionSet = iamperm.NewAPIPermissionSet(iamperm.ResourcePoints, iamperm.ReadWriteActions()...)
+	LevelPermissionSet  = iamperm.NewAPIPermissionSet(iamperm.ResourceLevel, iamperm.ReadWriteActions()...)
+	PlanPermissionSet   = iamperm.NewAPIPermissionSet(iamperm.ResourcePlan, iamperm.ReadWriteActions()...)
+	RolePermissionSet   = iamperm.NewAPIPermissionSet(iamperm.ResourceRole, iamperm.ManageActions()...)
+	TenantPermissionSet = iamperm.NewAPIPermissionSet(
+		iamperm.ResourceTenant,
+		iamperm.JoinActions(iamperm.ManageActions(), []iamperm.Action{iamperm.ActionActivate})...,
 	)
-	MenuPermissionSet = iammw.NewAPIPermissionSet(
-		iammw.ResourceMenu,
-		iammw.ActionRead,
-		iammw.ActionWrite,
-		iammw.ActionPublish,
+	MenuPermissionSet = iamperm.NewAPIPermissionSet(
+		iamperm.ResourceMenu,
+		iamperm.ActionRead,
+		iamperm.ActionWrite,
+		iamperm.ActionPublish,
 	)
-	ActionPermissionSet         = iammw.NewActionPermissionSet(iammw.ResourceMCP, iammw.ActionInvoke)
-	MenuVisibilityPermissionSet = iammw.NewMenuPermissionSet(iammw.ResourceAny, iammw.ActionView)
-	APIWildcardPermission       = iammw.ApiPermission(iammw.ResourceAny, iammw.ActionAny)
-	AdminEntryPermission        = iammw.PermissionCode("*:*:*")
+	ActionPermissionSet         = iamperm.NewActionPermissionSet(iamperm.ResourceMCP, iamperm.ActionInvoke)
+	MenuVisibilityPermissionSet = iamperm.NewMenuPermissionSet(iamperm.ResourceAny, iamperm.ActionView)
+	APIWildcardPermission       = iamperm.ApiPermission(iamperm.ResourceAny, iamperm.ActionAny)
+	AdminEntryPermission        = iamperm.PermissionCode("*:*:*")
 
-	BuiltinWildcardPermissionSpecs = []iammw.PermissionSpec{
+	BuiltinWildcardPermissionSpecs = []iamperm.PermissionSpec{
 		APIWildcardPermission,
 		AdminEntryPermission,
 	}
@@ -364,9 +364,9 @@ var (
 	MenuVisibilityPermissionPatterns = MenuVisibilityPermissionSet.Codes()
 
 	// 内置角色通配权限只允许系统角色目录持有，不允许自定义角色复用。
-	BuiltinWildcardPermissions = iammw.PermissionCodes(BuiltinWildcardPermissionSpecs...)
+	BuiltinWildcardPermissions = iamperm.PermissionCodes(BuiltinWildcardPermissionSpecs...)
 
-	SharedPermissionSpecs = iammw.JoinPermissionSpecs(
+	SharedPermissionSpecs = iamperm.JoinPermissionSpecs(
 		TaskPermissionSet.Specs(),
 		PointsPermissionSet.Specs(),
 		LevelPermissionSet.Specs(),
@@ -374,7 +374,7 @@ var (
 		ActionPermissionSet.Specs(),
 	)
 
-	IAMPermissionSpecs = iammw.JoinPermissionSpecs(
+	IAMPermissionSpecs = iamperm.JoinPermissionSpecs(
 		SystemPermissionSet.Specs(),
 		UserPermissionSet.Specs(),
 		GroupPermissionSet.Specs(),
@@ -386,11 +386,11 @@ var (
 	)
 
 	// IAM 模块自身声明的权限目录。
-	IAMPermissions = iammw.PermissionCodes(IAMPermissionSpecs...)
+	IAMPermissions = iamperm.PermissionCodes(IAMPermissionSpecs...)
 
 	IAMPermissionDefinitions = append(
 		permissionDefinitions(
-			iammw.JoinPermissionSpecs(
+			iamperm.JoinPermissionSpecs(
 				SystemPermissionSet.Specs(),
 				UserPermissionSet.Specs(),
 				GroupPermissionSet.Specs(),
@@ -403,22 +403,22 @@ var (
 		builtinWildcardPermissionDefinitions()...,
 	)
 
-	AllPermissionSpecs = iammw.JoinPermissionSpecs(
+	AllPermissionSpecs = iamperm.JoinPermissionSpecs(
 		IAMPermissionSpecs,
 		SharedPermissionSpecs,
 	)
 
 	// 所有权限
-	AllPermissions = iammw.PermissionCodes(AllPermissionSpecs...)
+	AllPermissions = iamperm.PermissionCodes(AllPermissionSpecs...)
 
 	AllPermissionDefinitions = append(
-		append([]iammw.PermissionDefinition(nil), IAMPermissionDefinitions...),
+		append([]iamperm.PermissionDefinition(nil), IAMPermissionDefinitions...),
 		permissionDefinitions(SharedPermissionSpecs...)...,
 	)
 )
 
-func permissionDefinitions(specs ...iammw.PermissionSpec) []iammw.PermissionDefinition {
-	definitions := make([]iammw.PermissionDefinition, 0, len(specs))
+func permissionDefinitions(specs ...iamperm.PermissionSpec) []iamperm.PermissionDefinition {
+	definitions := make([]iamperm.PermissionDefinition, 0, len(specs))
 	for _, spec := range specs {
 		def := spec.Definition()
 		def.Scopes = defaultPermissionScopes(def)
@@ -433,68 +433,68 @@ func permissionDefinitions(specs ...iammw.PermissionSpec) []iammw.PermissionDefi
 	return definitions
 }
 
-func builtinWildcardPermissionDefinitions() []iammw.PermissionDefinition {
-	return []iammw.PermissionDefinition{
+func builtinWildcardPermissionDefinitions() []iamperm.PermissionDefinition {
+	return []iamperm.PermissionDefinition{
 		APIWildcardPermission.
 			Desc("内置管理员 API 全量权限").
-			Scope(iammw.ScopePlatform, iammw.ScopeTenant).
+			Scope(iamperm.ScopePlatform, iamperm.ScopeTenant).
 			Builtin().
 			Definition(),
 		AdminEntryPermission.
 			Desc("管理员入口").
-			Scope(iammw.ScopePlatform, iammw.ScopeTenant).
+			Scope(iamperm.ScopePlatform, iamperm.ScopeTenant).
 			Builtin().
-			Risk(iammw.RiskLevelCritical).
+			Risk(iamperm.RiskLevelCritical).
 			Definition(),
 	}
 }
 
-func defaultPermissionScopes(def iammw.PermissionDefinition) []string {
+func defaultPermissionScopes(def iamperm.PermissionDefinition) []string {
 	switch def.Resource {
-	case string(iammw.ResourceTenant), string(iammw.ResourceMenu), string(iammw.ResourceSystem):
-		return []string{string(iammw.ScopePlatform)}
+	case string(iamperm.ResourceTenant), string(iamperm.ResourceMenu), string(iamperm.ResourceSystem):
+		return []string{string(iamperm.ScopePlatform)}
 	default:
-		return []string{string(iammw.ScopePlatform), string(iammw.ScopeTenant)}
+		return []string{string(iamperm.ScopePlatform), string(iamperm.ScopeTenant)}
 	}
 }
 
-func defaultPermissionBuiltinOnly(def iammw.PermissionDefinition) bool {
+func defaultPermissionBuiltinOnly(def iamperm.PermissionDefinition) bool {
 	switch def.Code {
-	case MenuVisibilityPermissionSet.Code(iammw.ActionView):
+	case MenuVisibilityPermissionSet.Code(iamperm.ActionView):
 		return true
 	default:
 		return false
 	}
 }
 
-func defaultPermissionRiskLevel(def iammw.PermissionDefinition) string {
+func defaultPermissionRiskLevel(def iamperm.PermissionDefinition) string {
 	switch def.Code {
 	case
-		SystemPermissionSet.Code(iammw.ActionWrite),
-		SystemPermissionSet.Code(iammw.ActionDelete),
-		TenantPermissionSet.Code(iammw.ActionManage),
-		TenantPermissionSet.Code(iammw.ActionWrite),
-		TenantPermissionSet.Code(iammw.ActionDelete),
-		TenantPermissionSet.Code(iammw.ActionActivate),
-		ActionPermissionSet.Code(iammw.ActionInvoke):
-		return string(iammw.RiskLevelCritical)
+		SystemPermissionSet.Code(iamperm.ActionWrite),
+		SystemPermissionSet.Code(iamperm.ActionDelete),
+		TenantPermissionSet.Code(iamperm.ActionManage),
+		TenantPermissionSet.Code(iamperm.ActionWrite),
+		TenantPermissionSet.Code(iamperm.ActionDelete),
+		TenantPermissionSet.Code(iamperm.ActionActivate),
+		ActionPermissionSet.Code(iamperm.ActionInvoke):
+		return string(iamperm.RiskLevelCritical)
 	case
-		UserPermissionSet.Code(iammw.ActionManage),
-		UserPermissionSet.Code(iammw.ActionWrite),
-		UserPermissionSet.Code(iammw.ActionDelete),
-		GroupPermissionSet.Code(iammw.ActionManage),
-		GroupPermissionSet.Code(iammw.ActionWrite),
-		GroupPermissionSet.Code(iammw.ActionDelete),
-		RolePermissionSet.Code(iammw.ActionManage),
-		RolePermissionSet.Code(iammw.ActionWrite),
-		RolePermissionSet.Code(iammw.ActionDelete),
-		MenuPermissionSet.Code(iammw.ActionWrite),
-		MenuPermissionSet.Code(iammw.ActionPublish),
-		TaskPermissionSet.Code(iammw.ActionWrite),
-		PointsPermissionSet.Code(iammw.ActionWrite),
-		LevelPermissionSet.Code(iammw.ActionWrite),
-		PlanPermissionSet.Code(iammw.ActionWrite):
-		return string(iammw.RiskLevelHigh)
+		UserPermissionSet.Code(iamperm.ActionManage),
+		UserPermissionSet.Code(iamperm.ActionWrite),
+		UserPermissionSet.Code(iamperm.ActionDelete),
+		GroupPermissionSet.Code(iamperm.ActionManage),
+		GroupPermissionSet.Code(iamperm.ActionWrite),
+		GroupPermissionSet.Code(iamperm.ActionDelete),
+		RolePermissionSet.Code(iamperm.ActionManage),
+		RolePermissionSet.Code(iamperm.ActionWrite),
+		RolePermissionSet.Code(iamperm.ActionDelete),
+		MenuPermissionSet.Code(iamperm.ActionWrite),
+		MenuPermissionSet.Code(iamperm.ActionPublish),
+		TaskPermissionSet.Code(iamperm.ActionWrite),
+		PointsPermissionSet.Code(iamperm.ActionWrite),
+		LevelPermissionSet.Code(iamperm.ActionWrite),
+		PlanPermissionSet.Code(iamperm.ActionWrite):
+		return string(iamperm.RiskLevelHigh)
 	default:
 		return ""
 	}

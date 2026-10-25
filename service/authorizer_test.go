@@ -25,12 +25,14 @@ func TestIAMAuthorizerCreateResourceUsesContextTenant(t *testing.T) {
 	}
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
-		SubjectID:   1,
-		Permissions: []string{"user:api:*"},
+		SubjectID:     1,
+		Permissions:   []string{"user:api:*"},
+		ActiveScopeID: 101,
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
+	ctx = iamauth.BindActiveScopeContext(ctx, 101, "platform")
 	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
@@ -359,3 +361,72 @@ func TestWithSystemPrincipal_ReplaysAuthorizationRuntime(t *testing.T) {
 		t.Fatalf("expected tenant-b, got %q", got)
 	}
 }
+
+func TestAuthorizer_MultiTenantFailsClosedWithoutActiveScopeID(t *testing.T) {
+	t.Setenv("IAM_TENANT_MODE", "tenant")
+	registry, err := NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := NewIAMAuthorizer(&ScopeAuthorizer{}, registry)
+	if err != nil {
+		t.Fatalf("NewIAMAuthorizer: %v", err)
+	}
+
+	// Principal 没有 ActiveScopeID (ActiveScopeID <= 0)
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
+		SubjectID:     1,
+		Permissions:   []string{"user:api:*"},
+		ActiveScopeID: 0,
+	})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+
+	targetUser := &iamentity.User{TenantID: "tenant-a"}
+	decision, err := authorizer.Authorize(ctx, "user:api:read", targetUser)
+	if err != nil {
+		t.Fatalf("Authorize: %v", err)
+	}
+	if decision.IsAllowed() {
+		t.Fatal("expected fail-closed when ActiveScopeID <= 0 in multi-tenant mode, got allowed")
+	}
+}
+
+func TestIAMAuthorizerRejectsNilScopeAuthorizerInMultiTenant(t *testing.T) {
+	t.Setenv("IAM_TENANT_MODE", "tenant")
+	registry, err := NewIAMAuthzRegistry()
+	if err != nil {
+		t.Fatalf("NewIAMAuthzRegistry: %v", err)
+	}
+	authorizer, err := NewIAMAuthorizer(nil, registry)
+	if err != nil {
+		t.Fatalf("NewIAMAuthorizer: %v", err)
+	}
+
+	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
+		SubjectID:     1,
+		Permissions:   []string{"user:api:*"},
+		ActiveScopeID: 10,
+	})
+	if err != nil {
+		t.Fatalf("WithPrincipal: %v", err)
+	}
+	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+
+	targetUser := &iamentity.User{TenantID: "tenant-a"}
+	targetUser.SetID(1)
+	_, err = authorizer.Authorize(ctx, "user:api:read", targetUser)
+	if err == nil {
+		t.Fatal("expected error when scopeAuthorizer is nil in multi-tenant mode, got nil (fail-open)")
+	}
+}
+
+

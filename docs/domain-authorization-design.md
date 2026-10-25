@@ -1,6 +1,6 @@
 # 域授权设计（已实现版）
 
-本文档描述 `gochen-iam` 当前已经落地的授权实现，并与 `/home/alex/data/priv/project/gochen/docs/architecture/layered-authz-framework.md` 保持一致。
+本文档描述 `gochen-iam` 当前已经落地的授权实现，并与 [分层授权设计](../../gochen/docs/architecture/layered-authz.md) 保持一致。
 
 ## 1. 设计结论
 
@@ -264,7 +264,7 @@ tenant 是业务配置资源，不再承担 platform 模拟职责。
 
 ## 11. 与上层设计文档的关系
 
-- 规范级设计：`/home/alex/data/priv/project/gochen/docs/architecture/layered-authz-framework.md`
+- 规范级设计：[分层授权设计](../../gochen/docs/architecture/layered-authz.md)
 - 本文档：`gochen-iam` 当前实现态说明
 
 如果两者出现冲突，应以规范级设计为准，并同步修正文档与实现，避免再次引入兼容层。

@@ -72,7 +72,7 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		iammw.ApiPermission(iammw.ResourceRole, iammw.ActionManage).Scope(iammw.ScopePlatform, iammw.ScopeTenant),
 	))
 
-	appService, err := svc.NewCRUDApplication[*iamentity.Role, int64](rr.roleRepo, rr.roleRepo)
+	appService, err := svc.NewCRUDApplication[*iamentity.Role, int64](rr.roleRepo, rr.roleRepo, &appcrud.Options[*iamentity.Role, int64]{Hooks: newScopeBackedRoleCRUDHooks(rr.roleRepo, rr.scopeAuthorizer, rr.governance)})
 	if err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create role crud application").WithContext("route", "iam.role")
@@ -102,9 +102,6 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	builder, err := rest.NewApiBuilder[*iamentity.Role, int64](
 		app,
 		rest.WithQuerySchema[*iamentity.Role, int64](roleQuerySchema),
-		rest.WithHooks[*iamentity.Role, int64](func(h *appcrud.Hooks[*iamentity.Role, int64]) {
-			*h = *newScopeBackedRoleCRUDHooks(rr.roleRepo, rr.scopeAuthorizer, rr.governance)
-		}),
 	)
 
 	if err != nil {

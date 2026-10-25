@@ -4,15 +4,20 @@ import (
 	"context"
 	"database/sql"
 	stderrors "errors"
+	"fmt"
+	coredialect "gochen/db/dialect"
 	"strings"
 	"time"
 
+	"gochen-runtime/db/dialect"
 	"gochen/db"
-	"gochen/db/dialect"
 	"gochen/errors"
 )
 
-const revokedTokenTable = "iam_revoked_tokens"
+const (
+	revokedTokenTable            = "iam_revoked_tokens"
+	revokedTokenCleanupBatchSize = 5000
+)
 
 // DatabaseRevokedTokenStore 使用应用主数据库共享 access token 吊销状态。
 type DatabaseRevokedTokenStore struct {
@@ -40,7 +45,7 @@ func EnsureDatabaseRevokedTokenSchema(ctx context.Context, database db.IDatabase
   jti VARCHAR(191) PRIMARY KEY,
   expires_at BIGINT NOT NULL
 )`
-	if dialectName == dialect.NameMySQL {
+	if dialectName == coredialect.NameMySQL {
 		ddl = `CREATE TABLE IF NOT EXISTS iam_revoked_tokens (
   jti VARCHAR(191) PRIMARY KEY,
   expires_at BIGINT NOT NULL,
@@ -50,7 +55,7 @@ func EnsureDatabaseRevokedTokenSchema(ctx context.Context, database db.IDatabase
 	if _, err := database.Exec(ctx, ddl); err != nil {
 		return errors.Wrap(err, errors.Internal, "初始化 token 吊销表失败")
 	}
-	if dialectName != dialect.NameMySQL {
+	if dialectName != coredialect.NameMySQL {
 		const indexDDL = `CREATE INDEX IF NOT EXISTS idx_iam_revoked_tokens_expires_at
 ON iam_revoked_tokens (expires_at)`
 		if _, err := database.Exec(ctx, indexDDL); err != nil {
@@ -72,10 +77,6 @@ func (s *DatabaseRevokedTokenStore) Consume(ctx context.Context, jti string, exp
 		return false, errors.NewCode(errors.ServiceUnavailable, "token 吊销存储不可用")
 	}
 
-	cleanupBeforeUnix := time.Now().Add(-revokedTokenClockSkew).Unix()
-	if _, err := s.database.Exec(ctx, "DELETE FROM "+revokedTokenTable+" WHERE expires_at <= ?", cleanupBeforeUnix); err != nil {
-		return false, errors.Wrap(err, errors.ServiceUnavailable, "清理过期 token 吊销记录失败")
-	}
 	_, err := s.database.Exec(ctx,
 		"INSERT INTO "+revokedTokenTable+" (jti, expires_at) VALUES (?, ?)",
 		jti,
@@ -85,9 +86,74 @@ func (s *DatabaseRevokedTokenStore) Consume(ctx context.Context, jti string, exp
 		return true, nil
 	}
 	if db.IsUniqueViolation(err) {
+		cleanupBeforeUnix := time.Now().Add(-revokedTokenClockSkew).Unix()
+		res, delErr := s.database.Exec(ctx,
+			"DELETE FROM "+revokedTokenTable+" WHERE jti = ? AND expires_at <= ?",
+			jti,
+			cleanupBeforeUnix,
+		)
+		if delErr == nil && res != nil {
+			if n, _ := res.RowsAffected(); n > 0 {
+				_, retryErr := s.database.Exec(ctx,
+					"INSERT INTO "+revokedTokenTable+" (jti, expires_at) VALUES (?, ?)",
+					jti,
+					expiresAt.Unix(),
+				)
+				if retryErr == nil {
+					return true, nil
+				}
+			}
+		}
 		return false, nil
 	}
 	return false, errors.Wrap(err, errors.ServiceUnavailable, "写入 token 吊销记录失败")
+}
+
+// CleanupExpired 清理已过期的 token 吊销记录，供后台定时清理任务调用，分批 LIMIT 避免长事务与大范围行级锁争用。
+func (s *DatabaseRevokedTokenStore) CleanupExpired(ctx context.Context) (int64, error) {
+	if ctx == nil {
+		return 0, errors.NewCode(errors.InvalidInput, "ctx is nil")
+	}
+	if s == nil || s.database == nil {
+		return 0, errors.NewCode(errors.ServiceUnavailable, "token 吊销存储不可用")
+	}
+	cleanupBeforeUnix := time.Now().Add(-revokedTokenClockSkew).Unix()
+	var totalDeleted int64
+	for {
+		if ctx.Err() != nil {
+			return totalDeleted, ctx.Err()
+		}
+		query := fmt.Sprintf(
+			"DELETE FROM %s WHERE jti IN (SELECT jti FROM (SELECT jti FROM %s WHERE expires_at <= ? LIMIT %d) AS expired_batch)",
+			revokedTokenTable, revokedTokenTable, revokedTokenCleanupBatchSize,
+		)
+		res, err := s.database.Exec(ctx, query, cleanupBeforeUnix)
+		if err != nil {
+			if totalDeleted == 0 {
+				fallbackRes, fallbackErr := s.database.Exec(ctx, "DELETE FROM "+revokedTokenTable+" WHERE expires_at <= ?", cleanupBeforeUnix)
+				if fallbackErr != nil {
+					return 0, errors.Wrap(fallbackErr, errors.ServiceUnavailable, "清理过期 token 吊销记录失败")
+				}
+				if fallbackRes != nil {
+					return fallbackRes.RowsAffected()
+				}
+				return 0, nil
+			}
+			return totalDeleted, errors.Wrap(err, errors.ServiceUnavailable, "清理过期 token 吊销记录失败")
+		}
+		if res == nil {
+			break
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return totalDeleted, errors.Wrap(err, errors.ServiceUnavailable, "读取清理过期记录影响行数失败")
+		}
+		totalDeleted += affected
+		if affected < revokedTokenCleanupBatchSize {
+			break
+		}
+	}
+	return totalDeleted, nil
 }
 
 func (s *DatabaseRevokedTokenStore) IsRevoked(ctx context.Context, jti string) (bool, error) {

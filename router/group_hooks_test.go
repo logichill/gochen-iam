@@ -99,7 +99,7 @@ func TestGroupCRUDHooks_CreateChildSetsLevelAndParent(t *testing.T) {
 		ParentID: &parentID,
 	}
 	ctx := tenantCtx(t, "tenant-1")
-	if err := hooks.BeforeCreate(ctx, child); err != nil {
+	if err := hooks.Create.Before(ctx, child); err != nil {
 		t.Fatalf("BeforeCreate: %v", err)
 	}
 	if child.Level != 2 {
@@ -144,7 +144,7 @@ func TestGroupCRUDHooks_UpdateParentRecomputesLevelAndPath(t *testing.T) {
 	updating.ParentID = &parentID
 
 	ctx := tenantCtx(t, tid)
-	if err := hooks.BeforeUpdate(ctx, updating); err != nil {
+	if err := hooks.Update.Before(ctx, updating); err != nil {
 		t.Fatalf("BeforeUpdate: %v", err)
 	}
 	if updating.Level != 2 {
@@ -167,7 +167,7 @@ func TestGroupCRUDHooks_DeleteCrossTenantRejected(t *testing.T) {
 	hooks := newGroupCRUDHooks(repo)
 
 	ctx := tenantCtx(t, "tenant-b")
-	err := hooks.BeforeDelete(ctx, 1)
+	err := hooks.Delete.Before(ctx, 1)
 	if !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("expected Forbidden error for cross-tenant delete, got %v", err)
 	}
@@ -184,7 +184,79 @@ func TestGroupCRUDHooks_DeleteSameTenantAllowed(t *testing.T) {
 	hooks := newGroupCRUDHooks(repo)
 
 	ctx := tenantCtx(t, "tenant-a")
-	if err := hooks.BeforeDelete(ctx, 1); err != nil {
+	if err := hooks.Delete.Before(ctx, 1); err != nil {
 		t.Fatalf("expected no error for same-tenant delete, got %v", err)
+	}
+}
+
+type mockGroupServiceForDelete struct {
+	validateDeleteErr error
+}
+
+func (m *mockGroupServiceForDelete) GroupTree(context.Context) ([]*svc.GroupTreeNode, error) {
+	return nil, nil
+}
+func (m *mockGroupServiceForDelete) RootGroups(context.Context, string) ([]*iamentity.Group, error) {
+	return nil, nil
+}
+func (m *mockGroupServiceForDelete) GroupsByLevel(context.Context, int) ([]*iamentity.Group, error) {
+	return nil, nil
+}
+func (m *mockGroupServiceForDelete) GroupUsers(context.Context, int64) ([]*iamentity.User, error) {
+	return nil, nil
+}
+func (m *mockGroupServiceForDelete) AddUserToGroup(context.Context, int64, int64) error {
+	return nil
+}
+func (m *mockGroupServiceForDelete) RemoveUserFromGroup(context.Context, int64, int64) error {
+	return nil
+}
+func (m *mockGroupServiceForDelete) BatchAddUsersToGroup(context.Context, int64, []int64) (*svc.BatchOperationResponse, error) {
+	return nil, nil
+}
+func (m *mockGroupServiceForDelete) GroupRoles(context.Context, int64) ([]*iamentity.Role, error) {
+	return nil, nil
+}
+func (m *mockGroupServiceForDelete) AddGroupRole(context.Context, int64, int64) error {
+	return nil
+}
+func (m *mockGroupServiceForDelete) RemoveGroupRole(context.Context, int64, int64) error {
+	return nil
+}
+func (m *mockGroupServiceForDelete) GroupStatistics(context.Context) (*svc.StatisticsResponse, error) {
+	return nil, nil
+}
+func (m *mockGroupServiceForDelete) ValidateDelete(context.Context, int64) error {
+	return m.validateDeleteErr
+}
+
+func TestGroupCRUDHooks_DeleteRejectsWithChildrenOrUsers(t *testing.T) {
+	g := &iamentity.Group{}
+	g.SetID(1)
+	g.SetTenantID("tenant-a")
+
+	repo := &groupHookRepoStub{
+		groups: map[int64]*iamentity.Group{1: g},
+	}
+
+	// 1. 当有子组织时拦截
+	mockSvcChild := &mockGroupServiceForDelete{
+		validateDeleteErr: errors.NewCode(errors.Validation, "不能删除有子组织的组织，请先处理子组织"),
+	}
+	hooksWithChild := newGroupCRUDHooks(repo, mockSvcChild)
+	ctx := tenantCtx(t, "tenant-a")
+	err := hooksWithChild.Delete.Before(ctx, 1)
+	if !errors.Is(err, errors.Validation) {
+		t.Fatalf("expected validation error, got %v", err)
+	}
+
+	// 2. 当有用户时拦截
+	mockSvcUser := &mockGroupServiceForDelete{
+		validateDeleteErr: errors.NewCode(errors.Validation, "不能删除有用户的组织，请先移除用户"),
+	}
+	hooksWithUser := newGroupCRUDHooks(repo, mockSvcUser)
+	err = hooksWithUser.Delete.Before(ctx, 1)
+	if !errors.Is(err, errors.Validation) {
+		t.Fatalf("expected validation error, got %v", err)
 	}
 }

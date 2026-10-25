@@ -55,7 +55,7 @@ func (r *crudApplicationRepoStub) DeleteWithConstraint(ctx context.Context, id i
 
 func TestCRUDApplication_WrapsConstraint(t *testing.T) {
 	repo := &crudApplicationRepoStub{}
-	app, err := NewCRUDApplication[*iamentity.User, int64](repo, repo)
+	app, err := NewCRUDApplication[*iamentity.User, int64](repo, repo, nil)
 	require.NoError(t, err)
 
 	ctx := context.Background()

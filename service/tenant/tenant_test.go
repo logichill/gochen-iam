@@ -3,6 +3,7 @@ package tenant
 import (
 	"context"
 	"database/sql"
+	coredialect "gochen/db/dialect"
 	"testing"
 
 	"gochen/testkit"
@@ -11,9 +12,9 @@ import (
 	iammw "gochen-iam/middleware"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
+	"gochen-runtime/db/dialect"
 	auth "gochen-runtime/host/authz"
 	"gochen/db"
-	"gochen/db/dialect"
 	"gochen/db/orm"
 )
 
@@ -24,7 +25,7 @@ type capturingTenantModel struct {
 
 func (m *capturingTenantModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingTenantModel) Capabilities() orm.Capabilities { return nil }
-func (m *capturingTenantModel) Dialect() dialect.IDialect      { return dialect.New("") }
+func (m *capturingTenantModel) Dialect() coredialect.IDialect  { return dialect.New("") }
 func (m *capturingTenantModel) First(context.Context, any, ...orm.QueryOption) error {
 	return nil
 }

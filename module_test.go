@@ -1,10 +1,12 @@
 package iam
 
 import (
-	"gochen/observe/logging"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"gochen/observe/logging"
 
 	_ "github.com/mattn/go-sqlite3"
 	iammw "gochen-iam/middleware"
@@ -162,3 +164,34 @@ func TestIAMAnonymousAuthPathDoesNotSkipProtectedRoutes(t *testing.T) {
 		}
 	}
 }
+
+func TestIAMModuleStartAndStop(t *testing.T) {
+	database, err := stdsql.New(db.DBConfig{Driver: "sqlite3", Database: ":memory:"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	instance, err := NewModule(database, logging.NewNoopLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	container := basic.New()
+	authConfig := iammw.DefaultAuthConfigForEnvironment("test")
+	if err := instance.Init(module.NewModuleInitOptions(container, container, container, ModuleAuthConfig(authConfig))); err != nil {
+		t.Fatal(err)
+	}
+
+	stop, err := instance.Start(context.Background())
+	if err != nil {
+		t.Fatalf("instance.Start failed: %v", err)
+	}
+	if stop == nil {
+		t.Fatal("expected non-nil stop func")
+	}
+	if err := stop(context.Background()); err != nil {
+		t.Fatalf("stop returned error: %v", err)
+	}
+}
+

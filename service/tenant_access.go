@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	iammw "gochen-iam/middleware"
+	iamperm "gochen-iam/permissions"
 	"gochen-iam/tenant"
 	"gochen/errors"
 )
@@ -32,7 +32,7 @@ func resolveTenantAccess(ctx context.Context, targetTenantID string) (tenantAcce
 		}, nil
 	}
 
-	if strings.EqualFold(activeScopeKindFromContext(ctx), string(iammw.ScopePlatform)) {
+	if strings.EqualFold(activeScopeKindFromContext(ctx), string(iamperm.ScopePlatform)) {
 		if targetTenantID == "" {
 			tenantID, err := TenantIDFromContext(ctx)
 			if err != nil {

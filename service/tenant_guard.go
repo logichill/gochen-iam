@@ -44,7 +44,7 @@ func RequireSameTenant(ctx context.Context, tenantIDs ...string) (string, error)
 
 func RequirePermissionInTenant(ctx context.Context, scopeAuthorizer *ScopeAuthorizer, permission, tenantID string) error {
 	if scopeAuthorizer == nil {
-		return nil
+		return requirePrincipalPermission(ctx, permission)
 	}
 	return scopeAuthorizer.RequirePermissionInTenant(ctx, permission, tenantID)
 }

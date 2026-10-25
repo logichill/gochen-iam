@@ -37,19 +37,6 @@ func AuthzPermissionDefinitions(definitions ...PermissionDefinition) []auth.Perm
 	return append([]auth.PermissionDefinition(nil), definitions...)
 }
 
-// PermissionDefinitionFromAuthz 将核心 authz definition 转换为 IAM 权限 definition。
-func PermissionDefinitionFromAuthz(definition auth.PermissionDefinition) PermissionDefinition {
-	return PermissionDefinition(definition)
-}
-
-// PermissionDefinitionsFromAuthz 批量将核心 authz definition 转换为 IAM 权限 definition。
-func PermissionDefinitionsFromAuthz(definitions ...auth.PermissionDefinition) []PermissionDefinition {
-	if len(definitions) == 0 {
-		return nil
-	}
-	return append([]PermissionDefinition(nil), definitions...)
-}
-
 type registeredPermission struct {
 	definition PermissionDefinition
 	metas      []requiredPermissionMeta
@@ -368,6 +355,8 @@ func splitCallsite(callsite string) (file string, line string) {
 }
 
 // resetRequiredPermissionsRegistryForTest 重置测试Required权限集合注册表。
+//
+//nolint:unused // 仅供包内测试调用，保留对 --tests=false 检查的兼容。
 func resetRequiredPermissionsRegistryForTest() {
 	requiredPermissionsRegistry.mu.Lock()
 	defer requiredPermissionsRegistry.mu.Unlock()

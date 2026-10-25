@@ -254,15 +254,15 @@ func (r *ScopeRepo) RebuildVisibilityMap(ctx context.Context) error {
 
 func (r *ScopeRepo) CreateWithConstraint(ctx context.Context, scope *iamentity.Scope, guard iamaccess.WriteConstraint) error {
 	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Repo.Create(boundCtx, scope)
+	return r.Create(boundCtx, scope)
 }
 
 func (r *ScopeRepo) UpdateWithConstraint(ctx context.Context, scope *iamentity.Scope, guard iamaccess.WriteConstraint) error {
 	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Repo.Update(boundCtx, scope)
+	return r.Update(boundCtx, scope)
 }
 
 func (r *ScopeRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
 	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Repo.Delete(boundCtx, id)
+	return r.Delete(boundCtx, id)
 }

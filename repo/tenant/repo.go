@@ -36,19 +36,19 @@ func NewTenantRepository(o orm.IOrm, idGenerator gen.IGenerator[int64]) (*Tenant
 // CreateWithConstraint 在显式写边界下创建租户。
 func (r *TenantRepo) CreateWithConstraint(ctx context.Context, t *iamentity.Tenant, guard iamaccess.WriteConstraint) error {
 	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Repo.Create(boundCtx, t)
+	return r.Create(boundCtx, t)
 }
 
 // UpdateWithConstraint 在显式写边界下更新租户。
 func (r *TenantRepo) UpdateWithConstraint(ctx context.Context, t *iamentity.Tenant, guard iamaccess.WriteConstraint) error {
 	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Repo.Update(boundCtx, t)
+	return r.Update(boundCtx, t)
 }
 
 // DeleteWithConstraint 在显式写边界下删除租户。
 func (r *TenantRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
 	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Repo.Delete(boundCtx, id)
+	return r.Delete(boundCtx, id)
 }
 
 // Get 根据ID获取租户（过滤软删记录）

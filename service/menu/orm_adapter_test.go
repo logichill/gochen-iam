@@ -3,9 +3,10 @@ package menu
 import (
 	"context"
 	"database/sql"
+	coredialect "gochen/db/dialect"
 
+	"gochen-runtime/db/dialect"
 	"gochen/db"
-	"gochen/db/dialect"
 	"gochen/db/orm"
 	"gochen/errors"
 
@@ -79,7 +80,7 @@ func (m *menuTestGormModel) Capabilities() orm.Capabilities {
 	)
 }
 
-func (m *menuTestGormModel) Dialect() dialect.IDialect {
+func (m *menuTestGormModel) Dialect() coredialect.IDialect {
 	return dialect.New(m.db.Dialector.Name())
 }
 

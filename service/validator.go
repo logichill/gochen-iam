@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	iamentity "gochen-iam/entity"
-	iammw "gochen-iam/middleware"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
@@ -573,8 +572,19 @@ func (v *BusinessValidator) validateGroupParentChange(ctx context.Context, group
 			return errors.NewCode(errors.Validation, "不能将组织移动到其子组织下")
 		}
 
-		// 检查新父组织层级
-		if newParent.Level >= MaxGroupLevel {
+		// 检查新父组织层级及待移动子树深度
+		descendants, err := v.groupRepo.FindDescendants(tenantCtx, group.GetID())
+		if err != nil {
+			return err
+		}
+		maxDepth := 0
+		for _, d := range descendants {
+			rel := d.Level - group.Level
+			if rel > maxDepth {
+				maxDepth = rel
+			}
+		}
+		if newParent.Level+1+maxDepth > MaxGroupLevel {
 			return errors.NewCode(errors.Validation, "目标组织层级过深")
 		}
 	}
@@ -632,5 +642,5 @@ func (v *BusinessValidator) isValidPermission(permission string) bool {
 			return true
 		}
 	}
-	return iammw.IsValidPermissionCode(permission)
+	return action.IsValidCode(permission)
 }

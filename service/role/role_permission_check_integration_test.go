@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	iamentity "gochen-iam/entity"
+	"gochen-iam/persistence/gormsetup"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
@@ -34,7 +35,7 @@ func TestRoleServiceCheckPermissionIncludesGroupDefaultRoles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open database: %v", err)
 	}
-	if err := iamentity.SetupJoinTables(db); err != nil {
+	if err := gormsetup.SetupJoinTables(db); err != nil {
 		t.Fatalf("setup join tables: %v", err)
 	}
 	if err := db.AutoMigrate(

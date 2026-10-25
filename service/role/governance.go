@@ -8,6 +8,7 @@ import (
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
+	iamperm "gochen-iam/permissions"
 	svc "gochen-iam/service"
 	"gochen/domain/crud"
 	"gochen/errors"
@@ -239,7 +240,7 @@ func (g *Governance) resolveNamespaceScopeForCreate(
 	}
 	scopeKind := strings.TrimSpace(iamauth.ActiveScopeKindFromContext(ctx))
 	if scopeKind == "" {
-		return nil, nil
+		return nil, errors.NewCode(errors.InvalidInput, "namespace scope boundary is required")
 	}
 	return &iamentity.Scope{Entity: crud.Entity[int64]{ID: role.NamespaceScopeID}, Type: scopeKind}, nil
 }
@@ -254,7 +255,7 @@ func (g *Governance) resolveNamespaceScopeForRole(
 	if g.scopeAuthorizer == nil {
 		scopeKind := strings.TrimSpace(iamauth.ActiveScopeKindFromContext(ctx))
 		if scopeKind == "" {
-			return nil, nil
+			return nil, errors.NewCode(errors.InvalidInput, "namespace scope boundary is required")
 		}
 		return &iamentity.Scope{Entity: crud.Entity[int64]{ID: role.NamespaceScopeID}, Type: scopeKind}, nil
 	}
@@ -305,13 +306,14 @@ func validatePermissionsForScope(permissions []string, namespaceScope *iamentity
 	if err := validatePermissions(permissions); err != nil {
 		return err
 	}
-	if namespaceScope == nil {
-		return nil
+
+	var namespaceType string
+	if namespaceScope != nil {
+		namespaceType = strings.TrimSpace(namespaceScope.Type)
 	}
 
-	namespaceType := strings.TrimSpace(namespaceScope.Type)
 	for _, permission := range permissions {
-		definition := iammw.PermissionCode(permission).Definition()
+		definition := iamperm.PermissionCode(permission).Definition()
 		for _, current := range iammw.RequiredPermissionDefinitions() {
 			if strings.EqualFold(current.Code, definition.Code) {
 				definition = current
@@ -323,6 +325,9 @@ func validatePermissionsForScope(permissions []string, namespaceScope *iamentity
 		}
 		if len(definition.Scopes) == 0 {
 			continue
+		}
+		if namespaceScope == nil || namespaceType == "" {
+			return errors.NewCode(errors.Validation, "权限不允许在当前作用域定义: "+permission)
 		}
 		allowed := false
 		for _, scopeType := range definition.Scopes {

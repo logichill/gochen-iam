@@ -4,6 +4,8 @@ import (
 	"context"
 	"reflect"
 	"strings"
+	"sync"
+	"time"
 
 	iammw "gochen-iam/middleware"
 	grouprepo "gochen-iam/repo/group"
@@ -64,7 +66,7 @@ func NewModule(
 	if err := iammw.InstallDefaultRevokedTokenStore(store); err != nil {
 		return nil, err
 	}
-	m := &iamModule{revokedTokenStore: store}
+	m := &iamModule{revokedTokenStore: store, logger: logger}
 	base, err := host.Module("iam").
 		Name("IAM").
 		Extension(auth.Catalog{
@@ -157,6 +159,7 @@ func newAuthContextResolver(scopeAuthorizer *iamservice.ScopeAuthorizer, userSer
 
 type iamModule struct {
 	module.IModule
+	logger            logging.ILogger
 	authConfig        *iammw.AuthConfig
 	revokedTokenStore iammw.RevokedTokenStore
 	authMiddleware    httpx.Middleware
@@ -189,6 +192,74 @@ func (m *iamModule) Init(opts module.ModuleInitOptions) error {
 	m.authConfig = authConfig
 	m.authMiddleware = iamModuleAuthMiddleware(authConfig)
 	return m.IModule.Init(opts)
+}
+
+func (m *iamModule) Start(ctx context.Context) (module.ModuleStopFunc, error) {
+	if m == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "IAM module is nil")
+	}
+	var baseStop module.ModuleStopFunc
+	if m.IModule != nil {
+		var err error
+		baseStop, err = m.IModule.Start(ctx)
+		if err != nil {
+			return baseStop, err
+		}
+	}
+
+	cleaner, ok := m.revokedTokenStore.(interface {
+		CleanupExpired(context.Context) (int64, error)
+	})
+	if !ok || cleaner == nil {
+		return baseStop, nil
+	}
+
+	moduleCtx, moduleCancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+	ticker := time.NewTicker(10 * time.Minute)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer ticker.Stop()
+		for {
+			select {
+			case <-moduleCtx.Done():
+				return
+			case <-ticker.C:
+				cleanupCtx, cancel := context.WithTimeout(moduleCtx, 2*time.Minute)
+				deleted, cleanupErr := cleaner.CleanupExpired(cleanupCtx)
+				if cleanupErr != nil && m.logger != nil {
+					// 清理失败只影响吊销表膨胀速度，不影响认证正确性；记录以便运维追踪，不打断循环。
+					m.logger.Warn(cleanupCtx, "iam revoked token cleanup failed",
+						logging.Error(cleanupErr),
+						logging.Int64("deleted", deleted),
+					)
+				}
+				cancel()
+			}
+		}
+	}()
+
+	var once sync.Once
+	stop := func(stopCtx context.Context) error {
+		once.Do(func() {
+			moduleCancel()
+		})
+		done := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-stopCtx.Done():
+		}
+		if baseStop != nil {
+			return baseStop(stopCtx)
+		}
+		return nil
+	}
+	return stop, nil
 }
 
 func (m *iamModule) runAuthMiddleware(ctx httpx.IContext, next func() error) error {

@@ -57,7 +57,7 @@ func (r *MenuItemRepo) UpdateWithConstraint(ctx context.Context, item *iamentity
 
 func (r *MenuItemRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
 	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Repo.Delete(boundCtx, id)
+	return r.Delete(boundCtx, id)
 }
 
 // Get 返回当前值。

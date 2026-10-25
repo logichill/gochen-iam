@@ -13,6 +13,7 @@ import (
 	iamaccess "gochen-iam/access"
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
+	"gochen-iam/persistence/gormsetup"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	scoperepo "gochen-iam/repo/scope"
@@ -67,7 +68,7 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	}
 
 	ormAdapter := newTestOrm(db)
-	if err := iamentity.SetupJoinTables(db); err != nil {
+	if err := gormsetup.SetupJoinTables(db); err != nil {
 		t.Fatalf("setup join tables: %v", err)
 	}
 
@@ -1381,21 +1382,41 @@ func TestUserRepoAssignRoleWithConstraint_AllowsSameTenantDifferentManagedScopes
 
 	guard := iamaccess.NewWriteConstraint(scoped.WriteConstraint{
 		Resources: []scoped.ResourceConstraint{
-
 			{
 				Kind:           svc.UserResourceKind,
 				ResourceID:     guardID(user.GetID()),
 				ManagedScopeID: user.ManagedScopeID,
 				TenantID:       env.tenantID,
+				Revision:       strconv.FormatUint(user.GetVersion(), 10),
 			},
 			{
 				Kind:           svc.RoleResourceKind,
 				ResourceID:     guardID(role.GetID()),
 				ManagedScopeID: role.NamespaceScopeID,
 				TenantID:       env.tenantID,
+				Revision:       strconv.FormatUint(role.GetVersion(), 10),
 			},
 		},
 	})
+
+	// 版本缺失或不匹配时，跨 scope 关联同样不能绕过资源快照校验。
+	roleRevision := guard.Resources[1].Revision
+	for _, tc := range []struct {
+		revision string
+		code     errors.ErrorCode
+	}{
+		{"", errors.InvalidInput},
+		{strconv.FormatUint(role.GetVersion()+1, 10), errors.Conflict},
+	} {
+		guard.Resources[1].Revision = tc.revision
+		if err := env.userRepo.AssignRoleWithConstraint(env.backgroundCtx, user.GetID(), role.GetID(), guard); !errors.Is(err, tc.code) {
+			t.Fatalf("revision %q: expected %s, got %v", tc.revision, tc.code, err)
+		}
+	}
+	guard.Resources[1].Revision = roleRevision
+	if bindings, err := env.userRepo.ListRoleBindings(env.backgroundCtx, user.GetID()); err != nil || len(bindings) != 0 {
+		t.Fatalf("rejected constraints changed bindings: %v, %v", bindings, err)
+	}
 
 	if err := env.userRepo.AssignRoleWithConstraint(env.backgroundCtx, user.GetID(), role.GetID(), guard); err != nil {
 		t.Fatalf("AssignRoleWithConstraint: %v", err)
@@ -1640,3 +1661,29 @@ func TestUserServiceAssignToGroupMasksCrossTenantGroupAsNotFound(t *testing.T) {
 		t.Fatalf("expected NotFound for cross-tenant group assignment, got %v", err)
 	}
 }
+
+func TestUserService_Register_DefaultRoleAtomic(t *testing.T) {
+	env := setupUserServiceTest(t)
+	defer env.teardown(t)
+
+	// When default role exists, Register creates user and assigns default role in one transaction
+	defaultRole := env.createTestRole(t, svc.UserRoleName, []string{"read", "write"})
+
+	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, &svc.RegisterRequest{
+		Username: "atomicuser",
+		Email:    "atomic@example.com",
+		Password: "Password123!",
+	})
+	if err != nil {
+		t.Fatalf("register user with default role: %v", err)
+	}
+
+	roles, err := env.userService.UserRoles(env.backgroundCtx, user.GetID())
+	if err != nil {
+		t.Fatalf("UserRoles: %v", err)
+	}
+	if len(roles) != 1 || roles[0].GetID() != defaultRole.GetID() {
+		t.Fatalf("expected default role %d, got %v", defaultRole.GetID(), roles)
+	}
+}
+

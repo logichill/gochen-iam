@@ -29,7 +29,7 @@ func NewCRUDApplication(
 	if menuService == nil {
 		return nil, errors.NewCode(errors.InvalidInput, "menu service cannot be nil")
 	}
-	base, err := appcrud.NewApplication(menuRepo, nil, nil)
+	base, err := appcrud.NewApplication(menuRepo, nil)
 	if err != nil {
 		return nil, err
 	}

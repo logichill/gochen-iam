@@ -3,16 +3,17 @@ package role
 import (
 	"context"
 	"database/sql"
+	coredialect "gochen/db/dialect"
 	"gochen/testkit"
 	"reflect"
 	"testing"
 
 	iamentity "gochen-iam/entity"
+	"gochen-runtime/db/dialect"
 	auth "gochen-runtime/host/authz"
 	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/db"
-	"gochen/db/dialect"
 	"gochen/db/orm"
 )
 
@@ -30,7 +31,7 @@ type capturingModel struct {
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities { return nil }
-func (m *capturingModel) Dialect() dialect.IDialect      { return dialect.New("") }
+func (m *capturingModel) Dialect() coredialect.IDialect  { return dialect.New("") }
 func (m *capturingModel) First(_ context.Context, dest any, opts ...orm.QueryOption) error {
 	m.firstCalls++
 	m.lastFirstOpts = orm.CollectQueryOptions(opts...)
@@ -333,4 +334,27 @@ func requireCondition(t *testing.T, conditions []orm.Condition, expr string, wan
 		return
 	}
 	t.Fatalf("condition %q not found in %#v", expr, conditions)
+}
+
+func TestRoleRepo_UserByID_ScopedToTenant(t *testing.T) {
+	o := &fakeOrm{
+		baseRoleModel: &capturingModel{},
+	}
+	r, err := NewRoleRepository(o, testkit.NewInt64Sequence(1))
+	if err != nil {
+		t.Fatalf("NewRoleRepository: %v", err)
+	}
+
+	// 1. 无租户上下文，必须失败
+	if _, err := r.userByID(context.Background(), 20); err == nil {
+		t.Fatal("expected error without tenant context, got nil")
+	}
+
+	// 2. 有租户上下文，查询条件必须包含 tenant_id (F15)
+	ctx := withTenantPrincipal(t, context.Background(), "tenant-beta")
+	_, _ = r.userByID(ctx, 20)
+
+	where := o.baseRoleModel.lastFirstOpts.Where
+	requireCondition(t, where, "tenant_id = ?", "tenant-beta")
+	requireCondition(t, where, "id = ?", int64(20))
 }

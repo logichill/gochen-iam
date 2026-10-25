@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	iamauth "gochen-iam/auth"
-	iammw "gochen-iam/middleware"
+	iamperm "gochen-iam/permissions"
 	auth "gochen-runtime/host/authz"
 	"gochen/errors"
 )
@@ -54,5 +54,5 @@ func principalCanAccessPlatform(principal auth.Principal, ctx context.Context) b
 	if principal.IsSystem {
 		return true
 	}
-	return strings.EqualFold(strings.TrimSpace(activeScopeKindFromContext(ctx)), string(iammw.ScopePlatform))
+	return strings.EqualFold(strings.TrimSpace(activeScopeKindFromContext(ctx)), string(iamperm.ScopePlatform))
 }

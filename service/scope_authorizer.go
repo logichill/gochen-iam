@@ -9,6 +9,7 @@ import (
 	iamentity "gochen-iam/entity"
 	scoperepo "gochen-iam/repo/scope"
 	tenantrepo "gochen-iam/repo/tenant"
+	"gochen/db/orm"
 	"gochen/errors"
 )
 
@@ -73,7 +74,42 @@ func (a *ScopeAuthorizer) EnsurePlatformScope(ctx context.Context) (*iamentity.S
 	return scope, nil
 }
 
+// EnsureTenantRootScope 在同一事务内修复 root scope、可见关系和 tenant 引用。
 func (a *ScopeAuthorizer) EnsureTenantRootScope(ctx context.Context, tenant *iamentity.Tenant) (*iamentity.Scope, error) {
+	if a == nil || a.tenantRepo == nil || a.scopeRepo == nil || tenant == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "tenant and scope repositories and tenant are required")
+	}
+	runOnce := func() (*iamentity.Scope, error) {
+		var result *iamentity.Scope
+		tenantDraft := *tenant
+		err := a.tenantRepo.WithinTx(ctx, func(txCtx context.Context) error {
+			var err error
+			result, err = a.ensureTenantRootScope(txCtx, &tenantDraft)
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+		tenant.RootScopeID = tenantDraft.RootScopeID
+		return result, nil
+	}
+
+	result, err := runOnce()
+	if err == nil {
+		return result, nil
+	}
+	if _, _, inTx := orm.TxSessionFromContext(ctx); inTx {
+		return nil, err
+	}
+	// PostgreSQL 下事务内唯一键冲突会使当前事务进入 aborted 态（25P02），在事务外回查确认并发创建后重试一次。
+	scopeKey := fmt.Sprintf("tenant:%s", strings.TrimSpace(tenant.Key))
+	if _, findErr := a.scopeRepo.FindByKey(ctx, scopeKey); findErr == nil {
+		return runOnce()
+	}
+	return nil, err
+}
+
+func (a *ScopeAuthorizer) ensureTenantRootScope(ctx context.Context, tenant *iamentity.Tenant) (*iamentity.Scope, error) {
 	if tenant == nil {
 		return nil, errors.NewCode(errors.InvalidInput, "tenant is required")
 	}
@@ -130,16 +166,19 @@ func (a *ScopeAuthorizer) EnsureTenantRootScope(ctx context.Context, tenant *iam
 		return nil, err
 	}
 
-	tenant.RootScopeID = &scope.ID
+	scopeID := scope.ID
 	if tenant.GetID() > 0 {
-		guard, err := NewPlatformEntityConstraint(ctx, TenantResourceKind, tenant)
+		updatedTenant := *tenant
+		updatedTenant.RootScopeID = &scopeID
+		guard, err := NewPlatformEntityConstraint(ctx, TenantResourceKind, &updatedTenant)
 		if err != nil {
 			return nil, err
 		}
-		if err := a.tenantRepo.UpdateWithConstraint(ctx, tenant, guard); err != nil {
+		if err := a.tenantRepo.UpdateWithConstraint(ctx, &updatedTenant, guard); err != nil {
 			return nil, err
 		}
 	}
+	tenant.RootScopeID = &scopeID
 	return scope, nil
 }
 
@@ -197,16 +236,19 @@ func (a *ScopeAuthorizer) ensureTenantRootScopeState(
 	}
 
 	if tenant.RootScopeID == nil || *tenant.RootScopeID != scope.ID {
-		tenant.RootScopeID = &scope.ID
+		scopeID := scope.ID
 		if tenant.GetID() > 0 {
-			guard, err := NewPlatformEntityConstraint(ctx, TenantResourceKind, tenant)
+			updatedTenant := *tenant
+			updatedTenant.RootScopeID = &scopeID
+			guard, err := NewPlatformEntityConstraint(ctx, TenantResourceKind, &updatedTenant)
 			if err != nil {
 				return nil, err
 			}
-			if err := a.tenantRepo.UpdateWithConstraint(ctx, tenant, guard); err != nil {
+			if err := a.tenantRepo.UpdateWithConstraint(ctx, &updatedTenant, guard); err != nil {
 				return nil, err
 			}
 		}
+		tenant.RootScopeID = &scopeID
 	}
 
 	return scope, nil

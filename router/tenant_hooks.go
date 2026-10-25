@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/crypto/bcrypt"
+
 	iamentity "gochen-iam/entity"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
@@ -27,64 +29,107 @@ func loadTenantBoundEntity[T domain.IEntity[ID], ID comparable](
 	return svc.LoadTenantBoundResource(ctx, repo, id)
 }
 
+func isBcryptHash(password string) bool {
+	if len(password) != 60 {
+		return false
+	}
+	return strings.HasPrefix(password, "$2a$") || strings.HasPrefix(password, "$2b$") || strings.HasPrefix(password, "$2y$")
+}
+
 // TenantHooksForUser 创建用户租户隔离钩子。
 func TenantHooksForUser(repo svc.IResourceContextRepository[*iamentity.User, int64]) *appcrud.Hooks[*iamentity.User, int64] {
 	return &appcrud.Hooks[*iamentity.User, int64]{
-		BeforeCreate: func(ctx context.Context, entity *iamentity.User) error {
-			tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
-			if err != nil {
-				return err
-			}
-			managedScopeID := svc.ManagedScopeIDFromContext(ctx)
-			if managedScopeID <= 0 {
-				return errors.NewCode(errors.InvalidInput, "managed scope boundary is required")
-			}
-			entity.SetTenantID(tenantID)
-			entity.SetHomeTenantID(tenantID)
-			entity.SetHomeScopeID(managedScopeID)
-			entity.SetManagedScopeID(managedScopeID)
-			entity.SetOwnerID(svc.TenantOwnerID(tenantID))
-			return nil
-		},
-		BeforeUpdate: func(ctx context.Context, entity *iamentity.User) error {
-			contextTenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
-			if err != nil {
-				return err
-			}
-			if entity != nil && entity.GetID() > 0 && entity.GetTenantID() == "" {
-				current, _, err := loadTenantBoundEntity(ctx, repo, entity.GetID())
+		Create: appcrud.Stage[*iamentity.User]{
+			Before: func(ctx context.Context, entity *iamentity.User) error {
+				tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 				if err != nil {
 					return err
 				}
-				entity.SetTenantID(current.GetTenantID())
-				entity.SetHomeTenantID(current.GetHomeTenantID())
-				entity.SetHomeScopeID(current.GetHomeScopeID())
-				entity.SetManagedScopeID(current.GetManagedScopeID())
-				entity.SetOwnerID(current.GetOwnerID())
-			}
-			if entity.GetTenantID() != contextTenantID {
-				return errors.NewCode(errors.Forbidden, "跨租户访问被拒绝")
-			}
-			if entity.GetHomeTenantID() == "" {
-				entity.SetHomeTenantID(contextTenantID)
-			}
-			if entity.GetHomeScopeID() <= 0 {
-				if managedScopeID := svc.ManagedScopeIDFromContext(ctx); managedScopeID > 0 {
-					entity.SetHomeScopeID(managedScopeID)
+				managedScopeID := svc.ManagedScopeIDFromContext(ctx)
+				if managedScopeID <= 0 {
+					return errors.NewCode(errors.InvalidInput, "managed scope boundary is required")
 				}
-			}
-			if entity.GetManagedScopeID() <= 0 {
-				if current, _, err := loadTenantBoundEntity(ctx, repo, entity.GetID()); err == nil {
+				entity.SetTenantID(tenantID)
+				entity.SetHomeTenantID(tenantID)
+				entity.SetHomeScopeID(managedScopeID)
+				entity.SetManagedScopeID(managedScopeID)
+				entity.SetOwnerID(svc.TenantOwnerID(tenantID))
+				if entity.Password != "" && !isBcryptHash(entity.Password) {
+					if len(entity.Password) < 6 {
+						return errors.NewCode(errors.Validation, "密码长度不能少于6个字符")
+					}
+					if len(entity.Password) > 72 {
+						return errors.NewCode(errors.Validation, "密码长度不能超过72个字符")
+					}
+					hashed, err := bcrypt.GenerateFromPassword([]byte(entity.Password), bcrypt.DefaultCost)
+					if err != nil {
+						return errors.Wrap(err, errors.Internal, "密码加密失败")
+					}
+					entity.Password = string(hashed)
+				}
+				return nil
+			},
+		},
+		Update: appcrud.Stage[*iamentity.User]{
+			Before: func(ctx context.Context, entity *iamentity.User) error {
+				contextTenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
+				if err != nil {
+					return err
+				}
+				var current *iamentity.User
+				if entity != nil && entity.GetID() > 0 {
+					var loadErr error
+					current, _, loadErr = loadTenantBoundEntity(ctx, repo, entity.GetID())
+					if loadErr != nil {
+						return loadErr
+					}
+					if entity.GetTenantID() == "" {
+						entity.SetTenantID(current.GetTenantID())
+						entity.SetHomeTenantID(current.GetHomeTenantID())
+						entity.SetHomeScopeID(current.GetHomeScopeID())
+						entity.SetManagedScopeID(current.GetManagedScopeID())
+						entity.SetOwnerID(current.GetOwnerID())
+					}
+					if entity.Password == "" {
+						entity.Password = current.Password
+					} else if !isBcryptHash(entity.Password) {
+						if len(entity.Password) < 6 {
+							return errors.NewCode(errors.Validation, "密码长度不能少于6个字符")
+						}
+						if len(entity.Password) > 72 {
+							return errors.NewCode(errors.Validation, "密码长度不能超过72个字符")
+						}
+						hashed, err := bcrypt.GenerateFromPassword([]byte(entity.Password), bcrypt.DefaultCost)
+						if err != nil {
+							return errors.Wrap(err, errors.Internal, "密码加密失败")
+						}
+						entity.Password = string(hashed)
+					}
+				}
+				if entity.GetTenantID() != contextTenantID {
+					return errors.NewCode(errors.Forbidden, "跨租户访问被拒绝")
+				}
+				if entity.GetHomeTenantID() == "" {
+					entity.SetHomeTenantID(contextTenantID)
+				}
+				if entity.GetHomeScopeID() <= 0 {
+					if managedScopeID := svc.ManagedScopeIDFromContext(ctx); managedScopeID > 0 {
+						entity.SetHomeScopeID(managedScopeID)
+					}
+				}
+				if entity.GetManagedScopeID() <= 0 && current != nil {
 					entity.SetManagedScopeID(current.GetManagedScopeID())
 				}
-			}
-			if entity.GetOwnerID() == "" {
-				entity.SetOwnerID(svc.TenantOwnerID(contextTenantID))
-			}
-			return nil
+				if entity.GetOwnerID() == "" {
+					entity.SetOwnerID(svc.TenantOwnerID(contextTenantID))
+				}
+				return nil
+			},
 		},
-		BeforeDelete: func(ctx context.Context, id int64) error {
-			return checkTenantOwnership(ctx, repo, id)
+		Delete: appcrud.Stage[int64]{
+			Before: func(ctx context.Context, id int64) error {
+				return checkTenantOwnership(ctx, repo, id)
+			},
 		},
 	}
 }
@@ -96,68 +141,74 @@ func TenantHooksForRole(
 	governance *rolesvc.Governance,
 ) *appcrud.Hooks[*iamentity.Role, int64] {
 	return &appcrud.Hooks[*iamentity.Role, int64]{
-		BeforeCreate: func(ctx context.Context, entity *iamentity.Role) error {
-			if governance != nil {
-				return governance.PrepareCreate(ctx, entity)
-			}
-			tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
-			if err != nil {
-				return err
-			}
-			entity.SetTenantID(tenantID)
-			entity.SetOwnerID(svc.TenantOwnerID(tenantID))
-			if scopeAuthorizer != nil {
-				tenantCtx, bindErr := svc.BindTenantContext(ctx, tenantID)
-				if bindErr != nil {
-					return bindErr
+		Create: appcrud.Stage[*iamentity.Role]{
+			Before: func(ctx context.Context, entity *iamentity.Role) error {
+				if governance != nil {
+					return governance.PrepareCreate(ctx, entity)
 				}
-				namespaceScope, err := scopeAuthorizer.ResolveTenantScope(tenantCtx, tenantID)
+				tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 				if err != nil {
 					return err
 				}
-				entity.NamespaceScopeID = namespaceScope.ID
-			} else {
-				if entity.NamespaceScopeID <= 0 {
-					entity.NamespaceScopeID = svc.ManagedScopeIDFromContext(ctx)
+				entity.SetTenantID(tenantID)
+				entity.SetOwnerID(svc.TenantOwnerID(tenantID))
+				if scopeAuthorizer != nil {
+					tenantCtx, bindErr := svc.BindTenantContext(ctx, tenantID)
+					if bindErr != nil {
+						return bindErr
+					}
+					namespaceScope, err := scopeAuthorizer.ResolveTenantScope(tenantCtx, tenantID)
+					if err != nil {
+						return err
+					}
+					entity.NamespaceScopeID = namespaceScope.ID
+				} else {
+					if entity.NamespaceScopeID <= 0 {
+						entity.NamespaceScopeID = svc.ManagedScopeIDFromContext(ctx)
+					}
 				}
-			}
-			if entity.NamespaceScopeID <= 0 {
-				return errors.NewCode(errors.InvalidInput, "namespace scope boundary is required")
-			}
-			return nil
+				if entity.NamespaceScopeID <= 0 {
+					return errors.NewCode(errors.InvalidInput, "namespace scope boundary is required")
+				}
+				return nil
+			},
 		},
-		BeforeUpdate: func(ctx context.Context, entity *iamentity.Role) error {
-			if governance != nil {
-				return governance.PrepareUpdate(ctx, entity)
-			}
-			contextTenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
-			if err != nil {
-				return err
-			}
-			if entity != nil && entity.GetID() > 0 {
-				current, _, err := loadTenantBoundEntity(ctx, repo, entity.GetID())
+		Update: appcrud.Stage[*iamentity.Role]{
+			Before: func(ctx context.Context, entity *iamentity.Role) error {
+				if governance != nil {
+					return governance.PrepareUpdate(ctx, entity)
+				}
+				contextTenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 				if err != nil {
 					return err
 				}
-				entity.SetTenantID(current.GetTenantID())
-				entity.SetOwnerID(current.GetOwnerID())
-				if entity.NamespaceScopeID <= 0 {
-					entity.NamespaceScopeID = current.NamespaceScopeID
+				if entity != nil && entity.GetID() > 0 {
+					current, _, err := loadTenantBoundEntity(ctx, repo, entity.GetID())
+					if err != nil {
+						return err
+					}
+					entity.SetTenantID(current.GetTenantID())
+					entity.SetOwnerID(current.GetOwnerID())
+					if entity.NamespaceScopeID <= 0 {
+						entity.NamespaceScopeID = current.NamespaceScopeID
+					}
 				}
-			}
-			if entity.GetTenantID() != contextTenantID {
-				return errors.NewCode(errors.Forbidden, "跨租户访问被拒绝")
-			}
-			if entity.GetOwnerID() == "" {
-				entity.SetOwnerID(svc.TenantOwnerID(contextTenantID))
-			}
-			return nil
+				if entity.GetTenantID() != contextTenantID {
+					return errors.NewCode(errors.Forbidden, "跨租户访问被拒绝")
+				}
+				if entity.GetOwnerID() == "" {
+					entity.SetOwnerID(svc.TenantOwnerID(contextTenantID))
+				}
+				return nil
+			},
 		},
-		BeforeDelete: func(ctx context.Context, id int64) error {
-			if governance != nil {
-				return governance.ValidateDelete(ctx, id)
-			}
-			return checkTenantOwnership(ctx, repo, id)
+		Delete: appcrud.Stage[int64]{
+			Before: func(ctx context.Context, id int64) error {
+				if governance != nil {
+					return governance.ValidateDelete(ctx, id)
+				}
+				return checkTenantOwnership(ctx, repo, id)
+			},
 		},
 	}
 }
@@ -169,40 +220,46 @@ func TenantHooksForTenant(
 	deleteGovernance *tenantDeleteGovernance,
 ) *appcrud.Hooks[*iamentity.Tenant, int64] {
 	return &appcrud.Hooks[*iamentity.Tenant, int64]{
-		BeforeCreate: func(ctx context.Context, entity *iamentity.Tenant) error {
-			if entity == nil {
+		Create: appcrud.Stage[*iamentity.Tenant]{
+			Before: func(ctx context.Context, entity *iamentity.Tenant) error {
+				if entity == nil {
+					return nil
+				}
+				entity.RootScopeID = nil
 				return nil
-			}
-			entity.RootScopeID = nil
-			return nil
-		},
-		AfterCreate: func(ctx context.Context, entity *iamentity.Tenant) error {
-			if entity == nil || scopeAuthorizer == nil {
-				return nil
-			}
-			_, err := scopeAuthorizer.EnsureTenantRootScope(ctx, entity)
-			return err
-		},
-		BeforeUpdate: func(ctx context.Context, entity *iamentity.Tenant) error {
-			if entity == nil || entity.GetID() <= 0 {
-				return nil
-			}
-			current, _, err := loadTenantBoundEntity(ctx, repo, entity.GetID())
-			if err != nil {
+			},
+			After: func(ctx context.Context, entity *iamentity.Tenant) error {
+				if entity == nil || scopeAuthorizer == nil {
+					return nil
+				}
+				_, err := scopeAuthorizer.EnsureTenantRootScope(ctx, entity)
 				return err
-			}
-			entity.RootScopeID = current.RootScopeID
-			return nil
+			},
 		},
-		BeforeDelete: func(ctx context.Context, id int64) error {
-			if deleteGovernance == nil {
+		Update: appcrud.Stage[*iamentity.Tenant]{
+			Before: func(ctx context.Context, entity *iamentity.Tenant) error {
+				if entity == nil || entity.GetID() <= 0 {
+					return nil
+				}
+				current, _, err := loadTenantBoundEntity(ctx, repo, entity.GetID())
+				if err != nil {
+					return err
+				}
+				entity.RootScopeID = current.RootScopeID
 				return nil
-			}
-			tenant, err := repo.Get(ctx, id)
-			if err != nil {
-				return err
-			}
-			return deleteGovernance.PrepareDelete(ctx, tenant)
+			},
+		},
+		Delete: appcrud.Stage[int64]{
+			Before: func(ctx context.Context, id int64) error {
+				if deleteGovernance == nil {
+					return nil
+				}
+				tenant, err := repo.Get(ctx, id)
+				if err != nil {
+					return err
+				}
+				return deleteGovernance.PrepareDelete(ctx, tenant)
+			},
 		},
 	}
 }
@@ -213,17 +270,6 @@ func newScopeBackedRoleCRUDHooks(
 	governance *rolesvc.Governance,
 ) *appcrud.Hooks[*iamentity.Role, int64] {
 	return TenantHooksForRole(repo, scopeAuthorizer, governance)
-}
-
-func newTenantCRUDHooks(
-	repo svc.IResourceContextRepository[*iamentity.Tenant, int64],
-	scopeAuthorizer *svc.ScopeAuthorizer,
-	userRepo *userrepo.UserRepo,
-	groupRepo *grouprepo.GroupRepo,
-	roleRepo *rolerepo.RoleRepo,
-	scopeRepo *scoperepo.ScopeRepo,
-) *appcrud.Hooks[*iamentity.Tenant, int64] {
-	return TenantHooksForTenant(repo, scopeAuthorizer, newTenantDeleteGovernance(userRepo, groupRepo, roleRepo, scopeRepo))
 }
 
 type tenantDeleteGovernance struct {
