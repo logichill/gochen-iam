@@ -3,12 +3,10 @@ package tenant
 import (
 	"context"
 
-	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
-	assocguard "gochen-iam/repo/internal/guard"
 	"gochen-runtime/db/orm/repo"
-	"gochen/auth/scoped"
 	"gochen/db/orm"
+	"gochen/domain/spec"
 	"gochen/errors"
 	"gochen/gen"
 )
@@ -33,39 +31,28 @@ func NewTenantRepository(o orm.IOrm, idGenerator gen.IGenerator[int64]) (*Tenant
 	return &TenantRepo{Repo: base}, nil
 }
 
-// CreateWithConstraint 在显式写边界下创建租户。
-func (r *TenantRepo) CreateWithConstraint(ctx context.Context, t *iamentity.Tenant, guard iamaccess.WriteConstraint) error {
-	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Create(boundCtx, t)
-}
-
-// UpdateWithConstraint 在显式写边界下更新租户。
-func (r *TenantRepo) UpdateWithConstraint(ctx context.Context, t *iamentity.Tenant, guard iamaccess.WriteConstraint) error {
-	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Update(boundCtx, t)
-}
-
-// DeleteWithConstraint 在显式写边界下删除租户。
-func (r *TenantRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
-	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Delete(boundCtx, id)
+// Delete 执行软删除并保留 IAM 既有语义；物理删除请使用 Purge。
+func (r *TenantRepo) Delete(ctx context.Context, t *iamentity.Tenant, s spec.Spec) error {
+	if t == nil {
+		return errors.NewCode(errors.InvalidInput, "tenant cannot be nil")
+	}
+	if t.IsDeleted() {
+		return errors.NewCode(errors.Conflict, "租户已删除").WithContext("id", t.GetID())
+	}
+	t.MarkAsDeleted()
+	return r.Repo.Update(ctx, t, s)
 }
 
 // Get 根据ID获取租户（过滤软删记录）
-func (r *TenantRepo) Get(ctx context.Context, id int64) (*iamentity.Tenant, error) {
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var tenant iamentity.Tenant
-	err = model.First(ctx, &tenant, orm.WithWhere("id = ? AND deleted_at IS NULL", id))
+func (r *TenantRepo) Get(ctx context.Context, id int64, s spec.Spec) (*iamentity.Tenant, error) {
+	tenant, err := r.Repo.Get(ctx, id, s)
 	if err != nil {
 		if errors.Is(err, errors.NotFound) {
 			return nil, errors.NewCode(errors.NotFound, "租户不存在")
 		}
 		return nil, errors.Wrap(err, errors.Database, "查询租户失败")
 	}
-	return &tenant, nil
+	return tenant, nil
 }
 
 // FindByKey 根据业务编码查找租户

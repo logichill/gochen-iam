@@ -194,4 +194,3 @@ func TestIAMModuleStartAndStop(t *testing.T) {
 		t.Fatalf("stop returned error: %v", err)
 	}
 }
-

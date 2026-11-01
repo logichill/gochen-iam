@@ -2,54 +2,40 @@ package router
 
 import (
 	"context"
-	"gochen/auth/scoped"
 	"testing"
 
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
 	rolesvc "gochen-iam/service/role"
+	appcrud "gochen/app/crud"
+	"gochen/domain/spec"
 	"gochen/errors"
 )
 
 type roleHookRepoStub struct {
-	roles        map[int64]*iamentity.Role
-	groupUsage   map[int64]int64
-	lastResolved int64
+	roles      map[int64]*iamentity.Role
+	groupUsage map[int64]int64
 }
 
 var _ svc.IResourceContextRepository[*iamentity.Role, int64] = (*roleHookRepoStub)(nil)
 
-func (s *roleHookRepoStub) Create(context.Context, *iamentity.Role) error { return nil }
+func (s *roleHookRepoStub) Create(context.Context, *iamentity.Role, spec.Spec) error { return nil }
 
-func (s *roleHookRepoStub) Update(_ context.Context, role *iamentity.Role) error {
+func (s *roleHookRepoStub) Update(_ context.Context, role *iamentity.Role, _ spec.Spec) error {
 	cp := cloneRole(role)
 	s.roles[role.GetID()] = cp
 	return nil
 }
 
-func (s *roleHookRepoStub) Delete(context.Context, int64) error { return nil }
+func (s *roleHookRepoStub) Delete(context.Context, *iamentity.Role, spec.Spec) error { return nil }
 
-func (s *roleHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Role, error) {
+func (s *roleHookRepoStub) Get(_ context.Context, id int64, _ spec.Spec) (*iamentity.Role, error) {
 	role, ok := s.roles[id]
 	if !ok {
 		return nil, errors.NewCode(errors.NotFound, "角色不存在")
 	}
 	return cloneRole(role), nil
-}
-
-func (s *roleHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (scoped.Resource, error) {
-	role, ok := s.roles[id]
-	if !ok {
-		return scoped.Resource{}, errors.NewCode(errors.NotFound, "角色不存在")
-	}
-	s.lastResolved = id
-	return scoped.Resource{
-		Kind:           "iam.role",
-		ID:             "role",
-		OwnerID:        "tenant:" + role.GetTenantID(),
-		ManagedScopeID: role.NamespaceScopeID,
-	}, nil
 }
 
 func (s *roleHookRepoStub) FindByName(ctx context.Context, name string) (*iamentity.Role, error) {
@@ -94,7 +80,7 @@ func TestRoleCRUDHooks_CreateRejectsBuiltinWildcardPermissions(t *testing.T) {
 		Permissions: iamentity.PermissionArray{"*:api:*"},
 	}
 
-	err := hooks.Create.Before(tenantCtx(t, "tenant-a"), role)
+	err := hooks.For(appcrud.ActionCreate).Before(tenantCtx(t, "tenant-a"), role)
 	if err == nil {
 		t.Fatalf("expected builtin wildcard permission to be rejected")
 	}
@@ -122,7 +108,7 @@ func TestRoleCRUDHooks_CreateAppliesServiceDefaults(t *testing.T) {
 		Status:   "inactive",
 	}
 
-	if err := hooks.Create.Before(tenantCtx(t, "tenant-a"), role); err != nil {
+	if err := hooks.For(appcrud.ActionCreate).Before(tenantCtx(t, "tenant-a"), role); err != nil {
 		t.Fatalf("BeforeCreate: %v", err)
 	}
 	if role.GetTenantID() != "tenant-a" {
@@ -172,7 +158,7 @@ func TestRoleCRUDHooks_UpdateRejectsSystemRoleMutation(t *testing.T) {
 	updating.Code = "hacked"
 	updating.IsSystem = false
 
-	err := hooks.Update.Before(tenantCtx(t, "tenant-a"), updating)
+	err := hooks.For(appcrud.ActionUpdate).Before(tenantCtx(t, "tenant-a"), updating)
 	if err == nil {
 		t.Fatalf("expected system role mutation to be rejected")
 	}
@@ -210,7 +196,7 @@ func TestRoleCRUDHooks_UpdateRestoresImmutableFields(t *testing.T) {
 	updating.IsSystem = true
 	updating.Permissions = iamentity.PermissionArray{"user:api:read"}
 
-	if err := hooks.Update.Before(tenantCtx(t, "tenant-a"), updating); err != nil {
+	if err := hooks.For(appcrud.ActionUpdate).Before(tenantCtx(t, "tenant-a"), updating); err != nil {
 		t.Fatalf("BeforeUpdate: %v", err)
 	}
 	if updating.Code != "auditor" {
@@ -249,10 +235,10 @@ func TestRoleCRUDHooks_DeleteRejectsInUseAndCrossTenantRole(t *testing.T) {
 	governance := rolesvc.NewGovernance(repo, &roleUsageCounterStub{userUsage: map[int64]int64{3: 1}}, nil)
 	hooks := newScopeBackedRoleCRUDHooks(repo, nil, governance)
 
-	if err := hooks.Delete.Before(tenantCtx(t, "tenant-a"), 3); !errors.Is(err, errors.Validation) {
+	if err := hooks.For(appcrud.ActionDelete).Before(tenantCtx(t, "tenant-a"), role); !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected in-use role delete to fail with validation error, got %v", err)
 	}
-	if err := hooks.Delete.Before(tenantCtx(t, "tenant-b"), 3); !errors.Is(err, errors.Forbidden) {
+	if err := hooks.For(appcrud.ActionDelete).Before(tenantCtx(t, "tenant-b"), role); !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("expected cross-tenant delete to fail with forbidden error, got %v", err)
 	}
 }

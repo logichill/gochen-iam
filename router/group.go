@@ -10,11 +10,8 @@ import (
 	svc "gochen-iam/service"
 	iamtenant "gochen-iam/tenant"
 	"gochen-runtime/api/rest"
-	"gochen-runtime/security"
 	appcrud "gochen/app/crud"
 	"gochen/app/query"
-	"gochen/auth/action"
-	"gochen/auth/scoped"
 	"gochen/errors"
 	"gochen/httpx"
 )
@@ -34,15 +31,15 @@ var groupQuerySchema = query.MustInferQuerySchema[groupQueryFields](nil)
 // GroupRoutes 组织路由注册器
 type GroupRoutes struct {
 	groupService IGroupService
-	groupRepo    svc.IScopedResourceContextRepository[*iamentity.Group, int64]
-	authorizer   scoped.IAuthorizer
+	groupRepo    appcrud.Repository[*iamentity.Group, int64]
+	authorizer   *svc.IAMAuthorizer
 }
 
 // NewGroupRoutes 创建组织路由注册器
 func NewGroupRoutes(
 	groupService IGroupService,
-	groupRepo svc.IScopedResourceContextRepository[*iamentity.Group, int64],
-	authorizer scoped.IAuthorizer,
+	groupRepo appcrud.Repository[*iamentity.Group, int64],
+	authorizer *svc.IAMAuthorizer,
 ) *GroupRoutes {
 	return &GroupRoutes{
 		groupService: groupService,
@@ -64,7 +61,18 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionManage).Scope(iammw.ScopePlatform, iammw.ScopeTenant),
 	))
 
-	appService, err := svc.NewCRUDApplication[*iamentity.Group, int64](gr.groupRepo, gr.groupRepo, &appcrud.Options[*iamentity.Group, int64]{Hooks: newGroupCRUDHooks(gr.groupRepo, gr.groupService)})
+	app, err := appcrud.NewApplication[*iamentity.Group, int64](gr.groupRepo, appcrud.Options[*iamentity.Group, int64]{
+		Resource:   "group",
+		Authorizer: gr.authorizer,
+		ActionPermissions: map[string]string{
+			appcrud.ActionRead:   svc.GroupPermissionSet.Code(iammw.ActionRead),
+			appcrud.ActionList:   svc.GroupPermissionSet.Code(iammw.ActionRead),
+			appcrud.ActionCreate: svc.GroupPermissionSet.Code(iammw.ActionWrite),
+			appcrud.ActionUpdate: svc.GroupPermissionSet.Code(iammw.ActionWrite),
+			appcrud.ActionDelete: svc.GroupPermissionSet.Code(iammw.ActionDelete),
+		},
+		Hooks: newGroupCRUDHooks(gr.groupRepo, gr.groupService),
+	})
 	if err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create group crud application").WithContext("route", "iam.group")
@@ -72,44 +80,10 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create group crud application").WithContext("route", "iam.group")
 	}
 
-	var app appcrud.IApplication[*iamentity.Group, int64] = appService
-	if gr.authorizer != nil {
-		scopedApp, err := security.Scoped(appService, gr.authorizer, security.ScopedConfig{
-			EntityType: svc.GroupResourceKind,
-			Policy: action.OperationPolicy{
-				Create: iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionWrite).Code,
-				Update: iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionWrite).Code,
-				Delete: iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionDelete).Code,
-				Read:   iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionRead).Code,
-				List:   iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionRead).Code,
-			},
-			ScopeResolver: svc.DefaultDataScopeResolver,
-		})
-		if err != nil {
-			return err
-		}
-		app = scopedApp
-	}
-
-	builder, err := rest.NewApiBuilder[*iamentity.Group, int64](
-		app,
+	if err := rest.Mount(adminGroup, app,
 		rest.WithQuerySchema[*iamentity.Group, int64](groupQuerySchema),
-	)
-
-	if err != nil {
-		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
-			return appErr.Wrap("create group api builder").WithContext("route", "iam.group")
-		}
-		return errors.Wrap(err, errors.Internal, "failed to create group api builder").WithContext("route", "iam.group")
-	}
-	if err := builder.
-		Route(func(cfg *rest.RouteConfig[int64]) {
-			cfg.Routing.EnableBatch = false
-			cfg.Query.EnablePagination = true
-			cfg.Query.DefaultPageSize = 10
-			cfg.Query.MaxPageSize = 1000
-		}).
-		Build(adminGroup); err != nil {
+		rest.WithPagination[*iamentity.Group, int64](10, 1000),
+	); err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("build group crud routes").WithContext("route", "iam.group")
 		}
@@ -145,7 +119,7 @@ func (gr *GroupRoutes) setupGroupCustomRoutes(groupGroup httpx.IRouteGroup) {
 	groupGroup.GET("/:id/users", gr.getGroupUsers)
 	groupGroup.POST("/:id/users", gr.addUserToGroup)
 	groupGroup.DELETE("/:id/users/:user", gr.removeUserFromGroup)
-	groupGroup.POST("/:id/users/batch", gr.batchAddUsersToGroup)
+	groupGroup.POST("/:id/users/bulk", gr.bulkAddUsersToGroup)
 
 	// 组织角色管理
 	groupGroup.GET("/:id/roles", gr.getGroupRoles)
@@ -282,8 +256,8 @@ func (gr *GroupRoutes) removeUserFromGroup(ctx httpx.IContext) error {
 	})
 }
 
-// batchAddUsersToGroup 处理批量AddUsers到分组。
-func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IContext) error {
+// bulkAddUsersToGroup 处理批量把用户加入分组。
+func (gr *GroupRoutes) bulkAddUsersToGroup(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
 	groupID, err := httpx.ParseInt64Param(ctx, "id")
 	if err != nil {
@@ -301,7 +275,7 @@ func (gr *GroupRoutes) batchAddUsersToGroup(ctx httpx.IContext) error {
 		return err
 	}
 
-	result, err := gr.groupService.BatchAddUsersToGroup(reqCtx, groupID, req.UserIDs)
+	result, err := gr.groupService.BulkAddUsersToGroup(reqCtx, groupID, req.UserIDs)
 	if err != nil {
 		return err
 	}
@@ -404,9 +378,9 @@ func (gr *GroupRoutes) getGroupStatistics(ctx httpx.IContext) error {
 	return httpx.WriteSuccess(ctx, stats)
 }
 
-func newGroupCRUDHooks(repo svc.IResourceContextRepository[*iamentity.Group, int64], groupServices ...IGroupService) *appcrud.Hooks[*iamentity.Group, int64] {
-	return &appcrud.Hooks[*iamentity.Group, int64]{
-		Create: appcrud.Stage[*iamentity.Group]{
+func newGroupCRUDHooks(repo svc.IResourceContextRepository[*iamentity.Group, int64], groupServices ...IGroupService) appcrud.Hooks[*iamentity.Group] {
+	return appcrud.Hooks[*iamentity.Group]{
+		appcrud.ActionCreate: {
 			Before: func(ctx context.Context, group *iamentity.Group) error {
 				// 1. 租户隔离：从上下文注入 tenant_id
 				tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
@@ -424,7 +398,7 @@ func newGroupCRUDHooks(repo svc.IResourceContextRepository[*iamentity.Group, int
 				return prepareGroupHierarchy(ctx, repo, nil, group)
 			},
 		},
-		Update: appcrud.Stage[*iamentity.Group]{
+		appcrud.ActionUpdate: {
 			Before: func(ctx context.Context, group *iamentity.Group) error {
 				if group == nil {
 					return errors.NewCode(errors.InvalidInput, "group cannot be nil")
@@ -440,13 +414,13 @@ func newGroupCRUDHooks(repo svc.IResourceContextRepository[*iamentity.Group, int
 				return prepareGroupHierarchy(ctx, repo, current, group)
 			},
 		},
-		Delete: appcrud.Stage[int64]{
-			Before: func(ctx context.Context, id int64) error {
-				if err := checkTenantOwnership(ctx, repo, id); err != nil {
+		appcrud.ActionDelete: {
+			Before: func(ctx context.Context, group *iamentity.Group) error {
+				if err := checkTenantOwnership(ctx, repo, group.GetID()); err != nil {
 					return err
 				}
 				if len(groupServices) > 0 && groupServices[0] != nil {
-					return groupServices[0].ValidateDelete(ctx, id)
+					return groupServices[0].ValidateDelete(ctx, group.GetID())
 				}
 				return nil
 			},

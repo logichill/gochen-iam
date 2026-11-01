@@ -12,7 +12,7 @@
 - access token 仅保留最小语义：`user_id + active_scope_id + binding_version + permissions`
 - 查询边界统一围绕 `managed_scope_id` / `namespace_scope_id`
 - 作用域可见性统一围绕 `scope_visibility_map`
-- 最终写边界统一围绕 `AuthzDecision -> WriteConstraint`
+- 最终写边界统一围绕 `AuthzDecision -> spec.Spec`（写规约）
 
 以下历史方案已废弃：
 
@@ -113,7 +113,7 @@ tenant 不再承担：
 4. `DataScope`
    - 表达当前默认可见的 scope 集合
    - 关键字段：`ActiveScopeID`、`VisibleScopeIDs`
-5. `WriteConstraint`
+5. `spec.Spec`（写规约）
    - 把 allow 决策投影成最终写库边界
 
 ## 4. 两阶段登录
@@ -183,14 +183,14 @@ tenant 不再承担：
 
 ## 6. 写模型
 
-当前实现要求所有正式写路径都通过显式 `WriteConstraint`：
+当前实现要求所有正式写路径都通过显式 `spec.Spec` 写规约：
 
 1. service 先调用 `Authorize(...)`
-2. 从 allow 决策投影出 `WriteConstraint`
-3. repo 在最终写边界校验：
+2. 从 allow 决策投影出 `spec.Spec`
+3. repo 在最终写边界合并规约并校验：
    - 资源 ID
    - `managed_scope_id`
-   - `revision/version`
+   - `revision/version`（乐观锁）
 
 这保证：
 
@@ -240,7 +240,7 @@ tenant 是业务配置资源，不再承担 platform 模拟职责。
 - tenant 管理员只见本 tenant root scope 下资源
 - self-owned 资源既支持 owner 访问，也支持管理者访问
 - 标准 CRUD 不再手写 tenant/scope 判断
-- 任何正式写操作都必须通过显式 `WriteConstraint`
+- 任何正式写操作都必须通过显式 `spec.Spec` 写规约
 - 不再出现“平台管理员看不到租户资源”或“租户管理员看不到自己”的模型级错误
 
 ## 10. 当前实现落点

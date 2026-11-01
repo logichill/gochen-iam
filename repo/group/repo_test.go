@@ -3,6 +3,7 @@ package group
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	coredialect "gochen/db/dialect"
 	"gochen/testkit"
 	"testing"
@@ -10,10 +11,10 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen-runtime/db/dialect"
 	auth "gochen-runtime/host/authz"
-	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/db"
 	"gochen/db/orm"
+	"gochen/domain/spec"
 )
 
 type capturingAssociation struct {
@@ -38,8 +39,9 @@ type capturingModel struct {
 	lastFirstOpts    orm.QueryOptions
 	lastOpts         orm.QueryOptions
 
-	lastAssociation *capturingAssociation
-	savedEntity     any
+	lastAssociation  *capturingAssociation
+	savedEntity      any
+	lastUpdateValues map[string]any
 }
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
@@ -72,7 +74,8 @@ type fakeResult struct{ rows int64 }
 func (r fakeResult) RowsAffected() (int64, error) { return r.rows, nil }
 func (r fakeResult) LastInsertId() (int64, error) { return 0, nil }
 
-func (m *capturingModel) UpdateValues(context.Context, map[string]any, ...orm.QueryOption) error {
+func (m *capturingModel) UpdateValues(_ context.Context, values map[string]any, _ ...orm.QueryOption) error {
+	m.lastUpdateValues = values
 	return nil
 }
 func (m *capturingModel) Delete(context.Context, ...orm.QueryOption) error { return nil }
@@ -81,7 +84,10 @@ func (m *capturingModel) SaveWithResult(_ context.Context, entity any, _ ...orm.
 	m.savedEntity = entity
 	return fakeResult{rows: 1}, nil
 }
-func (m *capturingModel) UpdateValuesWithResult(context.Context, map[string]any, ...orm.QueryOption) (sql.Result, error) {
+func (m *capturingModel) UpdateValuesWithResult(ctx context.Context, values map[string]any, opts ...orm.QueryOption) (sql.Result, error) {
+	if err := m.UpdateValues(ctx, values, opts...); err != nil {
+		return nil, err
+	}
 	return fakeResult{rows: 1}, nil
 }
 func (m *capturingModel) DeleteWithResult(context.Context, ...orm.QueryOption) (sql.Result, error) {
@@ -98,6 +104,8 @@ type fakeOrm struct {
 	baseModel    *capturingModel
 	sessionModel *capturingModel
 }
+
+func (o *fakeOrm) DatasourceID() string { return fmt.Sprintf("iam-group-test:%p", o) }
 
 func (o *fakeOrm) Capabilities() orm.Capabilities           { return nil }
 func (o *fakeOrm) WithContext(ctx context.Context) orm.IOrm { return o }
@@ -118,6 +126,8 @@ type fakeSession struct {
 	parent *fakeOrm
 }
 
+func (s *fakeSession) DatasourceID() string { return s.parent.DatasourceID() }
+
 func (s *fakeSession) Capabilities() orm.Capabilities           { return nil }
 func (s *fakeSession) WithContext(ctx context.Context) orm.IOrm { return s }
 func (s *fakeSession) Model(meta *orm.ModelMeta) (orm.IModel, error) {
@@ -135,7 +145,7 @@ func (s *fakeSession) Rollback() error        { return nil }
 
 func withTenantPrincipal(t *testing.T, ctx context.Context, tenantID string) context.Context {
 	t.Helper()
-	derived, err := auth.WithPrincipal(ctx, auth.Principal{SubjectID: 1, ActiveScopeID: 1})
+	derived, err := auth.WithPrincipal(ctx, auth.Principal{SubjectID: "1", ActiveScopeID: 1})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
@@ -143,9 +153,6 @@ func withTenantPrincipal(t *testing.T, ctx context.Context, tenantID string) con
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	derived = scoped.WithConstraint(derived, scoped.SingleEntityConstraint("iam.group", scoped.WriteConstraint{
-		Resources: []scoped.ResourceConstraint{{Kind: "iam.group", TenantID: tenantID, ManagedScopeID: 1}},
-	}))
 	return derived
 }
 
@@ -164,7 +171,7 @@ func TestGroupRepo_Get_UsesTxSessionModel(t *testing.T) {
 		t.Fatalf("WithTxSession: %v", err)
 	}
 	txCtx = withTenantPrincipal(t, txCtx, "tenant-a")
-	if _, err := r.Get(txCtx, 1); err != nil {
+	if _, err := r.Get(txCtx, 1, spec.All()); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 
@@ -190,8 +197,13 @@ func TestGroupRepo_AddUserToGroup_UsesTxSessionAssociation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTxSession: %v", err)
 	}
+	// 模拟由应用事务生命周期托管的外层事务（提交后回调由外层负责传播）。
+	txCtx, err = contextx.WithTxLifecycle(txCtx, false)
+	if err != nil {
+		t.Fatalf("WithTxLifecycle: %v", err)
+	}
 	txCtx = withTenantPrincipal(t, txCtx, "tenant-a")
-	if err := r.AddUserToGroup(txCtx, 1, 2); err != nil {
+	if err := r.AddUserToGroup(txCtx, 1, 2, spec.All()); err != nil {
 		t.Fatalf("AddUserToGroup: %v", err)
 	}
 
@@ -217,7 +229,7 @@ func TestGroupRepo_Get_FiltersByTenantFromPrincipal(t *testing.T) {
 	}
 
 	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
-	if _, err := r.Get(ctx, 7); err != nil {
+	if _, err := r.Get(ctx, 7, spec.All()); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 
@@ -259,23 +271,19 @@ func TestGroupRepo_Update_StripsAssociationsBeforeSave(t *testing.T) {
 		return nil
 	}
 	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
-	ctx = scoped.WithConstraint(ctx, scoped.SingleEntityConstraint("iam.group", scoped.WriteConstraint{
-		Resources: []scoped.ResourceConstraint{{Kind: "iam.group", ResourceID: "7", TenantID: "tenant-a", ManagedScopeID: 1, Revision: "0"}},
-	}))
-	if err := r.Update(ctx, group); err != nil {
+	if err := r.Update(ctx, group, spec.All()); err != nil {
 
 		t.Fatalf("Update: %v", err)
 	}
 
-	saved, ok := o.sessionModel.savedEntity.(*iamentity.Group)
-	if !ok || saved == nil {
-		t.Fatalf("expected saved group entity, got %#v", o.sessionModel.savedEntity)
+	values := o.sessionModel.lastUpdateValues
+	if values == nil {
+		t.Fatal("expected update values to be written")
 	}
-	if saved == group {
-		t.Fatal("expected update to save a detached copy")
-	}
-	if saved.Parent != nil || saved.Children != nil || saved.Users != nil || saved.DefaultRoles != nil {
-		t.Fatalf("expected associations stripped before save, got parent=%v children=%v users=%v roles=%v", saved.Parent, saved.Children, saved.Users, saved.DefaultRoles)
+	for _, column := range []string{"parent", "children", "users", "default_roles"} {
+		if _, ok := values[column]; ok {
+			t.Fatalf("expected associations stripped before save, got %#v", values)
+		}
 	}
 }
 

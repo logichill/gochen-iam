@@ -81,17 +81,9 @@ func setupScopeServiceTest(t *testing.T) *scopeServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewGroupRepository: %v", err)
 	}
-	authzRegistry, err := svc.NewIAMAuthzRegistry()
-	if err != nil {
-		t.Fatalf("NewIAMAuthzRegistry: %v", err)
-	}
-	if _, err := svc.NewIAMAuthorizer(nil, authzRegistry); err != nil {
-		t.Fatalf("NewIAMAuthorizer: %v", err)
-	}
-
 	baseCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	baseCtx, err = auth.WithPrincipal(baseCtx, auth.Principal{
-		SubjectID:   1,
+		SubjectID:   "1",
 		Permissions: []string{"*:*:*"},
 		IsSystem:    true,
 	})
@@ -145,12 +137,9 @@ func (env *scopeServiceTestEnv) createTenant(t *testing.T, key, name string) (*i
 		Description: name + " desc",
 		Status:      svc.TenantStatusInactive,
 	}
-	guard, err := svc.NewPlatformCreateConstraint(env.backgroundCtx, svc.TenantResourceKind)
-	if err != nil {
-		t.Fatalf("NewPlatformCreateConstraint: %v", err)
-	}
-	if err := env.tenantRepo.CreateWithConstraint(env.backgroundCtx, tenant, guard); err != nil {
-		t.Fatalf("CreateWithConstraint: %v", err)
+	guard := svc.PlatformWriteSpec(env.backgroundCtx)
+	if err := env.tenantRepo.Create(env.backgroundCtx, tenant, guard); err != nil {
+		t.Fatalf("Create tenant: %v", err)
 	}
 	rootScope, err := env.scopeAuthorizer.EnsureTenantRootScope(env.backgroundCtx, tenant)
 	if err != nil {
@@ -292,7 +281,7 @@ func TestScopeService_CreateScope_DeniesNonPlatformScope(t *testing.T) {
 
 	_, tenantRoot := env.createTenant(t, "tenant-a", "Tenant A")
 	tenantCtx, err := auth.WithPrincipal(context.Background(), auth.Principal{
-		SubjectID:   2,
+		SubjectID:   "2",
 		Permissions: []string{"*:*:*"},
 		IsSystem:    true,
 	})
@@ -537,24 +526,16 @@ func TestScopeService_RepairScope_RepairsDriftedChildStructure(t *testing.T) {
 
 	parent.Status = iamentity.ScopeStatusInactive
 	parent.SetUpdatedAt(time.Now())
-	parentGuard, err := svc.NewPlatformEntityConstraint(env.backgroundCtx, svc.ScopeResourceKind, parent)
-	if err != nil {
-		t.Fatalf("NewPlatformEntityConstraint parent: %v", err)
-	}
-	if err := env.scopeRepo.UpdateWithConstraint(env.backgroundCtx, parent, parentGuard); err != nil {
-		t.Fatalf("UpdateWithConstraint parent: %v", err)
+	if err := env.scopeRepo.Update(env.backgroundCtx, parent, svc.PlatformWriteSpec(env.backgroundCtx)); err != nil {
+		t.Fatalf("Update parent: %v", err)
 	}
 
 	child.Path = "/broken/path/"
 	child.Depth = 99
 	child.Status = iamentity.ScopeStatusActive
 	child.SetUpdatedAt(time.Now())
-	childGuard, err := svc.NewPlatformEntityConstraint(env.backgroundCtx, svc.ScopeResourceKind, child)
-	if err != nil {
-		t.Fatalf("NewPlatformEntityConstraint child: %v", err)
-	}
-	if err := env.scopeRepo.UpdateWithConstraint(env.backgroundCtx, child, childGuard); err != nil {
-		t.Fatalf("UpdateWithConstraint child: %v", err)
+	if err := env.scopeRepo.Update(env.backgroundCtx, child, svc.PlatformWriteSpec(env.backgroundCtx)); err != nil {
+		t.Fatalf("Update child: %v", err)
 	}
 
 	state, err := env.scopeService.ScopeGovernanceState(env.backgroundCtx, child.ID)

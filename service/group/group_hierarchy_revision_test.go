@@ -6,7 +6,7 @@ import (
 
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
-	"gochen/auth/scoped"
+	"gochen/domain/spec"
 	"gochen/errors"
 )
 
@@ -26,8 +26,8 @@ func TestGroupRepoMoveEditedSubtreeUsesCurrentRevisions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 普通 CRUD 实体的时间戳更新不递增版本；显式种入已编辑节点的非零版本。
-	const childVersion = uint64(3)
+	// 种入已编辑节点的非零版本；层级修复须使用当前版本并在成功写入后推进。
+	childVersion := uint64(3)
 	if err := env.db.Model(child).Updates(map[string]any{"name": "edited-child", "version": childVersion}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -35,18 +35,16 @@ func TestGroupRepoMoveEditedSubtreeUsesCurrentRevisions(t *testing.T) {
 	for _, parent := range []*int64{&bid, nil} {
 		a.Parent = nil
 		a.ParentID = parent
-		ctx := scoped.WithConstraint(env.backgroundCtx, scoped.SingleEntityConstraint(svc.GroupResourceKind, scoped.WriteConstraint{Resources: []scoped.ResourceConstraint{{
-			Kind: svc.GroupResourceKind, ResourceID: strconv.FormatInt(a.GetID(), 10), TenantID: env.tenantID, ManagedScopeID: a.ManagedScopeID, Revision: strconv.FormatUint(a.GetVersion(), 10),
-		}}}))
-		if err := env.groupRepo.Update(ctx, a); err != nil {
+		if err := env.groupRepo.Update(env.backgroundCtx, a, spec.All()); err != nil {
 			t.Fatalf("move parent with edited descendant: %v", err)
 		}
-		child, err = env.groupRepo.Get(env.backgroundCtx, child.GetID())
+		childVersion++
+		child, err = env.groupRepo.Get(env.backgroundCtx, child.GetID(), spec.All())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if child.GetVersion() != childVersion || child.Path != a.Path+"/"+strconv.FormatInt(child.GetID(), 10) {
-			t.Fatalf("child hierarchy or stored revision changed unexpectedly: %+v", child)
+		if child.GetVersion() != childVersion || child.Name != "edited-child" || child.Path != a.Path+"/"+strconv.FormatInt(child.GetID(), 10) {
+			t.Fatalf("unexpected child hierarchy or revision: %v, version=%d, want version=%d", child, child.GetVersion(), childVersion)
 		}
 	}
 }
@@ -106,4 +104,3 @@ func TestUpdateGroup_RejectsMovingSubtreeExceedingMaxLevel(t *testing.T) {
 		t.Fatalf("expected Validation error, got %v", err)
 	}
 }
-

@@ -2,14 +2,15 @@ package router
 
 import (
 	"context"
-	"gochen/auth/scoped"
-	"gochen/contextx"
-	"strconv"
 	"strings"
 	"testing"
 
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
+	appcrud "gochen/app/crud"
+	"gochen/auth/scoped"
+	"gochen/contextx"
+	"gochen/domain/spec"
 	"gochen/errors"
 )
 
@@ -19,30 +20,25 @@ type tenantHookRepoStub struct {
 
 var _ svc.IResourceContextRepository[*iamentity.Tenant, int64] = (*tenantHookRepoStub)(nil)
 
-func (s *tenantHookRepoStub) Create(context.Context, *iamentity.Tenant) error { return nil }
+func (s *tenantHookRepoStub) Create(context.Context, *iamentity.Tenant, spec.Spec) error {
+	return nil
+}
 
-func (s *tenantHookRepoStub) Update(context.Context, *iamentity.Tenant) error { return nil }
+func (s *tenantHookRepoStub) Update(context.Context, *iamentity.Tenant, spec.Spec) error {
+	return nil
+}
 
-func (s *tenantHookRepoStub) Delete(context.Context, int64) error { return nil }
+func (s *tenantHookRepoStub) Delete(context.Context, *iamentity.Tenant, spec.Spec) error {
+	return nil
+}
 
-func (s *tenantHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Tenant, error) {
+func (s *tenantHookRepoStub) Get(_ context.Context, id int64, _ spec.Spec) (*iamentity.Tenant, error) {
 	tenant, ok := s.tenants[id]
 	if !ok {
 		return nil, errors.NewCode(errors.NotFound, "租户不存在")
 	}
 	cp := *tenant
 	return &cp, nil
-}
-
-func (s *tenantHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (scoped.Resource, error) {
-	tenant, ok := s.tenants[id]
-	if !ok {
-		return scoped.Resource{}, errors.NewCode(errors.NotFound, "租户不存在")
-	}
-	return scoped.Resource{
-		Kind: "iam.tenant",
-		ID:   strconv.FormatInt(tenant.GetID(), 10),
-	}, nil
 }
 
 func TestTenantCRUDHooks_DeleteRejectsActiveTenant(t *testing.T) {
@@ -57,7 +53,7 @@ func TestTenantCRUDHooks_DeleteRejectsActiveTenant(t *testing.T) {
 	}
 	hooks := TenantHooksForTenant(repo, nil, &tenantDeleteGovernance{})
 
-	err := hooks.Delete.Before(context.Background(), 1)
+	err := hooks.For(appcrud.ActionDelete).Before(context.Background(), tenant)
 	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
@@ -80,7 +76,7 @@ func TestTenantCRUDHooks_DeleteRejectsOccupiedTenant(t *testing.T) {
 		countUsers: func(context.Context, string) (int64, error) { return 2, nil },
 	})
 
-	err := hooks.Delete.Before(context.Background(), 2)
+	err := hooks.For(appcrud.ActionDelete).Before(context.Background(), tenant)
 	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
@@ -132,7 +128,7 @@ func TestTenantCRUDHooks_DeleteRejectsRootScopeChildren(t *testing.T) {
 		},
 	})
 
-	err := hooks.Delete.Before(context.Background(), 3)
+	err := hooks.For(appcrud.ActionDelete).Before(context.Background(), tenant)
 	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
@@ -173,7 +169,7 @@ func TestTenantCRUDHooks_DeleteRemovesRootScope(t *testing.T) {
 		},
 	})
 
-	if err := hooks.Delete.Before(context.Background(), 4); err != nil {
+	if err := hooks.For(appcrud.ActionDelete).Before(context.Background(), tenant); err != nil {
 		t.Fatalf("expected delete hook to pass, got %v", err)
 	}
 	if deletedScopeID != rootScopeID {
@@ -188,10 +184,10 @@ type userHookRepoStub struct {
 	users map[int64]*iamentity.User
 }
 
-func (s *userHookRepoStub) Create(context.Context, *iamentity.User) error { return nil }
-func (s *userHookRepoStub) Update(context.Context, *iamentity.User) error { return nil }
-func (s *userHookRepoStub) Delete(context.Context, int64) error           { return nil }
-func (s *userHookRepoStub) Get(_ context.Context, id int64) (*iamentity.User, error) {
+func (s *userHookRepoStub) Create(context.Context, *iamentity.User, spec.Spec) error { return nil }
+func (s *userHookRepoStub) Update(context.Context, *iamentity.User, spec.Spec) error { return nil }
+func (s *userHookRepoStub) Delete(context.Context, *iamentity.User, spec.Spec) error { return nil }
+func (s *userHookRepoStub) Get(_ context.Context, id int64, _ spec.Spec) (*iamentity.User, error) {
 	u, ok := s.users[id]
 	if !ok {
 		return nil, errors.NewCode(errors.NotFound, "用户不存在")
@@ -211,9 +207,6 @@ func (s *userHookRepoStub) Get(_ context.Context, id int64) (*iamentity.User, er
 	}
 	cp.SetID(u.GetID())
 	return cp, nil
-}
-func (s *userHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (scoped.Resource, error) {
-	return scoped.Resource{Kind: "iam.user", ID: strconv.FormatInt(id, 10)}, nil
 }
 
 func TestTenantHooksForUser_PasswordHashed(t *testing.T) {
@@ -235,7 +228,7 @@ func TestTenantHooksForUser_PasswordHashed(t *testing.T) {
 		Email:    "alice@example.com",
 		Password: "password123",
 	}
-	if err := hooks.Create.Before(ctx, user); err != nil {
+	if err := hooks.For(appcrud.ActionCreate).Before(ctx, user); err != nil {
 		t.Fatalf("BeforeCreate failed: %v", err)
 	}
 	if user.Password == "password123" {
@@ -251,7 +244,7 @@ func TestTenantHooksForUser_PasswordHashed(t *testing.T) {
 		Email:    "bob@example.com",
 		Password: "123",
 	}
-	if err := hooks.Create.Before(ctx, shortUser); !errors.Is(err, errors.Validation) {
+	if err := hooks.For(appcrud.ActionCreate).Before(ctx, shortUser); !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error for short password, got: %v", err)
 	}
 
@@ -263,7 +256,7 @@ func TestTenantHooksForUser_PasswordHashed(t *testing.T) {
 	}
 	updateUser := &iamentity.User{}
 	updateUser.SetID(101)
-	if err := hooks.Update.Before(ctx, updateUser); err != nil {
+	if err := hooks.For(appcrud.ActionUpdate).Before(ctx, updateUser); err != nil {
 		t.Fatalf("BeforeUpdate with empty password failed: %v", err)
 	}
 	if updateUser.Password != user.Password {
@@ -273,7 +266,7 @@ func TestTenantHooksForUser_PasswordHashed(t *testing.T) {
 	// 4. 更新时传入新明文密码被哈希
 	updateUserWithNewPass := &iamentity.User{Password: "newsecret456"}
 	updateUserWithNewPass.SetID(101)
-	if err := hooks.Update.Before(ctx, updateUserWithNewPass); err != nil {
+	if err := hooks.For(appcrud.ActionUpdate).Before(ctx, updateUserWithNewPass); err != nil {
 		t.Fatalf("BeforeUpdate with new password failed: %v", err)
 	}
 	if updateUserWithNewPass.Password == "newsecret456" || !isBcryptHash(updateUserWithNewPass.Password) {

@@ -47,18 +47,11 @@ func setupMenuServiceTest(t *testing.T) *menuServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewMenuItemRepository: %v", err)
 	}
-	authzRegistry, err := svc.NewIAMAuthzRegistry()
-	if err != nil {
-		t.Fatalf("NewIAMAuthzRegistry: %v", err)
-	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
-	if err != nil {
-		t.Fatalf("NewIAMAuthorizer: %v", err)
-	}
+	authorizer := svc.NewIAMAuthorizer(nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
-		SubjectID:     1,
+		SubjectID:     "1",
 		Permissions:   []string{"*:*:*"},
 		IsSystem:      true,
 		ActiveScopeID: 1,

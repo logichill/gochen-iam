@@ -3,6 +3,7 @@ package role
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	coredialect "gochen/db/dialect"
 	"gochen/testkit"
 	"reflect"
@@ -11,22 +12,24 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen-runtime/db/dialect"
 	auth "gochen-runtime/host/authz"
-	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/db"
 	"gochen/db/orm"
+	"gochen/domain/spec"
 )
 
 type capturingModel struct {
 	meta *orm.ModelMeta
 
-	findCalls     int
-	findFn        func(dest any) error
-	firstFn       func(dest any) error
-	firstCalls    int
-	lastOpts      orm.QueryOptions
-	lastFirstOpts orm.QueryOptions
-	savedEntity   any
+	findCalls        int
+	findFn           func(dest any) error
+	firstFn          func(dest any) error
+	firstCalls       int
+	lastOpts         orm.QueryOptions
+	lastFirstOpts    orm.QueryOptions
+	savedEntity      any
+	lastUpdateValues map[string]any
+	lastUpdateOpts   orm.QueryOptions
 }
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
@@ -60,7 +63,9 @@ type fakeResult struct{ rows int64 }
 func (r fakeResult) RowsAffected() (int64, error) { return r.rows, nil }
 func (r fakeResult) LastInsertId() (int64, error) { return 0, nil }
 
-func (m *capturingModel) UpdateValues(context.Context, map[string]any, ...orm.QueryOption) error {
+func (m *capturingModel) UpdateValues(_ context.Context, values map[string]any, opts ...orm.QueryOption) error {
+	m.lastUpdateValues = values
+	m.lastUpdateOpts = orm.CollectQueryOptions(opts...)
 	return nil
 }
 func (m *capturingModel) Delete(context.Context, ...orm.QueryOption) error { return nil }
@@ -69,8 +74,8 @@ func (m *capturingModel) SaveWithResult(_ context.Context, entity any, _ ...orm.
 	m.savedEntity = entity
 	return fakeResult{rows: 1}, nil
 }
-func (m *capturingModel) UpdateValuesWithResult(context.Context, map[string]any, ...orm.QueryOption) (sql.Result, error) {
-	return fakeResult{rows: 1}, nil
+func (m *capturingModel) UpdateValuesWithResult(ctx context.Context, values map[string]any, opts ...orm.QueryOption) (sql.Result, error) {
+	return fakeResult{rows: 1}, m.UpdateValues(ctx, values, opts...)
 }
 func (m *capturingModel) DeleteWithResult(context.Context, ...orm.QueryOption) (sql.Result, error) {
 	return fakeResult{rows: 1}, nil
@@ -84,6 +89,8 @@ type fakeOrm struct {
 	sessionUserRoleModel  *capturingModel
 	sessionGroupRoleModel *capturingModel
 }
+
+func (o *fakeOrm) DatasourceID() string { return fmt.Sprintf("iam-role-test:%p", o) }
 
 func (o *fakeOrm) Capabilities() orm.Capabilities           { return nil }
 func (o *fakeOrm) WithContext(ctx context.Context) orm.IOrm { return o }
@@ -103,6 +110,8 @@ func (o *fakeOrm) Raw() any               { return nil }
 type fakeSession struct {
 	parent *fakeOrm
 }
+
+func (s *fakeSession) DatasourceID() string { return s.parent.DatasourceID() }
 
 func (s *fakeSession) Capabilities() orm.Capabilities           { return nil }
 func (s *fakeSession) WithContext(ctx context.Context) orm.IOrm { return s }
@@ -132,7 +141,7 @@ func (s *fakeSession) Rollback() error        { return nil }
 
 func withTenantPrincipal(t *testing.T, ctx context.Context, tenantID string) context.Context {
 	t.Helper()
-	derived, err := auth.WithPrincipal(ctx, auth.Principal{SubjectID: 1, ActiveScopeID: 1})
+	derived, err := auth.WithPrincipal(ctx, auth.Principal{SubjectID: "1", ActiveScopeID: 1})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
@@ -140,9 +149,6 @@ func withTenantPrincipal(t *testing.T, ctx context.Context, tenantID string) con
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	derived = scoped.WithConstraint(derived, scoped.SingleEntityConstraint("iam.role", scoped.WriteConstraint{
-		Resources: []scoped.ResourceConstraint{{Kind: "iam.role", TenantID: tenantID, ManagedScopeID: 1}},
-	}))
 	return derived
 }
 
@@ -269,7 +275,7 @@ func TestRoleRepo_Get_FiltersByTenantFromPrincipal(t *testing.T) {
 	}
 
 	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
-	if _, err := r.Get(ctx, 7); err != nil {
+	if _, err := r.Get(ctx, 7, spec.All()); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 
@@ -297,23 +303,19 @@ func TestRoleRepo_Update_StripsAssociationsBeforeSave(t *testing.T) {
 	role.SetID(7)
 
 	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
-	ctx = scoped.WithConstraint(ctx, scoped.SingleEntityConstraint("iam.role", scoped.WriteConstraint{
-		Resources: []scoped.ResourceConstraint{{Kind: "iam.role", ResourceID: "7", TenantID: "tenant-a", ManagedScopeID: 1, Revision: "0"}},
-	}))
-	if err := r.Update(ctx, role); err != nil {
+	if err := r.Update(ctx, role, spec.All()); err != nil {
 
 		t.Fatalf("Update: %v", err)
 	}
 
-	saved, ok := o.baseRoleModel.savedEntity.(*iamentity.Role)
-	if !ok || saved == nil {
-		t.Fatalf("expected saved role entity, got %#v", o.baseRoleModel.savedEntity)
+	values := o.baseRoleModel.lastUpdateValues
+	if values == nil {
+		t.Fatal("expected update values to be written")
 	}
-	if saved == role {
-		t.Fatal("expected update to save a detached copy")
-	}
-	if saved.Users != nil || saved.Groups != nil || saved.NamespaceScope != nil {
-		t.Fatalf("expected associations stripped before save, got users=%v groups=%v scope=%v", saved.Users, saved.Groups, saved.NamespaceScope)
+	for _, column := range []string{"users", "groups", "namespace_scope"} {
+		if _, ok := values[column]; ok {
+			t.Fatalf("expected associations stripped before save, got %#v", values)
+		}
 	}
 }
 

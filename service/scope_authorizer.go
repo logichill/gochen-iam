@@ -57,11 +57,7 @@ func (a *ScopeAuthorizer) EnsurePlatformScope(ctx context.Context) (*iamentity.S
 	if err := scope.Validate(); err != nil {
 		return nil, err
 	}
-	guard, err := NewPlatformCreateConstraint(ctx, ScopeResourceKind)
-	if err != nil {
-		return nil, err
-	}
-	if err := a.scopeRepo.CreateWithConstraint(ctx, scope, guard); err != nil {
+	if err := a.scopeRepo.Create(ctx, scope, PlatformWriteSpec(ctx)); err != nil {
 		// 并发 create 时回读即可。
 		if reloaded, reloadErr := a.scopeRepo.FindByKey(ctx, platformScopeCode); reloadErr == nil {
 			return reloaded, nil
@@ -151,11 +147,7 @@ func (a *ScopeAuthorizer) ensureTenantRootScope(ctx context.Context, tenant *iam
 	if err := scope.Validate(); err != nil {
 		return nil, err
 	}
-	guard, err := NewPlatformCreateConstraint(ctx, ScopeResourceKind)
-	if err != nil {
-		return nil, err
-	}
-	if err := a.scopeRepo.CreateWithConstraint(ctx, scope, guard); err != nil {
+	if err := a.scopeRepo.Create(ctx, scope, PlatformWriteSpec(ctx)); err != nil {
 		if reloaded, reloadErr := a.scopeRepo.FindByKey(ctx, scopeKey); reloadErr == nil {
 			scope = reloaded
 		} else {
@@ -170,11 +162,7 @@ func (a *ScopeAuthorizer) ensureTenantRootScope(ctx context.Context, tenant *iam
 	if tenant.GetID() > 0 {
 		updatedTenant := *tenant
 		updatedTenant.RootScopeID = &scopeID
-		guard, err := NewPlatformEntityConstraint(ctx, TenantResourceKind, &updatedTenant)
-		if err != nil {
-			return nil, err
-		}
-		if err := a.tenantRepo.UpdateWithConstraint(ctx, &updatedTenant, guard); err != nil {
+		if err := a.tenantRepo.Update(ctx, &updatedTenant, PlatformWriteSpec(ctx)); err != nil {
 			return nil, err
 		}
 	}
@@ -221,11 +209,7 @@ func (a *ScopeAuthorizer) ensureTenantRootScopeState(
 		scope.Status = iamentity.ScopeStatusActive
 		scope.SetUpdatedAt(time.Now())
 
-		guard, err := NewPlatformEntityConstraint(ctx, ScopeResourceKind, scope)
-		if err != nil {
-			return nil, err
-		}
-		if err := a.scopeRepo.UpdateWithConstraint(ctx, scope, guard); err != nil {
+		if err := a.scopeRepo.Update(ctx, scope, PlatformWriteSpec(ctx)); err != nil {
 			return nil, errors.Wrap(err, errors.Database, "修复 tenant root scope 失败")
 		}
 		if parentChanged {
@@ -240,11 +224,7 @@ func (a *ScopeAuthorizer) ensureTenantRootScopeState(
 		if tenant.GetID() > 0 {
 			updatedTenant := *tenant
 			updatedTenant.RootScopeID = &scopeID
-			guard, err := NewPlatformEntityConstraint(ctx, TenantResourceKind, &updatedTenant)
-			if err != nil {
-				return nil, err
-			}
-			if err := a.tenantRepo.UpdateWithConstraint(ctx, &updatedTenant, guard); err != nil {
+			if err := a.tenantRepo.Update(ctx, &updatedTenant, PlatformWriteSpec(ctx)); err != nil {
 				return nil, err
 			}
 		}

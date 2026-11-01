@@ -2,36 +2,57 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
 	menusvc "gochen-iam/service/menu"
 	auth "gochen-runtime/host/authz"
-	"gochen/auth/scoped"
+	appcrud "gochen/app/crud"
+	"gochen/app/query"
 	"gochen/domain"
+	"gochen/domain/spec"
 
 	"gochen-runtime/http/nethttp"
 	"gochen/httpx"
 )
 
-type menuRouteTestRepo struct{}
+type menuRouteTestRepo struct {
+	items []*iamentity.MenuItem
+}
 
-func (menuRouteTestRepo) Create(context.Context, *iamentity.MenuItem) error { return nil }
-func (menuRouteTestRepo) Update(context.Context, *iamentity.MenuItem) error { return nil }
-func (menuRouteTestRepo) Delete(context.Context, int64) error               { return nil }
-func (menuRouteTestRepo) Get(context.Context, int64) (*iamentity.MenuItem, error) {
+func (menuRouteTestRepo) Create(context.Context, *iamentity.MenuItem, spec.Spec) error { return nil }
+func (menuRouteTestRepo) Update(context.Context, *iamentity.MenuItem, spec.Spec) error { return nil }
+func (menuRouteTestRepo) Delete(context.Context, *iamentity.MenuItem, spec.Spec) error { return nil }
+func (menuRouteTestRepo) Get(context.Context, int64, spec.Spec) (*iamentity.MenuItem, error) {
 	return &iamentity.MenuItem{}, nil
 }
-func (menuRouteTestRepo) List(context.Context, int, int) ([]*iamentity.MenuItem, error) {
-	return nil, nil
+func (r menuRouteTestRepo) List(_ context.Context, offset, limit int, _ spec.Spec) ([]*iamentity.MenuItem, error) {
+	if offset >= len(r.items) {
+		return nil, nil
+	}
+	return r.items[offset:min(offset+limit, len(r.items))], nil
 }
-func (menuRouteTestRepo) Count(context.Context) (int64, error) { return 0, nil }
-func (menuRouteTestRepo) Exists(context.Context, int64) (bool, error) {
+func (r menuRouteTestRepo) Count(context.Context, spec.Spec) (int64, error) {
+	return int64(len(r.items)), nil
+}
+func (menuRouteTestRepo) Exists(context.Context, int64, spec.Spec) (bool, error) {
 	return false, nil
+}
+func (r menuRouteTestRepo) Query(ctx context.Context, opts query.QueryOptions, s spec.Spec) ([]*iamentity.MenuItem, error) {
+	return r.List(ctx, opts.Offset, opts.Limit, s)
+}
+func (menuRouteTestRepo) QueryOne(context.Context, query.QueryOptions, spec.Spec) (*iamentity.MenuItem, error) {
+	return &iamentity.MenuItem{}, nil
+}
+func (r menuRouteTestRepo) QueryCount(context.Context, query.QueryOptions, spec.Spec) (int64, error) {
+	return int64(len(r.items)), nil
+}
+func (r menuRouteTestRepo) WithinTx(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
 }
 
 type recordingRouteGroup struct {
@@ -106,39 +127,39 @@ type routeScopedRepo[T domain.IEntity[int64]] struct {
 	entity T
 }
 
-func (r routeScopedRepo[T]) Create(context.Context, T) error { return nil }
-func (r routeScopedRepo[T]) Update(context.Context, T) error { return nil }
-func (r routeScopedRepo[T]) Delete(context.Context, int64) error {
+func (r routeScopedRepo[T]) Create(context.Context, T, spec.Spec) error { return nil }
+func (r routeScopedRepo[T]) Update(context.Context, T, spec.Spec) error { return nil }
+func (r routeScopedRepo[T]) Delete(context.Context, T, spec.Spec) error {
 	return nil
 }
-func (r routeScopedRepo[T]) Get(context.Context, int64) (T, error) {
+func (r routeScopedRepo[T]) Get(context.Context, int64, spec.Spec) (T, error) {
 	return r.entity, nil
 }
-func (r routeScopedRepo[T]) List(context.Context, int, int) ([]T, error) {
+func (r routeScopedRepo[T]) List(context.Context, int, int, spec.Spec) ([]T, error) {
 	return nil, nil
 }
-func (r routeScopedRepo[T]) Count(context.Context) (int64, error) { return 0, nil }
-func (r routeScopedRepo[T]) Exists(context.Context, int64) (bool, error) {
+func (r routeScopedRepo[T]) Count(context.Context, spec.Spec) (int64, error) { return 0, nil }
+func (r routeScopedRepo[T]) Exists(context.Context, int64, spec.Spec) (bool, error) {
 	return false, nil
 }
-func (r routeScopedRepo[T]) ResolveResourceByID(context.Context, int64) (scoped.Resource, error) {
-	return scoped.Resource{}, nil
+func (r routeScopedRepo[T]) Query(context.Context, query.QueryOptions, spec.Spec) ([]T, error) {
+	return nil, nil
 }
-func (r routeScopedRepo[T]) CreateWithConstraint(context.Context, T, iamaccess.WriteConstraint) error {
-	return nil
+func (r routeScopedRepo[T]) QueryOne(context.Context, query.QueryOptions, spec.Spec) (T, error) {
+	return r.entity, nil
 }
-func (r routeScopedRepo[T]) UpdateWithConstraint(context.Context, T, iamaccess.WriteConstraint) error {
-	return nil
+func (r routeScopedRepo[T]) QueryCount(context.Context, query.QueryOptions, spec.Spec) (int64, error) {
+	return 0, nil
 }
-func (r routeScopedRepo[T]) DeleteWithConstraint(context.Context, int64, iamaccess.WriteConstraint) error {
-	return nil
+func (r routeScopedRepo[T]) WithinTx(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
 }
 
 func TestMenuRoutes_RegisterRoutes(t *testing.T) {
 	routes := map[string]struct{}{}
 	root := newRecordingGroup("", routes)
 
-	mr := NewMenuRoutes(&menusvc.MenuService{}, menuRouteTestRepo{}, nil)
+	mr := NewMenuRoutes(&menusvc.MenuService{}, menuRouteTestRepo{}, svc.NewIAMAuthorizer(nil))
 	if err := mr.RegisterRoutes(root); err != nil {
 		t.Fatalf("RegisterRoutes failed: %v", err)
 	}
@@ -168,6 +189,56 @@ func TestMenuRoutes_RegisterRoutes(t *testing.T) {
 	}
 }
 
+func TestMenuRoutes_ListIgnoresPagination(t *testing.T) {
+	repo := menuRouteTestRepo{}
+	for id := int64(1); id <= 15; id++ {
+		item := &iamentity.MenuItem{}
+		item.SetID(id)
+		repo.items = append(repo.items, item)
+	}
+	root := newRecordingGroup("", nil)
+	if err := NewMenuRoutes(&menusvc.MenuService{}, repo, svc.NewIAMAuthorizer(nil)).RegisterRoutes(root); err != nil {
+		t.Fatal(err)
+	}
+	handler := root.handlers["GET /menus"]
+	if handler == nil {
+		t.Fatal("missing menu list handler")
+	}
+	for _, url := range []string{"/menus", "/menus?page=2&size=1", "/menus?page_size=1", "/menus?page=bad&size=0"} {
+		t.Run(url, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			base, err := auth.WithPrincipal(context.Background(), auth.Principal{IsSystem: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, err := nethttp.NewBaseContext(rec, httptest.NewRequest(http.MethodGet, url, nil).WithContext(base))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := handler(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d; body = %s", rec.Code, rec.Body.String())
+			}
+			var response struct {
+				Data []*iamentity.MenuItem `json:"data"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if len(response.Data) != len(repo.items) {
+				t.Fatalf("returned %d menus, want %d", len(response.Data), len(repo.items))
+			}
+			for i, item := range response.Data {
+				if item.GetID() != int64(i+1) {
+					t.Errorf("menu %d has ID %d, want %d", i, item.GetID(), i+1)
+				}
+			}
+		})
+	}
+}
+
 func TestManagementCRUDRoutesUseManageMiddlewareGroup(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -178,7 +249,7 @@ func TestManagementCRUDRoutesUseManageMiddlewareGroup(t *testing.T) {
 			name: "user",
 			routes: func(root *recordingRouteGroup) error {
 				repo := routeScopedRepo[*iamentity.User]{entity: &iamentity.User{}}
-				return NewUserRoutes(nil, repo, nil).RegisterRoutes(root)
+				return NewUserRoutes(nil, repo, svc.NewIAMAuthorizer(nil)).RegisterRoutes(root)
 			},
 			want: []string{
 				"GET /users",
@@ -192,7 +263,7 @@ func TestManagementCRUDRoutesUseManageMiddlewareGroup(t *testing.T) {
 			name: "group",
 			routes: func(root *recordingRouteGroup) error {
 				repo := routeScopedRepo[*iamentity.Group]{entity: &iamentity.Group{}}
-				return NewGroupRoutes(nil, repo, nil).RegisterRoutes(root)
+				return NewGroupRoutes(nil, repo, svc.NewIAMAuthorizer(nil)).RegisterRoutes(root)
 			},
 			want: []string{
 				"GET /groups",
@@ -206,7 +277,7 @@ func TestManagementCRUDRoutesUseManageMiddlewareGroup(t *testing.T) {
 			name: "role",
 			routes: func(root *recordingRouteGroup) error {
 				repo := routeScopedRepo[*iamentity.Role]{entity: &iamentity.Role{}}
-				return NewRoleRoutes(nil, repo, nil, nil).RegisterRoutes(root)
+				return NewRoleRoutes(nil, repo, nil, svc.NewIAMAuthorizer(nil)).RegisterRoutes(root)
 			},
 			want: []string{
 				"GET /roles",
@@ -240,7 +311,7 @@ func TestTenantRoutesListUsesScopedQueryRepository(t *testing.T) {
 	repo := routeScopedRepo[*iamentity.Tenant]{entity: &iamentity.Tenant{}}
 
 	root := newRecordingGroup("", nil)
-	if err := NewTenantRoutes(nil, repo, nil, nil, nil, nil, nil).RegisterRoutes(root); err != nil {
+	if err := NewTenantRoutes(nil, repo, nil, svc.NewIAMAuthorizer(nil), nil, nil, nil, nil).RegisterRoutes(root); err != nil {
 		t.Fatalf("RegisterRoutes failed: %v", err)
 	}
 	handler := root.handlers["GET /tenants"]
@@ -248,7 +319,7 @@ func TestTenantRoutesListUsesScopedQueryRepository(t *testing.T) {
 		t.Fatalf("missing tenant list handler")
 	}
 
-	baseCtx, err := auth.WithPrincipal(context.Background(), auth.Principal{SubjectID: 1, IsSystem: true})
+	baseCtx, err := auth.WithPrincipal(context.Background(), auth.Principal{SubjectID: "1", IsSystem: true})
 	if err != nil {
 		t.Fatalf("WithPrincipal failed: %v", err)
 	}
@@ -268,8 +339,8 @@ func TestTenantRoutesListUsesScopedQueryRepository(t *testing.T) {
 }
 
 var (
-	_ svc.IScopedResourceContextRepository[*iamentity.User, int64]   = routeScopedRepo[*iamentity.User]{}
-	_ svc.IScopedResourceContextRepository[*iamentity.Group, int64]  = routeScopedRepo[*iamentity.Group]{}
-	_ svc.IScopedResourceContextRepository[*iamentity.Role, int64]   = routeScopedRepo[*iamentity.Role]{}
-	_ svc.IScopedResourceContextRepository[*iamentity.Tenant, int64] = routeScopedRepo[*iamentity.Tenant]{}
+	_ appcrud.Repository[*iamentity.User, int64]   = routeScopedRepo[*iamentity.User]{}
+	_ appcrud.Repository[*iamentity.Group, int64]  = routeScopedRepo[*iamentity.Group]{}
+	_ appcrud.Repository[*iamentity.Role, int64]   = routeScopedRepo[*iamentity.Role]{}
+	_ appcrud.Repository[*iamentity.Tenant, int64] = routeScopedRepo[*iamentity.Tenant]{}
 )

@@ -27,7 +27,7 @@ func newTenantGuardRequestContext(t *testing.T, tenantID string) httpx.IRequestC
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	baseCtx, err = auth.WithPrincipal(context.Background(), auth.Principal{SubjectID: 1})
+	baseCtx, err = auth.WithPrincipal(context.Background(), auth.Principal{SubjectID: "1"})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}

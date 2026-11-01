@@ -8,11 +8,8 @@ import (
 	svc "gochen-iam/service"
 	rolesvc "gochen-iam/service/role"
 	"gochen-runtime/api/rest"
-	"gochen-runtime/security"
 	appcrud "gochen/app/crud"
 	"gochen/app/query"
-	"gochen/auth/action"
-	"gochen/auth/scoped"
 	"gochen/errors"
 	"gochen/httpx"
 )
@@ -32,18 +29,18 @@ var roleQuerySchema = query.MustInferQuerySchema[roleQueryFields](nil)
 // RoleRoutes 角色路由注册器
 type RoleRoutes struct {
 	roleService     IRoleService
-	roleRepo        svc.IScopedResourceContextRepository[*iamentity.Role, int64]
+	roleRepo        appcrud.Repository[*iamentity.Role, int64]
 	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      scoped.IAuthorizer
+	authorizer      *svc.IAMAuthorizer
 	governance      *rolesvc.Governance
 }
 
 // NewRoleRoutes 创建角色路由注册器
 func NewRoleRoutes(
 	roleService IRoleService,
-	roleRepo svc.IScopedResourceContextRepository[*iamentity.Role, int64],
+	roleRepo appcrud.Repository[*iamentity.Role, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer scoped.IAuthorizer,
+	authorizer *svc.IAMAuthorizer,
 ) *RoleRoutes {
 	var governance *rolesvc.Governance
 	if provider, ok := roleService.(interface{ Governance() *rolesvc.Governance }); ok {
@@ -72,7 +69,18 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		iammw.ApiPermission(iammw.ResourceRole, iammw.ActionManage).Scope(iammw.ScopePlatform, iammw.ScopeTenant),
 	))
 
-	appService, err := svc.NewCRUDApplication[*iamentity.Role, int64](rr.roleRepo, rr.roleRepo, &appcrud.Options[*iamentity.Role, int64]{Hooks: newScopeBackedRoleCRUDHooks(rr.roleRepo, rr.scopeAuthorizer, rr.governance)})
+	app, err := appcrud.NewApplication[*iamentity.Role, int64](rr.roleRepo, appcrud.Options[*iamentity.Role, int64]{
+		Resource:   "role",
+		Authorizer: rr.authorizer,
+		ActionPermissions: map[string]string{
+			appcrud.ActionRead:   svc.RolePermissionSet.Code(iammw.ActionRead),
+			appcrud.ActionList:   svc.RolePermissionSet.Code(iammw.ActionRead),
+			appcrud.ActionCreate: svc.RolePermissionSet.Code(iammw.ActionWrite),
+			appcrud.ActionUpdate: svc.RolePermissionSet.Code(iammw.ActionWrite),
+			appcrud.ActionDelete: svc.RolePermissionSet.Code(iammw.ActionDelete),
+		},
+		Hooks: newScopeBackedRoleCRUDHooks(rr.roleRepo, rr.scopeAuthorizer, rr.governance),
+	})
 	if err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create role crud application").WithContext("route", "iam.role")
@@ -80,44 +88,10 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create role crud application").WithContext("route", "iam.role")
 	}
 
-	var app appcrud.IApplication[*iamentity.Role, int64] = appService
-	if rr.authorizer != nil {
-		scopedApp, err := security.Scoped(appService, rr.authorizer, security.ScopedConfig{
-			EntityType: svc.RoleResourceKind,
-			Policy: action.OperationPolicy{
-				Create: iammw.ApiPermission(iammw.ResourceRole, iammw.ActionWrite).Code,
-				Update: iammw.ApiPermission(iammw.ResourceRole, iammw.ActionWrite).Code,
-				Delete: iammw.ApiPermission(iammw.ResourceRole, iammw.ActionDelete).Code,
-				Read:   iammw.ApiPermission(iammw.ResourceRole, iammw.ActionRead).Code,
-				List:   iammw.ApiPermission(iammw.ResourceRole, iammw.ActionRead).Code,
-			},
-			ScopeResolver: svc.DefaultDataScopeResolver,
-		})
-		if err != nil {
-			return err
-		}
-		app = scopedApp
-	}
-
-	builder, err := rest.NewApiBuilder[*iamentity.Role, int64](
-		app,
+	if err := rest.Mount(adminGroup, app,
 		rest.WithQuerySchema[*iamentity.Role, int64](roleQuerySchema),
-	)
-
-	if err != nil {
-		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
-			return appErr.Wrap("create role api builder").WithContext("route", "iam.role")
-		}
-		return errors.Wrap(err, errors.Internal, "failed to create role api builder").WithContext("route", "iam.role")
-	}
-	if err := builder.
-		Route(func(cfg *rest.RouteConfig[int64]) {
-			cfg.Routing.EnableBatch = false
-			cfg.Query.EnablePagination = true
-			cfg.Query.DefaultPageSize = 10
-			cfg.Query.MaxPageSize = 1000
-		}).
-		Build(adminGroup); err != nil {
+		rest.WithPagination[*iamentity.Role, int64](10, 1000),
+	); err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("build role crud routes").WithContext("route", "iam.role")
 		}
@@ -280,7 +254,7 @@ func (rr *RoleRoutes) assignRoleToUsers(ctx httpx.IContext) error {
 	}
 	req.RoleID = roleID
 
-	result, err := rr.roleService.BatchAssignRole(reqCtx, req)
+	result, err := rr.roleService.BulkAssignRole(reqCtx, req)
 	if err != nil {
 		return err
 	}

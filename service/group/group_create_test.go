@@ -7,6 +7,7 @@ import (
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
 	"gochen/auth/scoped"
+	"gochen/domain/spec"
 	"gochen/errors"
 )
 
@@ -44,12 +45,11 @@ func TestGroupRepoCreateWithInferredScope(t *testing.T) {
 				t.Fatal(err)
 			}
 			// 新建授权早于范围和 ID 补齐；层级字段应随首次写入完整持久化。
-			ctx = scoped.WithConstraint(ctx, scoped.SingleEntityConstraint(svc.GroupResourceKind, scoped.WriteConstraint{
-				Resources: []scoped.ResourceConstraint{{
-					Kind: svc.GroupResourceKind, TenantID: env.tenantID, ManagedScopeID: tc.authorizedScope,
-				}},
-			}))
-			err = env.groupRepo.Create(ctx, group)
+			s := spec.All()
+			if tc.authorizedScope != 0 {
+				s = spec.Eq(spec.RoleScope, tc.authorizedScope)
+			}
+			err = env.groupRepo.Create(ctx, group, s)
 			if tc.forbidden {
 				if !errors.Is(err, errors.Forbidden) {
 					t.Fatalf("expected forbidden, got %v", err)
@@ -66,7 +66,7 @@ func TestGroupRepoCreateWithInferredScope(t *testing.T) {
 			if err != nil {
 				t.Fatalf("create group with inferred scope: %v", err)
 			}
-			stored, err := env.groupRepo.Get(ctx, group.GetID())
+			stored, err := env.groupRepo.Get(ctx, group.GetID(), spec.All())
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -17,7 +17,7 @@ import (
 )
 
 func TestRoleRepositoryQueryCountExcludesPlatformScopeFromTenantDataScope(t *testing.T) {
-	env := setupRoleBatchTest(t)
+	env := setupRoleBulkTest(t)
 	defer env.teardown(t)
 
 	platformRole := &iamentity.Role{
@@ -47,7 +47,7 @@ func TestRoleRepositoryQueryCountExcludesPlatformScopeFromTenantDataScope(t *tes
 	if err != nil {
 		t.Fatalf("bind tenant data scope: %v", err)
 	}
-	count, err := env.roleRepo.QueryCount(ctx, dbquery.QueryOptions{})
+	count, err := env.roleRepo.QueryCount(ctx, dbquery.QueryOptions{}, svc.DataScopeSpec(ctx))
 	if err != nil {
 		t.Fatalf("query tenant role count: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestRoleRepositoryQueryCountExcludesPlatformScopeFromTenantDataScope(t *tes
 }
 
 func TestRoleServiceRoleUsersRequiresPlatformScopeForPlatformOwnedRole(t *testing.T) {
-	env := setupRoleBatchTest(t)
+	env := setupRoleBulkTest(t)
 	defer env.teardown(t)
 	env.backgroundCtx = tenant.WithPolicy(env.backgroundCtx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: env.tenantID})
 
@@ -99,7 +99,7 @@ func TestRoleServiceRoleUsersRequiresPlatformScopeForPlatformOwnedRole(t *testin
 
 	tenantCtx := iamauth.BindActiveScopeContext(env.backgroundCtx, 1, string(iammw.ScopeTenant))
 	tenantCtx, err := auth.WithPrincipal(tenantCtx, auth.Principal{
-		SubjectID:     42,
+		SubjectID:     "42",
 		Permissions:   []string{svc.RolePermissionSet.Code(iammw.ActionRead)},
 		ActiveScopeID: 1,
 	})
@@ -114,7 +114,7 @@ func TestRoleServiceRoleUsersRequiresPlatformScopeForPlatformOwnedRole(t *testin
 
 	platformCtx := iamauth.BindActiveScopeContext(env.backgroundCtx, platformScopeID, string(iammw.ScopePlatform))
 	platformCtx, err = auth.WithPrincipal(platformCtx, auth.Principal{
-		SubjectID:     7,
+		SubjectID:     "7",
 		Permissions:   []string{svc.RolePermissionSet.Code(iammw.ActionRead)},
 		ActiveScopeID: platformScopeID,
 	})

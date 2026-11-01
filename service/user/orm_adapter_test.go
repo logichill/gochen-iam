@@ -19,13 +19,14 @@ import (
 // newTestOrm 为用户集成测试提供最小 GORM 适配器。
 func newTestOrm(db *gorm.DB) orm.IOrm {
 	return &testGormOrm{
-		db: db,
+		db:           db,
+		datasourceID: fmt.Sprintf("iam-test:%p", db.Statement.ConnPool),
 		capabilities: orm.NewCapabilities(
 			orm.CapabilityBasicCRUD,
 			orm.CapabilityQuery,
 			orm.CapabilityPreload,
 			orm.CapabilityAssociationWrite,
-			orm.CapabilityBatchWrite,
+			orm.CapabilityBulkWrite,
 			orm.CapabilityTransaction,
 		),
 	}
@@ -33,12 +34,15 @@ func newTestOrm(db *gorm.DB) orm.IOrm {
 
 type testGormOrm struct {
 	db           *gorm.DB
+	datasourceID string
 	capabilities orm.Capabilities
 }
 
+func (g *testGormOrm) DatasourceID() string { return g.datasourceID }
+
 func (g *testGormOrm) Capabilities() orm.Capabilities { return g.capabilities }
 func (g *testGormOrm) WithContext(ctx context.Context) orm.IOrm {
-	return &testGormOrm{db: g.db.WithContext(ctx), capabilities: g.capabilities}
+	return &testGormOrm{db: g.db.WithContext(ctx), datasourceID: g.datasourceID, capabilities: g.capabilities}
 }
 func (g *testGormOrm) Model(meta *orm.ModelMeta) (orm.IModel, error) {
 	if meta == nil {
@@ -51,14 +55,14 @@ func (g *testGormOrm) Begin(ctx context.Context) (orm.IOrmSession, error) {
 	if tx.Error != nil {
 		return nil, tx.Error
 	}
-	return &testGormSession{testGormOrm{db: tx, capabilities: g.capabilities}}, nil
+	return &testGormSession{testGormOrm{db: tx, datasourceID: g.datasourceID, capabilities: g.capabilities}}, nil
 }
 func (g *testGormOrm) BeginTx(ctx context.Context, opts *sql.TxOptions) (orm.IOrmSession, error) {
 	tx := g.db.WithContext(ctx).Begin(opts)
 	if tx.Error != nil {
 		return nil, tx.Error
 	}
-	return &testGormSession{testGormOrm{db: tx, capabilities: g.capabilities}}, nil
+	return &testGormSession{testGormOrm{db: tx, datasourceID: g.datasourceID, capabilities: g.capabilities}}, nil
 }
 func (g *testGormOrm) Database() db.IDatabase { return nil }
 func (g *testGormOrm) Raw() any               { return g.db }
@@ -85,7 +89,7 @@ func (m *testGormModel) Capabilities() orm.Capabilities {
 		orm.CapabilityQuery,
 		orm.CapabilityPreload,
 		orm.CapabilityAssociationWrite,
-		orm.CapabilityBatchWrite,
+		orm.CapabilityBulkWrite,
 		orm.CapabilityTransaction,
 	)
 }

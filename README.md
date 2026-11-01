@@ -6,7 +6,7 @@
 - 授权运行时统一围绕 `Principal.ActiveScopeID`
 - 资源归属统一围绕 `managed_scope_id` / `namespace_scope_id`
 - 查询边界统一围绕 `DataScope.VisibleScopeIDs`
-- 最终写边界统一围绕 `AuthzDecision -> WriteConstraint`
+- 最终写边界统一围绕 `AuthzDecision -> spec.Spec`（写规约）
 - `platform tenant`、`tenants.is_platform`、`platform_slot`、`scope_type/scope_code` 查询过滤都已移除
 
 > 菜单仅用于“导航可见性”，不作为安全边界。真正的安全边界必须由服务端 API 权限校验保证。
@@ -212,14 +212,14 @@ repo / orm 默认围绕资源归属字段注入边界：
 
 ### 写入
 
-所有正式写操作最终都围绕显式 `WriteConstraint` 落库：
+所有正式写操作最终都围绕显式 `spec.Spec` 写规约落库：
 
 - service 先做 `Authorize(...)`
-- 将 allow 决策投影成 `WriteConstraint`
-- repo 在最终 `INSERT / UPDATE / DELETE` 处校验：
+- 将 allow 决策投影成 `spec.Spec`
+- repo 在最终 `INSERT / UPDATE / DELETE` 处合并规约并校验：
   - 资源 ID
   - `managed_scope_id`
-  - `revision/version`
+  - `revision/version`（乐观锁）
 
 这意味着：
 

@@ -19,13 +19,14 @@ import (
 // newGroupTestOrm 为组织集成测试提供最小 GORM 适配器。
 func newGroupTestOrm(db *gorm.DB) orm.IOrm {
 	return &groupTestGormOrm{
-		db: db,
+		db:           db,
+		datasourceID: fmt.Sprintf("iam-test:%p", db.Statement.ConnPool),
 		capabilities: orm.NewCapabilities(
 			orm.CapabilityBasicCRUD,
 			orm.CapabilityQuery,
 			orm.CapabilityPreload,
 			orm.CapabilityAssociationWrite,
-			orm.CapabilityBatchWrite,
+			orm.CapabilityBulkWrite,
 			orm.CapabilityTransaction,
 		),
 	}
@@ -33,12 +34,15 @@ func newGroupTestOrm(db *gorm.DB) orm.IOrm {
 
 type groupTestGormOrm struct {
 	db           *gorm.DB
+	datasourceID string
 	capabilities orm.Capabilities
 }
 
+func (g *groupTestGormOrm) DatasourceID() string { return g.datasourceID }
+
 func (g *groupTestGormOrm) Capabilities() orm.Capabilities { return g.capabilities }
 func (g *groupTestGormOrm) WithContext(ctx context.Context) orm.IOrm {
-	return &groupTestGormOrm{db: g.db.WithContext(ctx), capabilities: g.capabilities}
+	return &groupTestGormOrm{db: g.db.WithContext(ctx), datasourceID: g.datasourceID, capabilities: g.capabilities}
 }
 func (g *groupTestGormOrm) Model(meta *orm.ModelMeta) (orm.IModel, error) {
 	if meta == nil {
@@ -51,14 +55,14 @@ func (g *groupTestGormOrm) Begin(ctx context.Context) (orm.IOrmSession, error) {
 	if tx.Error != nil {
 		return nil, tx.Error
 	}
-	return &groupTestGormSession{groupTestGormOrm{db: tx, capabilities: g.capabilities}}, nil
+	return &groupTestGormSession{groupTestGormOrm{db: tx, datasourceID: g.datasourceID, capabilities: g.capabilities}}, nil
 }
 func (g *groupTestGormOrm) BeginTx(ctx context.Context, opts *sql.TxOptions) (orm.IOrmSession, error) {
 	tx := g.db.WithContext(ctx).Begin(opts)
 	if tx.Error != nil {
 		return nil, tx.Error
 	}
-	return &groupTestGormSession{groupTestGormOrm{db: tx, capabilities: g.capabilities}}, nil
+	return &groupTestGormSession{groupTestGormOrm{db: tx, datasourceID: g.datasourceID, capabilities: g.capabilities}}, nil
 }
 func (g *groupTestGormOrm) Database() db.IDatabase { return nil }
 func (g *groupTestGormOrm) Raw() any               { return g.db }
@@ -85,7 +89,7 @@ func (m *groupTestGormModel) Capabilities() orm.Capabilities {
 		orm.CapabilityQuery,
 		orm.CapabilityPreload,
 		orm.CapabilityAssociationWrite,
-		orm.CapabilityBatchWrite,
+		orm.CapabilityBulkWrite,
 		orm.CapabilityTransaction,
 	)
 }

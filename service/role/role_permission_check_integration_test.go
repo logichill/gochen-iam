@@ -16,8 +16,8 @@ import (
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
 	auth "gochen-runtime/host/authz"
-	"gochen/auth/scoped"
 	"gochen/contextx"
+	"gochen/domain/spec"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -62,19 +62,12 @@ func TestRoleServiceCheckPermissionIncludesGroupDefaultRoles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
-	authzRegistry, err := svc.NewIAMAuthzRegistry()
-	if err != nil {
-		t.Fatalf("NewIAMAuthzRegistry: %v", err)
-	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
-	if err != nil {
-		t.Fatalf("NewIAMAuthorizer: %v", err)
-	}
+	authorizer := svc.NewIAMAuthorizer(nil)
 	roleService := NewRoleService(roleRepo, userRepo, groupRepo, nil, authorizer, nil, gen.NewUUIDGenerator(), logging.NewNoopLogger())
 
 	ctx := context.Background()
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
-		SubjectID:     1,
+		SubjectID:     "1",
 		Permissions:   []string{"*:*:*"},
 		ActiveScopeID: 1,
 		IsSystem:      true,
@@ -86,16 +79,6 @@ func TestRoleServiceCheckPermissionIncludesGroupDefaultRoles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	ctx = scoped.WithConstraint(ctx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
-		return scoped.WriteConstraint{
-			Resources: []scoped.ResourceConstraint{{
-				Kind:           entityType,
-				TenantID:       "test-tenant",
-				ManagedScopeID: 1,
-				Revision:       "0",
-			}},
-		}, true
-	}))
 
 	user := &iamentity.User{
 		TenantID:       "test-tenant",
@@ -108,7 +91,7 @@ func TestRoleServiceCheckPermissionIncludesGroupDefaultRoles(t *testing.T) {
 		Password:       "hashed-password",
 		Status:         svc.UserStatusActive,
 	}
-	if err := userRepo.Create(ctx, user); err != nil {
+	if err := userRepo.Create(ctx, user, spec.All()); err != nil {
 		t.Fatalf("create user: %v", err)
 	}
 
@@ -119,7 +102,7 @@ func TestRoleServiceCheckPermissionIncludesGroupDefaultRoles(t *testing.T) {
 		Name:           "ops",
 		Description:    "ops group",
 	}
-	if err := groupRepo.Create(ctx, group); err != nil {
+	if err := groupRepo.Create(ctx, group, spec.All()); err != nil {
 		t.Fatalf("create group: %v", err)
 	}
 
@@ -133,14 +116,14 @@ func TestRoleServiceCheckPermissionIncludesGroupDefaultRoles(t *testing.T) {
 		Permissions:      iamentity.PermissionArray([]string{"perm:api:via_group"}),
 		Status:           svc.RoleStatusActive,
 	}
-	if err := roleRepo.Create(ctx, role); err != nil {
+	if err := roleRepo.Create(ctx, role, spec.All()); err != nil {
 		t.Fatalf("create role: %v", err)
 	}
 
-	if err := userRepo.AssignToGroup(ctx, user.GetID(), group.GetID()); err != nil {
+	if err := userRepo.AssignToGroup(ctx, user.GetID(), group.GetID(), spec.All()); err != nil {
 		t.Fatalf("assign user to group: %v", err)
 	}
-	if err := roleRepo.AssignToGroup(ctx, role.GetID(), group.GetID()); err != nil {
+	if err := roleRepo.AssignToGroup(ctx, role.GetID(), group.GetID(), spec.All()); err != nil {
 		t.Fatalf("assign role to group: %v", err)
 	}
 

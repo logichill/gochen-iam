@@ -19,8 +19,8 @@ import (
 	groupsvc "gochen-iam/service/group"
 	usersvc "gochen-iam/service/user"
 	auth "gochen-runtime/host/authz"
-	"gochen/auth/scoped"
 	"gochen/contextx"
+	"gochen/domain/spec"
 	"gochen/errors"
 
 	"gorm.io/driver/sqlite"
@@ -87,14 +87,7 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
-	authzRegistry, err := svc.NewIAMAuthzRegistry()
-	if err != nil {
-		t.Fatalf("NewIAMAuthzRegistry: %v", err)
-	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
-	if err != nil {
-		t.Fatalf("NewIAMAuthorizer: %v", err)
-	}
+	authorizer := svc.NewIAMAuthorizer(nil)
 
 	// 创建服务
 	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, nil, authorizer, logging.NewNoopLogger())
@@ -103,7 +96,7 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	// 创建背景上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
-		SubjectID:     1,
+		SubjectID:     "1",
 		Permissions:   []string{"*:*:*"},
 		ActiveScopeID: 1,
 		IsSystem:      true,
@@ -115,16 +108,6 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	ctx = scoped.WithConstraint(ctx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
-		return scoped.WriteConstraint{
-			Resources: []scoped.ResourceConstraint{{
-				Kind:           entityType,
-				TenantID:       "test-tenant",
-				ManagedScopeID: 1,
-				Revision:       "0",
-			}},
-		}, true
-	}))
 
 	return &groupServiceTestEnv{
 		db:            db,
@@ -174,7 +157,7 @@ func (env *groupServiceTestEnv) createTestRole(t *testing.T, name string) *iamen
 		Permissions:      iamentity.PermissionArray([]string{"test:api:read"}),
 		Status:           svc.RoleStatusActive,
 	}
-	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
+	if err := env.roleRepo.Create(env.backgroundCtx, role, spec.All()); err != nil {
 		t.Fatalf("create test role: %v", err)
 	}
 	return role
@@ -470,7 +453,7 @@ func TestGroupServiceUpdateGroup_ReparentsDescendants(t *testing.T) {
 		t.Fatalf("expected child path %s, got %s", expectedChildPath, updatedChild.Path)
 	}
 
-	storedGrand, err := env.groupRepo.Get(env.backgroundCtx, grand.GetID())
+	storedGrand, err := env.groupRepo.Get(env.backgroundCtx, grand.GetID(), spec.All())
 	if err != nil {
 		t.Fatalf("get grand after reparent: %v", err)
 	}
@@ -568,7 +551,7 @@ func TestGroupServiceDeleteGroup(t *testing.T) {
 	}
 
 	// 验证已删除
-	_, err = env.groupRepo.Get(env.backgroundCtx, group.GetID())
+	_, err = env.groupRepo.Get(env.backgroundCtx, group.GetID(), spec.All())
 	if err == nil {
 		t.Error("expected error when getting deleted group, got nil")
 	}
@@ -653,8 +636,8 @@ func TestGroupServiceRemoveUserFromGroup(t *testing.T) {
 	}
 }
 
-// TestGroupServiceBatchAddUsersToGroup 测试批量添加用户
-func TestGroupServiceBatchAddUsersToGroup(t *testing.T) {
+// TestGroupServiceBulkAddUsersToGroup 测试批量添加用户
+func TestGroupServiceBulkAddUsersToGroup(t *testing.T) {
 	env := setupGroupServiceTest(t)
 	defer env.teardown(t)
 
@@ -677,9 +660,9 @@ func TestGroupServiceBatchAddUsersToGroup(t *testing.T) {
 
 	// 批量添加
 	userIDs := []int64{user1.GetID(), user2.GetID(), user3.GetID()}
-	resp, err := env.groupService.BatchAddUsersToGroup(env.backgroundCtx, group.GetID(), userIDs)
+	resp, err := env.groupService.BulkAddUsersToGroup(env.backgroundCtx, group.GetID(), userIDs)
 	if err != nil {
-		t.Fatalf("batch add users: %v", err)
+		t.Fatalf("bulk add users: %v", err)
 	}
 
 	if resp.SuccessCount != 3 {
@@ -699,7 +682,7 @@ func TestGroupServiceBatchAddUsersToGroup(t *testing.T) {
 	}
 }
 
-func TestGroupServiceBatchAddUsersToGroup_RollsBackOnFailure(t *testing.T) {
+func TestGroupServiceBulkAddUsersToGroup_RollsBackOnFailure(t *testing.T) {
 	env := setupGroupServiceTest(t)
 	defer env.teardown(t)
 
@@ -716,13 +699,13 @@ func TestGroupServiceBatchAddUsersToGroup_RollsBackOnFailure(t *testing.T) {
 	user1 := env.createTestUser(t, "batchrollback1", "rollback1@example.com")
 	user2 := env.createTestUser(t, "batchrollback2", "rollback2@example.com")
 
-	resp, err := env.groupService.BatchAddUsersToGroup(
+	resp, err := env.groupService.BulkAddUsersToGroup(
 		env.backgroundCtx,
 		group.GetID(),
 		[]int64{user1.GetID(), -1, user2.GetID()},
 	)
 	if err != nil {
-		t.Fatalf("batch add users with rollback: %v", err)
+		t.Fatalf("bulk add users with rollback: %v", err)
 	}
 
 	if resp.SuccessCount != 0 {
@@ -908,12 +891,12 @@ func TestGroupRepoCreateRejectsDuplicateRootGroupPerTenant(t *testing.T) {
 	defer env.teardown(t)
 
 	first := &iamentity.Group{TenantID: env.tenantID, Name: "root"}
-	if err := env.groupRepo.Create(env.backgroundCtx, first); err != nil {
+	if err := env.groupRepo.Create(env.backgroundCtx, first, spec.All()); err != nil {
 		t.Fatalf("create first root group: %v", err)
 	}
 
 	second := &iamentity.Group{TenantID: env.tenantID, Name: "root"}
-	if err := env.groupRepo.Create(env.backgroundCtx, second); err == nil {
+	if err := env.groupRepo.Create(env.backgroundCtx, second, spec.All()); err == nil {
 		t.Fatalf("expected duplicate root group to be rejected")
 	}
 }
@@ -937,7 +920,7 @@ func TestGroupRepoCreateSyncsHierarchyFromParentID(t *testing.T) {
 		Name:     "child",
 		ParentID: &parentID,
 	}
-	if err := env.groupRepo.Create(env.backgroundCtx, child); err != nil {
+	if err := env.groupRepo.Create(env.backgroundCtx, child, spec.All()); err != nil {
 		t.Fatalf("create child group via repo: %v", err)
 	}
 
@@ -988,17 +971,7 @@ func TestGroupRepoUpdateSyncsHierarchyFromParentID(t *testing.T) {
 	rootBID := rootB.GetID()
 	child.Parent = nil
 	child.ParentID = &rootBID
-	childIDStr := strconv.FormatInt(child.GetID(), 10)
-	updateCtx := scoped.WithConstraint(env.backgroundCtx, scoped.SingleEntityConstraint("iam.group", scoped.WriteConstraint{
-		Resources: []scoped.ResourceConstraint{{
-			Kind:           "iam.group",
-			ResourceID:     childIDStr,
-			TenantID:       env.tenantID,
-			ManagedScopeID: 1,
-			Revision:       "0",
-		}},
-	}))
-	if err := env.groupRepo.Update(updateCtx, child); err != nil {
+	if err := env.groupRepo.Update(env.backgroundCtx, child, spec.All()); err != nil {
 		t.Fatalf("update child via repo: %v", err)
 	}
 

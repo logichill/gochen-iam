@@ -2,14 +2,12 @@ package service
 
 import (
 	"context"
-	"strconv"
 	"strings"
 
-	iamaccess "gochen-iam/access"
 	iamauth "gochen-iam/auth"
 	auth "gochen-runtime/host/authz"
 	"gochen/auth/scoped"
-	"gochen/errors"
+	"gochen/domain/spec"
 )
 
 const tenantOwnerPrefix = "tenant:"
@@ -28,105 +26,52 @@ type ownerEntity interface {
 	GetOwnerID() string
 }
 
-type writeConstraintVersionedEntity interface {
-	GetID() int64
-	GetVersion() uint64
+// DataScopeSpec 把上下文中的数据范围投影为行级规约：
+// Global → 全部可见；Filtered → 授权域集合；DenyAll → 零值规约（不匹配任何行）。
+func DataScopeSpec(ctx context.Context) spec.Spec {
+	scope, ok := scoped.DataScopeFromContext(ctx)
+	if !ok {
+		return spec.Spec{}
+	}
+	switch scope.Kind {
+	case scoped.ScopeGlobal:
+		return spec.All()
+	case scoped.ScopeFiltered:
+		return scoped.ScopeIn(scope.ScopeIDs...)
+	default:
+		return spec.Spec{}
+	}
 }
 
-// NewCreateWriteConstraint 为单资源创建写入构造显式写约束。
-func NewCreateWriteConstraint(ctx context.Context, kind, tenantID string) (WriteConstraint, error) {
-	return newWriteConstraint(ctx, kind, strings.TrimSpace(tenantID), "", "")
-}
-
-// NewEntityWriteConstraint 为已存在资源构造带 revision 的显式写约束。
-func NewEntityWriteConstraint(ctx context.Context, kind string, entity tenantVersionedEntity) (WriteConstraint, error) {
-	if entity == nil {
-		return WriteConstraint{}, errors.NewCode(errors.InvalidInput, "entity is required")
-	}
-	kind = strings.TrimSpace(kind)
-	if kind == "" {
-		return WriteConstraint{}, errors.NewCode(errors.InvalidInput, "resource kind is required")
-	}
-	tenantID := strings.TrimSpace(entity.GetTenantID())
-	resource := scoped.Resource{
-		Kind:     kind,
-		ID:       strconv.FormatInt(entity.GetID(), 10),
-		TenantID: tenantID,
-		OwnerID:  tenantOwnerID(tenantID),
-		Revision: strconv.FormatUint(entity.GetVersion(), 10),
-	}
-	if ownable, ok := any(entity).(ownerEntity); ok && strings.TrimSpace(ownable.GetOwnerID()) != "" {
-		resource.OwnerID = strings.TrimSpace(ownable.GetOwnerID())
-	}
-	if scopedVal, ok := any(entity).(managedScopeEntity); ok && scopedVal.GetManagedScopeID() > 0 {
-		resource.ManagedScopeID = scopedVal.GetManagedScopeID()
-	} else if resourceKindUsesManagedScope(kind) {
-		resource.ManagedScopeID = managedScopeIDFromContext(ctx)
-	}
-	return iamaccess.NewWriteConstraint(scoped.Allow(resource).WriteConstraint()), nil
-}
-
-// NewPlatformCreateConstraint 为 platform-scoped 资源创建显式写约束。
-//
-// 调用约定：调用方需在上游已完成 authz 授权判定（如 router 层的
-// PermissionMiddleware + platform scope kind 检查，或 bootstrap 阶段
-// 显式的 IsSystem principal 场景）。本函数仅负责把已批准的写入范围
-// 投影为仓储可消费的 WriteConstraint，不做授权决策。
-func NewPlatformCreateConstraint(ctx context.Context, kind string) (WriteConstraint, error) {
-	return newPlatformWriteConstraint(kind, "", "")
-}
-
-// NewPlatformEntityConstraint 为已存在的 platform-scoped 资源构造带 revision 的显式写约束。
-//
-// 语义与 NewPlatformCreateConstraint 相同：假定授权判定已在上游完成，
-// 本函数仅为平台级资源的 update/delete 构造带 revision 的写边界。
-func NewPlatformEntityConstraint(ctx context.Context, kind string, entity writeConstraintVersionedEntity) (WriteConstraint, error) {
-	if entity == nil {
-		return WriteConstraint{}, errors.NewCode(errors.InvalidInput, "entity is required")
-	}
-	_ = ctx
-	return newPlatformWriteConstraint(
-		kind,
-		strconv.FormatInt(entity.GetID(), 10),
-		strconv.FormatUint(entity.GetVersion(), 10),
-	)
-}
-
-func newWriteConstraint(ctx context.Context, kind, tenantID, resourceID, revision string) (WriteConstraint, error) {
-	kind = strings.TrimSpace(kind)
-	tenantID = strings.TrimSpace(tenantID)
-	resourceID = strings.TrimSpace(resourceID)
-	revision = strings.TrimSpace(revision)
-	if kind == "" {
-		return WriteConstraint{}, errors.NewCode(errors.InvalidInput, "resource kind is required")
-	}
-	resource := scoped.Resource{
-		Kind:     kind,
-		ID:       resourceID,
-		TenantID: tenantID,
-		OwnerID:  tenantOwnerID(tenantID),
-		Revision: revision,
-	}
+// CreateWriteSpec 为创建路径返回写规约；平台资源不受 managed scope 约束。
+func CreateWriteSpec(ctx context.Context, kind string) spec.Spec {
 	if resourceKindUsesManagedScope(kind) {
-		resource.ManagedScopeID = managedScopeIDFromContext(ctx)
+		return DataScopeSpec(ctx)
 	}
-	return iamaccess.NewWriteConstraint(scoped.Allow(resource).WriteConstraint()), nil
+	return spec.All()
 }
 
-func newPlatformWriteConstraint(kind, resourceID, revision string) (WriteConstraint, error) {
-	kind = strings.TrimSpace(kind)
-	resourceID = strings.TrimSpace(resourceID)
-	revision = strings.TrimSpace(revision)
-	if kind == "" {
-		return WriteConstraint{}, errors.NewCode(errors.InvalidInput, "resource kind is required")
+// EntityWriteSpec 为已存在资源返回写规约；版本条件由仓储自动加入。
+func EntityWriteSpec(ctx context.Context, kind string, entity tenantVersionedEntity) spec.Spec {
+	if entity == nil || resourceKindUsesManagedScope(kind) {
+		return CreateWriteSpec(ctx, kind)
 	}
-	resource := scoped.Resource{
-		Kind:        kind,
-		ID:          resourceID,
-		GlobalScope: true,
-		Revision:    revision,
+	return spec.All()
+}
+
+// PlatformWriteSpec 为平台级资源返回写规约。
+func PlatformWriteSpec(ctx context.Context) spec.Spec {
+	_ = ctx
+	return spec.All()
+}
+
+func resourceKindUsesManagedScope(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case UserResourceKind, GroupResourceKind, RoleResourceKind:
+		return true
+	default:
+		return false
 	}
-	return iamaccess.NewWriteConstraint(scoped.Allow(resource).WriteConstraint()), nil
 }
 
 func tenantOwnerID(tenantID string) string {

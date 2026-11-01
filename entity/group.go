@@ -18,9 +18,9 @@ type Group struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	TenantID       string `json:"tenant_id" gorm:"size:64;not null;index;uniqueIndex:idx_group_name_parent_tenant"`
-	ManagedScopeID int64  `json:"managed_scope_id" gorm:"not null;index"`
-	OwnerID        string `json:"owner_id" gorm:"size:128;not null;index"`
+	TenantID       string `json:"tenant_id" role:"tenant" gorm:"size:64;not null;index;uniqueIndex:idx_group_name_parent_tenant"`
+	ManagedScopeID int64  `json:"managed_scope_id" role:"scope" gorm:"not null;index"`
+	OwnerID        string `json:"owner_id" role:"owner" gorm:"size:128;not null;index"`
 	Name           string `json:"name" gorm:"size:100;not null;uniqueIndex:idx_group_name_parent_tenant"`
 	// Code 用于承接管理端当前仍会回传的组织编码字段；当前 groups 表未持久化该列。
 	Code        string `json:"code,omitempty" gorm:"-"`

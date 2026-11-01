@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	iamauth "gochen-iam/auth"
@@ -20,7 +21,7 @@ func PrincipalFromClaims(claims *JWTClaims, tenantID string) auth.Principal {
 	}
 	_ = strings.TrimSpace(tenantID)
 	return auth.Principal{
-		SubjectID:     claims.UserID,
+		SubjectID:     strconv.FormatInt(claims.UserID, 10),
 		Permissions:   claims.Permissions,
 		ActiveScopeID: claims.ActiveScopeID,
 	}
@@ -51,7 +52,7 @@ func InjectClaimsRequestContext(
 		}
 	}
 	if claims.UserID > 0 {
-		baseCtx, err = contextx.WithUserID(baseCtx, claims.UserID)
+		baseCtx, err = contextx.WithUserID(baseCtx, strconv.FormatInt(claims.UserID, 10))
 		if err != nil {
 			return nil, err
 		}

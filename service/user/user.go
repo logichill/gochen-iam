@@ -23,7 +23,7 @@ import (
 
 	svc "gochen-iam/service"
 	auth "gochen-runtime/host/authz"
-	"gochen/auth/scoped"
+	"gochen/domain/spec"
 	"gochen/errors"
 	"gochen/observe/logging"
 )
@@ -34,7 +34,7 @@ type UserService struct {
 	groupRepo       *grouprepo.GroupRepo
 	roleRepo        *rolerepo.RoleRepo
 	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      scoped.IAuthorizer
+	authorizer      *svc.IAMAuthorizer
 	logger          logging.ILogger
 }
 
@@ -44,7 +44,7 @@ func NewUserService(
 	groupRepo *grouprepo.GroupRepo,
 	roleRepo *rolerepo.RoleRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer scoped.IAuthorizer,
+	authorizer *svc.IAMAuthorizer,
 	logger logging.ILogger,
 ) *UserService {
 	return &UserService{
@@ -130,12 +130,9 @@ func (s *UserService) Register(ctx context.Context, tenantID string, req *svc.Re
 	user.SetUpdatedAt(time.Now())
 
 	// 5. 保存用户与分配默认角色（在同一个事务内原子执行）
-	guard, err := svc.NewCreateWriteConstraint(tenantCtx, svc.UserResourceKind, tenantID)
-	if err != nil {
-		return nil, err
-	}
+	guard := svc.CreateWriteSpec(tenantCtx, svc.UserResourceKind)
 	if err := s.userRepo.WithinTx(tenantCtx, func(txCtx context.Context) error {
-		if err := s.userRepo.CreateWithConstraint(txCtx, user, guard); err != nil {
+		if err := s.userRepo.Create(txCtx, user, guard); err != nil {
 			return errors.Wrap(err, errors.Database, "保存用户失败")
 		}
 		if err := s.assignDefaultRole(txCtx, user.TenantID, user.GetID()); err != nil {
@@ -726,7 +723,7 @@ func (s *UserService) AssignRoleBinding(ctx context.Context, userID, roleID int6
 	if !roleVisible {
 		return errors.NewCode(errors.Forbidden, "当前 active scope 无法访问该角色，请切换到角色所属授权域后重试")
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iamperm.ActionWrite), user, role)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iamperm.ActionWrite), user, role)
 	if err != nil {
 		return err
 	}
@@ -762,7 +759,7 @@ func (s *UserService) AssignRoleBinding(ctx context.Context, userID, roleID int6
 	if err != nil {
 		return err
 	}
-	return s.userRepo.AssignRoleWithConstraint(boundCtx, userID, roleID, guard)
+	return s.userRepo.AssignRole(boundCtx, userID, roleID, guard)
 }
 
 // RemoveRole 移除用户角色。
@@ -781,11 +778,11 @@ func (s *UserService) RemoveRole(ctx context.Context, userID, roleID int64) erro
 	if !roleVisible {
 		return errors.NewCode(errors.Forbidden, "当前 active scope 无法访问该角色，请切换到角色所属授权域后重试")
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iamperm.ActionWrite), user, role)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iamperm.ActionWrite), user, role)
 	if err != nil {
 		return err
 	}
-	return s.userRepo.RemoveRoleWithConstraint(tenantCtx, userID, roleID, guard)
+	return s.userRepo.RemoveRole(tenantCtx, userID, roleID, guard)
 }
 
 // RemoveRoleBinding 按 binding id 移除用户角色绑定。
@@ -811,14 +808,14 @@ func (s *UserService) RemoveRoleBinding(ctx context.Context, userID, bindingID i
 	if !roleVisible {
 		return errors.NewCode(errors.Forbidden, "当前 active scope 无法访问该角色，请切换到角色所属授权域后重试")
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iamperm.ActionWrite), user, role)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iamperm.ActionWrite), user, role)
 	if err != nil {
 		return err
 	}
 	if err := s.ensureGrantScopeVisible(tenantCtx, binding.GrantScopeID); err != nil {
 		return err
 	}
-	return s.userRepo.RemoveRoleBindingWithConstraint(tenantCtx, *binding, guard)
+	return s.userRepo.RemoveAuthorizedRoleBinding(tenantCtx, *binding, guard)
 }
 
 // AssignToGroup 将用户分配到组织
@@ -827,15 +824,15 @@ func (s *UserService) AssignToGroup(ctx context.Context, userID, groupID int64) 
 	if err != nil {
 		return err
 	}
-	group, err := s.groupRepo.Get(tenantCtx, groupID)
+	group, err := s.groupRepo.Get(tenantCtx, groupID, spec.All())
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iamperm.ActionWrite), user, group)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iamperm.ActionWrite), user, group)
 	if err != nil {
 		return err
 	}
-	return s.userRepo.AssignToGroupWithConstraint(tenantCtx, userID, groupID, guard)
+	return s.userRepo.AssignToGroup(tenantCtx, userID, groupID, guard)
 }
 
 // RemoveFromGroup 从组织中移除用户
@@ -844,15 +841,15 @@ func (s *UserService) RemoveFromGroup(ctx context.Context, userID, groupID int64
 	if err != nil {
 		return err
 	}
-	group, err := s.groupRepo.Get(tenantCtx, groupID)
+	group, err := s.groupRepo.Get(tenantCtx, groupID, spec.All())
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iamperm.ActionWrite), user, group)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.UserPermissionSet.Code(iamperm.ActionWrite), user, group)
 	if err != nil {
 		return err
 	}
-	return s.userRepo.RemoveFromGroupWithConstraint(tenantCtx, userID, groupID, guard)
+	return s.userRepo.RemoveFromGroup(tenantCtx, userID, groupID, guard)
 }
 
 // UserPermissions 获取用户权限。
@@ -1074,7 +1071,7 @@ func (s *UserService) UserRoleBindings(ctx context.Context, userID int64) ([]*sv
 }
 
 func (s *UserService) resolveRoleForScope(ctx context.Context, tenantID string, roleID int64) (*iamentity.Role, bool, error) {
-	role, err := s.roleRepo.Get(ctx, roleID)
+	role, err := s.roleRepo.Get(ctx, roleID, spec.All())
 	if err == nil {
 		return role, true, nil
 	}
@@ -1085,7 +1082,7 @@ func (s *UserService) resolveRoleForScope(ctx context.Context, tenantID string, 
 	if bindErr != nil {
 		return nil, false, bindErr
 	}
-	role, err = s.roleRepo.Get(tenantGlobalCtx, roleID)
+	role, err = s.roleRepo.Get(tenantGlobalCtx, roleID, spec.All())
 	if err == nil {
 		if !tenant.CurrentContext(ctx).IsSingle() || role == nil || s.scopeAuthorizer == nil {
 			return role, false, nil
@@ -1134,9 +1131,9 @@ func (s *UserService) UserProfile(ctx context.Context, userID int64) (*iamentity
 	return user, nil
 }
 
-// BatchAssignToGroup 批量将用户加入组织
-func (s *UserService) BatchAssignToGroup(ctx context.Context, groupID int64, userIDs []int64) (*svc.BatchOperationResponse, error) {
-	response := &svc.BatchOperationResponse{}
+// BulkAssignToGroup 批量将用户加入组织
+func (s *UserService) BulkAssignToGroup(ctx context.Context, groupID int64, userIDs []int64) (*svc.BulkOperationResponse, error) {
+	response := &svc.BulkOperationResponse{}
 
 	for _, userID := range userIDs {
 		if err := s.AssignToGroup(ctx, userID, groupID); err != nil {
@@ -1193,11 +1190,8 @@ func (s *UserService) verifyPassword(password, hashedPassword string) bool {
 }
 
 func (s *UserService) updateUserWithGuard(ctx context.Context, user *iamentity.User) error {
-	guard, err := svc.NewEntityWriteConstraint(ctx, svc.UserResourceKind, user)
-	if err != nil {
-		return err
-	}
-	return s.userRepo.UpdateWithConstraint(ctx, user, guard)
+	guard := svc.EntityWriteSpec(ctx, svc.UserResourceKind, user)
+	return s.userRepo.Update(ctx, user, guard)
 }
 
 func (s *UserService) updateUserWithAuthorization(
@@ -1206,12 +1200,12 @@ func (s *UserService) updateUserWithAuthorization(
 	user *iamentity.User,
 	mutate func(),
 ) error {
-	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, permission, user)
+	guard, err := svc.AuthorizeWriteSpec(ctx, s.authorizer, permission, user)
 	if err != nil {
 		return err
 	}
 	mutate()
-	return s.userRepo.UpdateWithConstraint(ctx, user, guard)
+	return s.userRepo.Update(ctx, user, guard)
 }
 
 // assignDefaultRole 分配默认角色
@@ -1234,5 +1228,5 @@ func (s *UserService) assignDefaultRole(ctx context.Context, tenantID string, us
 		return err
 	}
 
-	return s.userRepo.AssignRole(tenantCtx, userID, role.GetID())
+	return s.userRepo.AssignRole(tenantCtx, userID, role.GetID(), spec.All())
 }

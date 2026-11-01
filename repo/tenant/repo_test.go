@@ -3,6 +3,7 @@ package tenant
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	coredialect "gochen/db/dialect"
 	"gochen/testkit"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"gochen-runtime/db/dialect"
 	"gochen/db"
 	"gochen/db/orm"
+	"gochen/domain/spec"
 )
 
 type capturingModel struct {
@@ -37,10 +39,27 @@ func (m *capturingModel) UpdateValues(context.Context, map[string]any, ...orm.Qu
 func (m *capturingModel) Delete(context.Context, ...orm.QueryOption) error { return nil }
 func (m *capturingModel) Association(any, string) orm.IAssociation         { return nil }
 
+type fakeResult struct{ rows int64 }
+
+func (r fakeResult) LastInsertId() (int64, error) { return 0, nil }
+func (r fakeResult) RowsAffected() (int64, error) { return r.rows, nil }
+
+func (m *capturingModel) SaveWithResult(context.Context, any, ...orm.QueryOption) (sql.Result, error) {
+	return fakeResult{rows: 1}, nil
+}
+func (m *capturingModel) UpdateValuesWithResult(context.Context, map[string]any, ...orm.QueryOption) (sql.Result, error) {
+	return fakeResult{rows: 1}, nil
+}
+func (m *capturingModel) DeleteWithResult(context.Context, ...orm.QueryOption) (sql.Result, error) {
+	return fakeResult{rows: 1}, nil
+}
+
 type fakeOrm struct {
 	baseModel    *capturingModel
 	sessionModel *capturingModel
 }
+
+func (o *fakeOrm) DatasourceID() string { return fmt.Sprintf("iam-tenant-test:%p", o) }
 
 func (o *fakeOrm) Capabilities() orm.Capabilities           { return nil }
 func (o *fakeOrm) WithContext(ctx context.Context) orm.IOrm { return o }
@@ -60,6 +79,8 @@ func (o *fakeOrm) Raw() any               { return nil }
 type fakeSession struct {
 	parent *fakeOrm
 }
+
+func (s *fakeSession) DatasourceID() string { return s.parent.DatasourceID() }
 
 func (s *fakeSession) Capabilities() orm.Capabilities           { return nil }
 func (s *fakeSession) WithContext(ctx context.Context) orm.IOrm { return s }
@@ -90,7 +111,7 @@ func TestTenantRepo_Get_UsesTxSessionModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTxSession: %v", err)
 	}
-	if _, err := r.Get(txCtx, 1); err != nil {
+	if _, err := r.Get(txCtx, 1, spec.All()); err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 

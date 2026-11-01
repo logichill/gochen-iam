@@ -3,14 +3,10 @@ package router
 import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
+	iamsvc "gochen-iam/service"
 	menusvc "gochen-iam/service/menu"
 	"gochen-runtime/api/rest"
-	authz "gochen-runtime/host/authz"
-	"gochen-runtime/security"
 	appcrud "gochen/app/crud"
-	"gochen/auth/action"
-	"gochen/auth/scoped"
-	domaincrud "gochen/domain/crud"
 	"gochen/errors"
 	"gochen/httpx"
 )
@@ -22,15 +18,15 @@ import (
 // - /menus/me 返回基于当前请求上下文的菜单树（按菜单自身 permission 规则过滤）。
 type MenuRoutes struct {
 	menuService *menusvc.MenuService
-	menuRepo    domaincrud.IRepository[*iamentity.MenuItem, int64]
-	authorizer  scoped.IAuthorizer
+	menuRepo    appcrud.Repository[*iamentity.MenuItem, int64]
+	authorizer  *iamsvc.IAMAuthorizer
 }
 
 // NewMenuRoutes 创建菜单路由注册器。
 func NewMenuRoutes(
 	menuService *menusvc.MenuService,
-	menuRepo domaincrud.IRepository[*iamentity.MenuItem, int64],
-	authorizer scoped.IAuthorizer,
+	menuRepo appcrud.Repository[*iamentity.MenuItem, int64],
+	authorizer *iamsvc.IAMAuthorizer,
 ) *MenuRoutes {
 	return &MenuRoutes{
 		menuService: menuService,
@@ -57,7 +53,18 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionManage).Scope(iammw.ScopePlatform),
 	))
 
-	menuCRUD, err := menusvc.NewCRUDApplication(mr.menuRepo, mr.menuService)
+	app, err := appcrud.NewApplication[*iamentity.MenuItem, int64](mr.menuRepo, appcrud.Options[*iamentity.MenuItem, int64]{
+		Resource:   "menu",
+		Authorizer: mr.authorizer,
+		ActionPermissions: map[string]string{
+			appcrud.ActionRead:   iamsvc.MenuPermissionSet.Code(iammw.ActionRead),
+			appcrud.ActionList:   iamsvc.MenuPermissionSet.Code(iammw.ActionRead),
+			appcrud.ActionCreate: iamsvc.MenuPermissionSet.Code(iammw.ActionWrite),
+			appcrud.ActionUpdate: iamsvc.MenuPermissionSet.Code(iammw.ActionWrite),
+			appcrud.ActionDelete: iamsvc.MenuPermissionSet.Code(iammw.ActionWrite),
+		},
+		Hooks: mr.menuService.CRUDHooks(),
+	})
 	if err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create menu crud application").WithContext("route", "iam.menu")
@@ -65,36 +72,9 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create menu crud application").WithContext("route", "iam.menu")
 	}
 
-	var app appcrud.IApplication[*iamentity.MenuItem, int64] = menuCRUD
-	if mr.authorizer != nil {
-		// 菜单是全局导航定义，没有租户/范围/属主列，装不了 L3 Scoped 的写约束；
-		// 它的安全边界由 API 权限校验承担，因此这里只装 L1 动作级校验。
-		actionApp, err := security.Action(menuCRUD, authz.NewActionChecker(), action.OperationPolicy{
-			Create: iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionWrite).Code,
-			Update: iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionWrite).Code,
-			Delete: iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionDelete).Code,
-			Read:   iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionRead).Code,
-			List:   iammw.ApiPermission(iammw.ResourceMenu, iammw.ActionRead).Code,
-		})
-		if err != nil {
-			return err
-		}
-		app = actionApp
-	}
-
-	builder, err := rest.NewApiBuilder[*iamentity.MenuItem, int64](app)
-	if err != nil {
-		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
-			return appErr.Wrap("create menu api builder").WithContext("route", "iam.menu")
-		}
-		return errors.Wrap(err, errors.Internal, "failed to create menu api builder").WithContext("route", "iam.menu")
-	}
-	if err := builder.
-		Route(func(cfg *rest.RouteConfig[int64]) {
-			cfg.Routing.EnableBatch = false
-			cfg.Query.EnablePagination = false
-		}).
-		Build(adminGroup); err != nil {
+	if err := rest.Mount(adminGroup, app,
+		rest.WithPaginationEnabled[*iamentity.MenuItem, int64](false),
+	); err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("build menu crud routes").WithContext("route", "iam.menu")
 		}

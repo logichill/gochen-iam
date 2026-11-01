@@ -18,11 +18,12 @@ import (
 
 func newScopeTestOrm(db *gorm.DB) orm.IOrm {
 	return &scopeTestGormOrm{
-		db: db,
+		db:           db,
+		datasourceID: fmt.Sprintf("iam-test:%p", db.Statement.ConnPool),
 		capabilities: orm.NewCapabilities(
 			orm.CapabilityBasicCRUD,
 			orm.CapabilityQuery,
-			orm.CapabilityBatchWrite,
+			orm.CapabilityBulkWrite,
 			orm.CapabilityTransaction,
 		),
 	}
@@ -30,12 +31,15 @@ func newScopeTestOrm(db *gorm.DB) orm.IOrm {
 
 type scopeTestGormOrm struct {
 	db           *gorm.DB
+	datasourceID string
 	capabilities orm.Capabilities
 }
 
+func (g *scopeTestGormOrm) DatasourceID() string { return g.datasourceID }
+
 func (g *scopeTestGormOrm) Capabilities() orm.Capabilities { return g.capabilities }
 func (g *scopeTestGormOrm) WithContext(ctx context.Context) orm.IOrm {
-	return &scopeTestGormOrm{db: g.db.WithContext(ctx), capabilities: g.capabilities}
+	return &scopeTestGormOrm{db: g.db.WithContext(ctx), datasourceID: g.datasourceID, capabilities: g.capabilities}
 }
 func (g *scopeTestGormOrm) Model(meta *orm.ModelMeta) (orm.IModel, error) {
 	if meta == nil {
@@ -48,14 +52,14 @@ func (g *scopeTestGormOrm) Begin(ctx context.Context) (orm.IOrmSession, error) {
 	if tx.Error != nil {
 		return nil, tx.Error
 	}
-	return &scopeTestGormSession{scopeTestGormOrm{db: tx, capabilities: g.capabilities}}, nil
+	return &scopeTestGormSession{scopeTestGormOrm{db: tx, datasourceID: g.datasourceID, capabilities: g.capabilities}}, nil
 }
 func (g *scopeTestGormOrm) BeginTx(ctx context.Context, opts *sql.TxOptions) (orm.IOrmSession, error) {
 	tx := g.db.WithContext(ctx).Begin(opts)
 	if tx.Error != nil {
 		return nil, tx.Error
 	}
-	return &scopeTestGormSession{scopeTestGormOrm{db: tx, capabilities: g.capabilities}}, nil
+	return &scopeTestGormSession{scopeTestGormOrm{db: tx, datasourceID: g.datasourceID, capabilities: g.capabilities}}, nil
 }
 func (g *scopeTestGormOrm) Database() db.IDatabase { return nil }
 func (g *scopeTestGormOrm) Raw() any               { return g.db }
@@ -80,7 +84,7 @@ func (m *scopeTestGormModel) Capabilities() orm.Capabilities {
 	return orm.NewCapabilities(
 		orm.CapabilityBasicCRUD,
 		orm.CapabilityQuery,
-		orm.CapabilityBatchWrite,
+		orm.CapabilityBulkWrite,
 		orm.CapabilityTransaction,
 	)
 }

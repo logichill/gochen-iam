@@ -21,6 +21,7 @@ import (
 	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/domain/crud"
+	"gochen/domain/spec"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -93,7 +94,7 @@ func setupValidatorTest(t *testing.T) *validatorTestEnv {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
-		SubjectID:   1,
+		SubjectID:   "1",
 		Permissions: []string{AdminEntryPermission.Code},
 		IsSystem:    true,
 	})
@@ -111,7 +112,7 @@ func setupValidatorTest(t *testing.T) *validatorTestEnv {
 		Name:   "Test Tenant",
 		Status: TenantStatusActive,
 	}
-	if err := tenantRepo.Create(ctx, tenantRow); err != nil {
+	if err := tenantRepo.Create(ctx, tenantRow, spec.All()); err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
 
@@ -138,16 +139,6 @@ func setupValidatorTest(t *testing.T) *validatorTestEnv {
 	if err != nil {
 		t.Fatalf("rebind tenant context: %v", err)
 	}
-	ctx = scoped.WithConstraint(ctx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
-		return scoped.WriteConstraint{
-			Resources: []scoped.ResourceConstraint{{
-				Kind:           entityType,
-				TenantID:       tenantRow.Key,
-				ManagedScopeID: rootScope.ID,
-				Revision:       "0",
-			}},
-		}, true
-	}))
 
 	return &validatorTestEnv{
 		db:            db,
@@ -186,7 +177,7 @@ func (env *validatorTestEnv) createUser(t *testing.T, username string) *iamentit
 		Password:       "hashed-password",
 		Status:         UserStatusActive,
 	}
-	if err := env.userRepo.Create(env.backgroundCtx, user); err != nil {
+	if err := env.userRepo.Create(env.backgroundCtx, user, spec.All()); err != nil {
 		t.Fatalf("create user %s: %v", username, err)
 	}
 	return user
@@ -201,7 +192,7 @@ func (env *validatorTestEnv) createGroup(t *testing.T, name string) *iamentity.G
 		Name:           name,
 		Description:    "validator integration group",
 	}
-	if err := env.groupRepo.Create(env.backgroundCtx, group); err != nil {
+	if err := env.groupRepo.Create(env.backgroundCtx, group, spec.All()); err != nil {
 		t.Fatalf("create group %s: %v", name, err)
 	}
 	return group
@@ -218,7 +209,7 @@ func (env *validatorTestEnv) createRole(t *testing.T, name string, permissions [
 		Permissions:      iamentity.PermissionArray(permissions),
 		Status:           RoleStatusActive,
 	}
-	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
+	if err := env.roleRepo.Create(env.backgroundCtx, role, spec.All()); err != nil {
 		t.Fatalf("create role %s: %v", name, err)
 	}
 	return role
@@ -232,10 +223,10 @@ func TestValidateUserDeletionRejectsLastAdminInheritedFromGroupDefaultRole(t *te
 	group := env.createGroup(t, "admin-group")
 	role := env.createRole(t, "group-admin", []string{AdminEntryPermission.Code})
 
-	if err := env.userRepo.AssignToGroup(env.backgroundCtx, user.GetID(), group.GetID()); err != nil {
+	if err := env.userRepo.AssignToGroup(env.backgroundCtx, user.GetID(), group.GetID(), spec.All()); err != nil {
 		t.Fatalf("AssignToGroup(user): %v", err)
 	}
-	if err := env.roleRepo.AssignToGroup(env.backgroundCtx, role.GetID(), group.GetID()); err != nil {
+	if err := env.roleRepo.AssignToGroup(env.backgroundCtx, role.GetID(), group.GetID(), spec.All()); err != nil {
 		t.Fatalf("AssignToGroup(role): %v", err)
 	}
 
@@ -254,13 +245,13 @@ func TestValidateUserDeletionAllowsRemovalWhenAnotherGroupAdminRemains(t *testin
 	group := env.createGroup(t, "admin-group")
 	role := env.createRole(t, "group-admin", []string{AdminEntryPermission.Code})
 
-	if err := env.userRepo.AssignToGroup(env.backgroundCtx, deletingUser.GetID(), group.GetID()); err != nil {
+	if err := env.userRepo.AssignToGroup(env.backgroundCtx, deletingUser.GetID(), group.GetID(), spec.All()); err != nil {
 		t.Fatalf("AssignToGroup(deleting user): %v", err)
 	}
-	if err := env.userRepo.AssignToGroup(env.backgroundCtx, remainingUser.GetID(), group.GetID()); err != nil {
+	if err := env.userRepo.AssignToGroup(env.backgroundCtx, remainingUser.GetID(), group.GetID(), spec.All()); err != nil {
 		t.Fatalf("AssignToGroup(remaining user): %v", err)
 	}
-	if err := env.roleRepo.AssignToGroup(env.backgroundCtx, role.GetID(), group.GetID()); err != nil {
+	if err := env.roleRepo.AssignToGroup(env.backgroundCtx, role.GetID(), group.GetID(), spec.All()); err != nil {
 		t.Fatalf("AssignToGroup(role): %v", err)
 	}
 

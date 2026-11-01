@@ -44,6 +44,21 @@ func (m *capturingTenantModel) UpdateValues(context.Context, map[string]any, ...
 func (m *capturingTenantModel) Delete(context.Context, ...orm.QueryOption) error { return nil }
 func (m *capturingTenantModel) Association(any, string) orm.IAssociation         { return nil }
 
+type tenantResult struct{ rows int64 }
+
+func (r tenantResult) LastInsertId() (int64, error) { return 0, nil }
+func (r tenantResult) RowsAffected() (int64, error) { return r.rows, nil }
+
+func (m *capturingTenantModel) SaveWithResult(context.Context, any, ...orm.QueryOption) (sql.Result, error) {
+	return tenantResult{rows: 1}, nil
+}
+func (m *capturingTenantModel) UpdateValuesWithResult(context.Context, map[string]any, ...orm.QueryOption) (sql.Result, error) {
+	return tenantResult{rows: 1}, nil
+}
+func (m *capturingTenantModel) DeleteWithResult(context.Context, ...orm.QueryOption) (sql.Result, error) {
+	return tenantResult{rows: 1}, nil
+}
+
 type fakeTenantOrm struct {
 	model *capturingTenantModel
 }
@@ -71,16 +86,9 @@ func TestTenantService_ListTenants_FiltersSoftDeletedRows(t *testing.T) {
 	}
 
 	iammw.RegisterRequiredPermissionDefinitions(svc.AllPermissionDefinitions...)
-	authzRegistry, err := svc.NewIAMAuthzRegistry()
-	if err != nil {
-		t.Fatalf("NewIAMAuthzRegistry: %v", err)
-	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
-	if err != nil {
-		t.Fatalf("NewIAMAuthorizer: %v", err)
-	}
+	authorizer := svc.NewIAMAuthorizer(nil)
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
-		SubjectID:   1,
+		SubjectID:   "1",
 		Permissions: []string{"tenant:api:*"},
 
 		ActiveScopeID: 1,

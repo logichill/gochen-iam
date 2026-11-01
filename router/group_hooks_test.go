@@ -9,9 +9,11 @@ import (
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
 	auth "gochen-runtime/host/authz"
+	appcrud "gochen/app/crud"
 	"gochen/auth/scoped"
 
 	"gochen/contextx"
+	"gochen/domain/spec"
 	"gochen/errors"
 )
 
@@ -27,18 +29,22 @@ type groupHookRepoStub struct {
 
 var _ svc.IResourceContextRepository[*iamentity.Group, int64] = (*groupHookRepoStub)(nil)
 
-func (s *groupHookRepoStub) Create(context.Context, *iamentity.Group) error { return nil }
+func (s *groupHookRepoStub) Create(context.Context, *iamentity.Group, spec.Spec) error {
+	return nil
+}
 
-func (s *groupHookRepoStub) Update(_ context.Context, g *iamentity.Group) error {
+func (s *groupHookRepoStub) Update(_ context.Context, g *iamentity.Group, _ spec.Spec) error {
 	cp := *g
 	s.groups[g.GetID()] = &cp
 	s.updated = append(s.updated, &cp)
 	return nil
 }
 
-func (s *groupHookRepoStub) Delete(context.Context, int64) error { return nil }
+func (s *groupHookRepoStub) Delete(context.Context, *iamentity.Group, spec.Spec) error {
+	return nil
+}
 
-func (s *groupHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Group, error) {
+func (s *groupHookRepoStub) Get(_ context.Context, id int64, _ spec.Spec) (*iamentity.Group, error) {
 	g, ok := s.groups[id]
 	if !ok {
 		return nil, errors.NewCode(errors.NotFound, "组织不存在")
@@ -47,22 +53,10 @@ func (s *groupHookRepoStub) Get(_ context.Context, id int64) (*iamentity.Group, 
 	return &cp, nil
 }
 
-func (s *groupHookRepoStub) ResolveResourceByID(_ context.Context, id int64) (scoped.Resource, error) {
-	g, ok := s.groups[id]
-	if !ok {
-		return scoped.Resource{}, errors.NewCode(errors.NotFound, "组织不存在")
-	}
-	return scoped.Resource{
-		Kind:    "iam.group",
-		ID:      "group",
-		OwnerID: "tenant:" + g.GetTenantID(),
-	}, nil
-}
-
 func tenantCtx(t *testing.T, tenantID string) context.Context {
 	t.Helper()
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
-		SubjectID:     1,
+		SubjectID:     "1",
 		ActiveScopeID: 1,
 	})
 	if err != nil {
@@ -99,7 +93,7 @@ func TestGroupCRUDHooks_CreateChildSetsLevelAndParent(t *testing.T) {
 		ParentID: &parentID,
 	}
 	ctx := tenantCtx(t, "tenant-1")
-	if err := hooks.Create.Before(ctx, child); err != nil {
+	if err := hooks.For(appcrud.ActionCreate).Before(ctx, child); err != nil {
 		t.Fatalf("BeforeCreate: %v", err)
 	}
 	if child.Level != 2 {
@@ -144,7 +138,7 @@ func TestGroupCRUDHooks_UpdateParentRecomputesLevelAndPath(t *testing.T) {
 	updating.ParentID = &parentID
 
 	ctx := tenantCtx(t, tid)
-	if err := hooks.Update.Before(ctx, updating); err != nil {
+	if err := hooks.For(appcrud.ActionUpdate).Before(ctx, updating); err != nil {
 		t.Fatalf("BeforeUpdate: %v", err)
 	}
 	if updating.Level != 2 {
@@ -167,7 +161,7 @@ func TestGroupCRUDHooks_DeleteCrossTenantRejected(t *testing.T) {
 	hooks := newGroupCRUDHooks(repo)
 
 	ctx := tenantCtx(t, "tenant-b")
-	err := hooks.Delete.Before(ctx, 1)
+	err := hooks.For(appcrud.ActionDelete).Before(ctx, g)
 	if !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("expected Forbidden error for cross-tenant delete, got %v", err)
 	}
@@ -184,7 +178,7 @@ func TestGroupCRUDHooks_DeleteSameTenantAllowed(t *testing.T) {
 	hooks := newGroupCRUDHooks(repo)
 
 	ctx := tenantCtx(t, "tenant-a")
-	if err := hooks.Delete.Before(ctx, 1); err != nil {
+	if err := hooks.For(appcrud.ActionDelete).Before(ctx, g); err != nil {
 		t.Fatalf("expected no error for same-tenant delete, got %v", err)
 	}
 }
@@ -211,7 +205,7 @@ func (m *mockGroupServiceForDelete) AddUserToGroup(context.Context, int64, int64
 func (m *mockGroupServiceForDelete) RemoveUserFromGroup(context.Context, int64, int64) error {
 	return nil
 }
-func (m *mockGroupServiceForDelete) BatchAddUsersToGroup(context.Context, int64, []int64) (*svc.BatchOperationResponse, error) {
+func (m *mockGroupServiceForDelete) BulkAddUsersToGroup(context.Context, int64, []int64) (*svc.BulkOperationResponse, error) {
 	return nil, nil
 }
 func (m *mockGroupServiceForDelete) GroupRoles(context.Context, int64) ([]*iamentity.Role, error) {
@@ -245,7 +239,7 @@ func TestGroupCRUDHooks_DeleteRejectsWithChildrenOrUsers(t *testing.T) {
 	}
 	hooksWithChild := newGroupCRUDHooks(repo, mockSvcChild)
 	ctx := tenantCtx(t, "tenant-a")
-	err := hooksWithChild.Delete.Before(ctx, 1)
+	err := hooksWithChild.For(appcrud.ActionDelete).Before(ctx, g)
 	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}
@@ -255,7 +249,7 @@ func TestGroupCRUDHooks_DeleteRejectsWithChildrenOrUsers(t *testing.T) {
 		validateDeleteErr: errors.NewCode(errors.Validation, "不能删除有用户的组织，请先移除用户"),
 	}
 	hooksWithUser := newGroupCRUDHooks(repo, mockSvcUser)
-	err = hooksWithUser.Delete.Before(ctx, 1)
+	err = hooksWithUser.For(appcrud.ActionDelete).Before(ctx, g)
 	if !errors.Is(err, errors.Validation) {
 		t.Fatalf("expected validation error, got %v", err)
 	}

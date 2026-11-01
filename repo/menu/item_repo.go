@@ -2,15 +2,12 @@ package menu
 
 import (
 	"context"
-	"strconv"
 	"time"
 
-	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
-	assocguard "gochen-iam/repo/internal/guard"
 	"gochen-runtime/db/orm/repo"
-	"gochen/auth/scoped"
 	"gochen/db/orm"
+	"gochen/domain/spec"
 	"gochen/errors"
 	"gochen/gen"
 )
@@ -36,44 +33,39 @@ func NewMenuItemRepository(o orm.IOrm, idGenerator gen.IGenerator[int64]) (*Menu
 }
 
 // Create 创建记录。
-func (r *MenuItemRepo) Create(ctx context.Context, m *iamentity.MenuItem) error {
-	return r.Repo.Create(ctx, m)
+func (r *MenuItemRepo) Create(ctx context.Context, m *iamentity.MenuItem, s spec.Spec) error {
+	return r.Repo.Create(ctx, m, s)
 }
 
 // Update 更新记录。
-func (r *MenuItemRepo) Update(ctx context.Context, m *iamentity.MenuItem) error {
-	return r.Repo.Update(ctx, m)
+func (r *MenuItemRepo) Update(ctx context.Context, m *iamentity.MenuItem, s spec.Spec) error {
+	return r.Repo.Update(ctx, m, s)
 }
 
-func (r *MenuItemRepo) CreateWithConstraint(ctx context.Context, item *iamentity.MenuItem, guard iamaccess.WriteConstraint) error {
-	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Repo.Create(boundCtx, item)
-}
-
-func (r *MenuItemRepo) UpdateWithConstraint(ctx context.Context, item *iamentity.MenuItem, guard iamaccess.WriteConstraint) error {
-	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Repo.Update(boundCtx, item)
-}
-
-func (r *MenuItemRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
-	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Delete(boundCtx, id)
+// Delete 执行软删除并保留 IAM 既有语义；物理删除请使用 Purge。
+func (r *MenuItemRepo) Delete(ctx context.Context, item *iamentity.MenuItem, s spec.Spec) error {
+	if item == nil {
+		return errors.NewCode(errors.InvalidInput, "menu item cannot be nil")
+	}
+	if item.IsDeleted() {
+		return errors.NewCode(errors.Conflict, "菜单已删除").WithContext("id", item.GetID())
+	}
+	if err := item.SoftDelete(time.Now()); err != nil {
+		return err
+	}
+	return r.Repo.Update(ctx, item, s)
 }
 
 // Get 返回当前值。
-func (r *MenuItemRepo) Get(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
-	model, err := r.ModelFor(ctx)
+func (r *MenuItemRepo) Get(ctx context.Context, id int64, s spec.Spec) (*iamentity.MenuItem, error) {
+	item, err := r.Repo.Get(ctx, id, s)
 	if err != nil {
-		return nil, err
-	}
-	var item iamentity.MenuItem
-	if err := model.First(ctx, &item, orm.WithWhere("id = ? AND deleted_at IS NULL", id)); err != nil {
 		if errors.Is(err, errors.NotFound) {
 			return nil, errors.NewCode(errors.NotFound, "菜单不存在")
 		}
-		return nil, errors.Wrap(err, errors.Database, "查询菜单失败")
+		return nil, err
 	}
-	return &item, nil
+	return item, nil
 }
 
 // GetWithDeleted 按 id 查询菜单（包含软删记录）。
@@ -152,48 +144,19 @@ func (r *MenuItemRepo) ListPublished(ctx context.Context) ([]*iamentity.MenuItem
 	return items, nil
 }
 
-// RestoreByID 恢复软删菜单（deleted_at 置空）。
-func (r *MenuItemRepo) RestoreByID(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
+// RestoreByID 恢复软删菜单（deleted_at 置空），写入前校验规约。
+func (r *MenuItemRepo) RestoreByID(ctx context.Context, id int64, s spec.Spec) (*iamentity.MenuItem, error) {
 	item, err := r.GetWithDeleted(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireSpecMatch(s, item); err != nil {
 		return nil, err
 	}
 	if item.DeletedAt == nil {
 		return item, nil
 	}
-
-	if err := item.Restore(); err != nil {
-		return nil, errors.Wrap(err, errors.Internal, "恢复菜单失败")
-	}
-
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// 显式置空 deleted_at，避免部分 ORM 适配器“零值/NULL 不更新”导致恢复失败。
-	if err := model.UpdateValues(ctx, map[string]any{
-		"deleted_at": item.DeletedAt,
-		"updated_at": item.UpdatedAt,
-	}, orm.WithWhere("id = ?", id)); err != nil {
-		return nil, errors.Wrap(err, errors.Database, "恢复菜单失败")
-	}
-	return item, nil
-}
-
-// RestoreByIDWithConstraint 在显式写边界下恢复软删菜单。
-func (r *MenuItemRepo) RestoreByIDWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) (*iamentity.MenuItem, error) {
-	item, err := r.GetWithDeleted(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	_, expectedVersion, err := r.requireConstrainedMenu(guard, id)
-	if err != nil {
-		return nil, err
-	}
-	if item.DeletedAt == nil {
-		return item, nil
-	}
+	expectedVersion := item.GetVersion()
 	now := time.Now()
 	model, err := r.ModelFor(ctx)
 	if err != nil {
@@ -222,56 +185,30 @@ func (r *MenuItemRepo) RestoreByIDWithConstraint(ctx context.Context, id int64, 
 	return item, nil
 }
 
-// PurgeByID 物理删除菜单（硬删）。
-func (r *MenuItemRepo) PurgeByID(ctx context.Context, id int64) error {
-	if err := r.Purge(ctx, id); err != nil {
-		return errors.Wrap(err, errors.Database, "物理删除菜单失败")
-	}
-	return nil
-}
-
-// PurgeByIDWithConstraint 在显式写边界下硬删菜单。
-func (r *MenuItemRepo) PurgeByIDWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
+// PurgeByID 物理删除菜单（硬删），写入前由规约约束目标。
+func (r *MenuItemRepo) PurgeByID(ctx context.Context, id int64, s spec.Spec) error {
 	item, err := r.GetWithDeleted(ctx, id)
 	if err != nil {
 		return err
 	}
-	_, expectedVersion, err := r.requireConstrainedMenu(guard, id)
-	if err != nil {
-		return err
-	}
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return err
-	}
-	withResult, ok := model.(orm.IModelWithResult)
-	if !ok {
-		return errors.NewCode(errors.Unsupported, "guarded menu purge requires an orm model with result support")
-	}
-	result, err := withResult.DeleteWithResult(ctx, orm.WithWhere("id = ? AND version = ?", id, expectedVersion))
-	if err != nil {
+	if err := r.Repo.Purge(ctx, item, s); err != nil {
 		return errors.Wrap(err, errors.Database, "物理删除菜单失败")
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return errors.Wrap(err, errors.Database, "读取菜单硬删结果失败")
-	}
-	if affected == 0 {
-		return classifyMenuGuardMiss(item, expectedVersion)
 	}
 	return nil
 }
 
-func (r *MenuItemRepo) requireConstrainedMenu(guard iamaccess.WriteConstraint, id int64) (iamaccess.ResourceConstraint, uint64, error) {
-	resource, err := guard.RequireResource("iam.menu", strconv.FormatInt(id, 10))
-	if err != nil {
-		return iamaccess.ResourceConstraint{}, 0, err
+func requireSpecMatch(s spec.Spec, entity any) error {
+	if s.Err() != nil {
+		return s.Err()
 	}
-	expectedVersion, err := strconv.ParseUint(resource.Revision, 10, 64)
+	ok, err := spec.NewInterpreter().Match(s, entity)
 	if err != nil {
-		return iamaccess.ResourceConstraint{}, 0, errors.Wrap(err, errors.InvalidInput, "invalid menu write constraint revision")
+		return err
 	}
-	return resource, expectedVersion, nil
+	if !ok {
+		return errors.NewCode(errors.Forbidden, "entity does not satisfy the required scope")
+	}
+	return nil
 }
 
 func classifyMenuGuardMiss(item *iamentity.MenuItem, expectedVersion uint64) error {

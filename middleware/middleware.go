@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	iamauth "gochen-iam/auth"
@@ -204,7 +205,7 @@ func UserOnlyMiddleware() httpx.Middleware {
 
 // InjectAuthContext 处理Inject鉴权上下文。
 func InjectAuthContext(reqCtx httpx.IRequestContext, userID int64, roles, permissions []string) httpx.IRequestContext {
-	derived, err := contextx.WithUserID(reqCtx, userID)
+	derived, err := contextx.WithUserID(reqCtx, strconv.FormatInt(userID, 10))
 	if err == nil {
 		reqCtx = reqCtx.WithContext(derived)
 	}

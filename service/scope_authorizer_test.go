@@ -15,6 +15,7 @@ import (
 	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/domain/crud"
+	"gochen/domain/spec"
 	"gochen/errors"
 
 	"gorm.io/driver/sqlite"
@@ -91,7 +92,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 
 	ctx := context.Background()
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
-		SubjectID:     7,
+		SubjectID:     "7",
 		Permissions:   []string{"role:api:read"},
 		ActiveScopeID: 1,
 	})
@@ -138,7 +139,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 		Status:   iamentity.ScopeStatusActive,
 	}
 	for _, scope := range []*iamentity.Scope{platformScope, tenantAScope, tenantBScope} {
-		if err := scopeRepo.Create(context.Background(), scope); err != nil {
+		if err := scopeRepo.Create(context.Background(), scope, spec.All()); err != nil {
 			t.Fatalf("create scope %s: %v", scope.Key, err)
 		}
 	}
@@ -146,7 +147,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 		{Entity: crud.Entity[int64]{ID: 1}, Key: "tenant-a", Name: "Tenant A", Status: TenantStatusActive, RootScopeID: &tenantAScope.ID},
 		{Entity: crud.Entity[int64]{ID: 2}, Key: "tenant-b", Name: "Tenant B", Status: TenantStatusActive, RootScopeID: &tenantBScope.ID},
 	} {
-		if err := tenantRepo.Create(context.Background(), tenantRow); err != nil {
+		if err := tenantRepo.Create(context.Background(), tenantRow, spec.All()); err != nil {
 			t.Fatalf("create tenant %s: %v", tenantRow.Key, err)
 		}
 	}
@@ -189,13 +190,13 @@ func TestScopeAuthorizerRequirePermissionInTenant_DoesNotHealMissingTenantRootSc
 		Key:    "tenant-b",
 		Name:   "Tenant B",
 		Status: TenantStatusActive,
-	}); err != nil {
+	}, spec.All()); err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
 
 	ctx := context.Background()
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
-		SubjectID:     7,
+		SubjectID:     "7",
 		Permissions:   []string{"role:api:read"},
 		ActiveScopeID: 1,
 	})
@@ -256,7 +257,7 @@ func TestScopeAuthorizerTenantRootScopeHealth_MissingAndInconsistent(t *testing.
 		Depth:  0,
 		Status: iamentity.ScopeStatusActive,
 	}
-	if err := scopeRepo.Create(context.Background(), brokenScope); err != nil {
+	if err := scopeRepo.Create(context.Background(), brokenScope, spec.All()); err != nil {
 		t.Fatalf("create broken scope: %v", err)
 	}
 
@@ -327,7 +328,7 @@ func TestScopeAuthorizerEnsureTenantRootScope_RepairsDriftedExistingScope(t *tes
 		Description: "old description",
 		Status:      iamentity.ScopeStatusInactive,
 	}
-	if err := scopeRepo.Create(context.Background(), driftedScope); err != nil {
+	if err := scopeRepo.Create(context.Background(), driftedScope, spec.All()); err != nil {
 		t.Fatalf("create drifted scope: %v", err)
 	}
 
@@ -339,7 +340,7 @@ func TestScopeAuthorizerEnsureTenantRootScope_RepairsDriftedExistingScope(t *tes
 		Status:      TenantStatusActive,
 		RootScopeID: &driftedScope.ID,
 	}
-	if err := tenantRepo.Create(context.Background(), tenantEntity); err != nil {
+	if err := tenantRepo.Create(context.Background(), tenantEntity, spec.All()); err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
 

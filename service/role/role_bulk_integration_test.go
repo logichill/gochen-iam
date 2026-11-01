@@ -17,14 +17,14 @@ import (
 	svc "gochen-iam/service"
 	usersvc "gochen-iam/service/user"
 	auth "gochen-runtime/host/authz"
-	"gochen/auth/scoped"
 	"gochen/contextx"
+	"gochen/domain/spec"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
-type roleBatchTestEnv struct {
+type roleBulkTestEnv struct {
 	db            *gorm.DB
 	roleService   *RoleService
 	userService   *usersvc.UserService
@@ -34,9 +34,9 @@ type roleBatchTestEnv struct {
 	tenantID      string
 }
 
-func setupRoleBatchTest(t *testing.T) *roleBatchTestEnv {
+func setupRoleBulkTest(t *testing.T) *roleBulkTestEnv {
 	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "role_batch_test.db")
+	dbPath := filepath.Join(tmpDir, "role_bulk_test.db")
 
 	t.Setenv("DB_DRIVER", "sqlite")
 	t.Setenv("DB_DATABASE", dbPath)
@@ -74,21 +74,14 @@ func setupRoleBatchTest(t *testing.T) *roleBatchTestEnv {
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
-	authzRegistry, err := svc.NewIAMAuthzRegistry()
-	if err != nil {
-		t.Fatalf("NewIAMAuthzRegistry: %v", err)
-	}
-	authorizer, err := svc.NewIAMAuthorizer(nil, authzRegistry)
-	if err != nil {
-		t.Fatalf("NewIAMAuthorizer: %v", err)
-	}
+	authorizer := svc.NewIAMAuthorizer(nil)
 
 	roleService := NewRoleService(roleRepo, userRepo, groupRepo, nil, authorizer, nil, gen.NewUUIDGenerator(), logging.NewNoopLogger())
 	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, nil, authorizer, logging.NewNoopLogger())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
-		SubjectID:     1,
+		SubjectID:     "1",
 		Permissions:   []string{"*:*:*"},
 		ActiveScopeID: 1,
 		IsSystem:      true,
@@ -100,18 +93,8 @@ func setupRoleBatchTest(t *testing.T) *roleBatchTestEnv {
 	if err != nil {
 		t.Fatalf("WithTenantID: %v", err)
 	}
-	ctx = scoped.WithConstraint(ctx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
-		return scoped.WriteConstraint{
-			Resources: []scoped.ResourceConstraint{{
-				Kind:           entityType,
-				TenantID:       "test-tenant",
-				ManagedScopeID: 1,
-				Revision:       "0",
-			}},
-		}, true
-	}))
 
-	return &roleBatchTestEnv{
+	return &roleBulkTestEnv{
 		db:            db,
 		roleService:   roleService,
 		userService:   userService,
@@ -122,7 +105,7 @@ func setupRoleBatchTest(t *testing.T) *roleBatchTestEnv {
 	}
 }
 
-func (env *roleBatchTestEnv) teardown(t *testing.T) {
+func (env *roleBulkTestEnv) teardown(t *testing.T) {
 	env.cancelFunc()
 
 	sqlDB, err := env.db.DB()
@@ -131,7 +114,7 @@ func (env *roleBatchTestEnv) teardown(t *testing.T) {
 	}
 }
 
-func (env *roleBatchTestEnv) createTestUser(t *testing.T, username, email string) *iamentity.User {
+func (env *roleBulkTestEnv) createTestUser(t *testing.T, username, email string) *iamentity.User {
 	user, err := env.userService.Register(env.backgroundCtx, env.tenantID, &svc.RegisterRequest{
 		Username: username,
 		Email:    email,
@@ -143,7 +126,7 @@ func (env *roleBatchTestEnv) createTestUser(t *testing.T, username, email string
 	return user
 }
 
-func (env *roleBatchTestEnv) createTestRole(t *testing.T, name string) *iamentity.Role {
+func (env *roleBulkTestEnv) createTestRole(t *testing.T, name string) *iamentity.Role {
 	role := &iamentity.Role{
 		TenantID:         env.tenantID,
 		NamespaceScopeID: 1,
@@ -154,26 +137,26 @@ func (env *roleBatchTestEnv) createTestRole(t *testing.T, name string) *iamentit
 		Permissions:      iamentity.PermissionArray([]string{"test:api:read"}),
 		Status:           svc.RoleStatusActive,
 	}
-	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
+	if err := env.roleRepo.Create(env.backgroundCtx, role, spec.All()); err != nil {
 		t.Fatalf("create test role: %v", err)
 	}
 	return role
 }
 
-func TestRoleServiceBatchAssignRole_RollsBackOnFailure(t *testing.T) {
-	env := setupRoleBatchTest(t)
+func TestRoleServiceBulkAssignRole_RollsBackOnFailure(t *testing.T) {
+	env := setupRoleBulkTest(t)
 	defer env.teardown(t)
 
 	role := env.createTestRole(t, "batch-role")
 	user1 := env.createTestUser(t, "rolebatch1", "rolebatch1@example.com")
 	user2 := env.createTestUser(t, "rolebatch2", "rolebatch2@example.com")
 
-	resp, err := env.roleService.BatchAssignRole(env.backgroundCtx, &svc.RoleAssignRequest{
+	resp, err := env.roleService.BulkAssignRole(env.backgroundCtx, &svc.RoleAssignRequest{
 		RoleID:  role.GetID(),
 		UserIDs: []int64{user1.GetID(), -1, user2.GetID()},
 	})
 	if err != nil {
-		t.Fatalf("batch assign role with rollback: %v", err)
+		t.Fatalf("bulk assign role with rollback: %v", err)
 	}
 
 	if resp.SuccessCount != 0 {

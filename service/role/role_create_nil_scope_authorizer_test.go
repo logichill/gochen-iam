@@ -10,6 +10,7 @@ import (
 	svc "gochen-iam/service"
 	auth "gochen-runtime/host/authz"
 	"gochen/contextx"
+	"gochen/domain/spec"
 	"gochen/errors"
 )
 
@@ -32,7 +33,7 @@ func assertCreateRoleDoesNotPanic(t *testing.T, fn func()) {
 func TestRoleServiceCreateRole_NilScopeAuthorizerFallsBackToManagedScope(t *testing.T) {
 	svc.RegisterIAMPermissionCatalog()
 
-	env := setupRoleBatchTest(t)
+	env := setupRoleBulkTest(t)
 	defer env.teardown(t)
 
 	ctx := iamauth.BindActiveScopeContext(env.backgroundCtx, 1, "tenant")
@@ -57,7 +58,7 @@ func TestRoleServiceCreateRole_NilScopeAuthorizerFallsBackToManagedScope(t *test
 		t.Fatalf("expected fallback namespace scope 1 from context, got %d", created.NamespaceScopeID)
 	}
 
-	persisted, err := env.roleRepo.Get(ctx, created.GetID())
+	persisted, err := env.roleRepo.Get(ctx, created.GetID(), spec.All())
 	if err != nil {
 		t.Fatalf("load persisted role: %v", err)
 	}
@@ -72,7 +73,7 @@ func TestRoleServiceCreateRole_NilScopeAuthorizerFallsBackToManagedScope(t *test
 func TestRoleServiceCreateRole_NilScopeAuthorizerRejectsMissingScopeKind(t *testing.T) {
 	svc.RegisterIAMPermissionCatalog()
 
-	env := setupRoleBatchTest(t)
+	env := setupRoleBulkTest(t)
 	defer env.teardown(t)
 
 	assertCreateRoleDoesNotPanic(t, func() {
@@ -97,13 +98,13 @@ func TestRoleServiceCreateRole_NilScopeAuthorizerRejectsMissingScopeKind(t *test
 func TestRoleServiceCreateRole_NilScopeAuthorizerRejectsMissingManagedScope(t *testing.T) {
 	svc.RegisterIAMPermissionCatalog()
 
-	env := setupRoleBatchTest(t)
+	env := setupRoleBulkTest(t)
 	defer env.teardown(t)
 
 	ctx := context.Background()
 	var err error
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
-		SubjectID:   1,
+		SubjectID:   "1",
 		Permissions: []string{"*:*:*"},
 		IsSystem:    true,
 	})

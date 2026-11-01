@@ -55,7 +55,7 @@ func TestBuildMenuTree_WithPermissions_AnyAllAndParentRetention(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
-	derived, err := contextx.WithUserID(reqCtx, 1)
+	derived, err := contextx.WithUserID(reqCtx, "1")
 	if err != nil {
 		t.Fatalf("WithUserID: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestBuildMenuTree_TenantOverride_AppliesAndFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRequestContext: %v", err)
 	}
-	derived, err := contextx.WithUserID(reqCtx, 1)
+	derived, err := contextx.WithUserID(reqCtx, "1")
 	if err != nil {
 		t.Fatalf("WithUserID: %v", err)
 	}

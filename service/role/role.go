@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	iamevent "gochen-iam/event"
 	iamperm "gochen-iam/permissions"
@@ -17,6 +18,7 @@ import (
 	appcrud "gochen/app/crud"
 	"gochen/app/query"
 	"gochen/auth/scoped"
+	"gochen/domain/spec"
 	"gochen/errors"
 	"gochen/eventing"
 	"gochen/eventing/bus"
@@ -24,7 +26,7 @@ import (
 	"gochen/observe/logging"
 )
 
-var errBatchAssignRoleRollback = stdErrors.New("rollback batch assign role")
+var errBulkAssignRoleRollback = stdErrors.New("rollback bulk assign role")
 
 // RoleService 角色服务
 type RoleService struct {
@@ -32,7 +34,7 @@ type RoleService struct {
 	userRepo         *userrepo.UserRepo
 	groupRepo        *grouprepo.GroupRepo
 	scopeAuthorizer  *svc.ScopeAuthorizer
-	authorizer       scoped.IAuthorizer
+	authorizer       *svc.IAMAuthorizer
 	eventBus         bus.IEventBus
 	eventIDGenerator gen.IGenerator[string]
 	logger           logging.ILogger
@@ -45,7 +47,7 @@ func NewRoleService(
 	userRepo *userrepo.UserRepo,
 	groupRepo *grouprepo.GroupRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer scoped.IAuthorizer,
+	authorizer *svc.IAMAuthorizer,
 	eventBus bus.IEventBus,
 	eventIDGenerator gen.IGenerator[string],
 	logger logging.ILogger,
@@ -113,7 +115,7 @@ func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest
 			return nil, err
 		}
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), &iamentity.Role{TenantID: tenantID})
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), &iamentity.Role{TenantID: tenantID})
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +138,7 @@ func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest
 	}
 
 	// 3. 保存角色
-	if err := s.roleRepo.CreateWithConstraint(tenantCtx, role, guard); err != nil {
+	if err := s.roleRepo.Create(tenantCtx, role, guard); err != nil {
 		return nil, errors.Wrap(err, errors.Database, "保存角色失败")
 	}
 
@@ -151,7 +153,7 @@ func (s *RoleService) UpdateRole(ctx context.Context, roleID int64, req *svc.Upd
 		return nil, err
 	}
 	current := currentRoleSnapshot(role)
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +176,7 @@ func (s *RoleService) UpdateRole(ctx context.Context, roleID int64, req *svc.Upd
 	}
 
 	// 3. 保存更新
-	if err := s.roleRepo.UpdateWithConstraint(tenantCtx, role, guard); err != nil {
+	if err := s.roleRepo.Update(tenantCtx, role, guard); err != nil {
 		return nil, err
 	}
 
@@ -188,7 +190,7 @@ func (s *RoleService) DeleteRole(ctx context.Context, roleID int64) error {
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionDelete), role)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionDelete), role)
 	if err != nil {
 		return err
 	}
@@ -198,7 +200,7 @@ func (s *RoleService) DeleteRole(ctx context.Context, roleID int64) error {
 	}
 
 	// 3. 删除角色
-	return s.roleRepo.DeleteWithConstraint(tenantCtx, roleID, guard)
+	return s.roleRepo.Delete(tenantCtx, role, guard)
 }
 
 // AssignRoleToUser 将角色分配给用户
@@ -208,11 +210,11 @@ func (s *RoleService) AssignRoleToUser(ctx context.Context, roleID, userID int64
 	if err != nil {
 		return err
 	}
-	user, err := s.userRepo.Get(tenantCtx, userID)
+	user, err := s.userRepo.Get(tenantCtx, userID, spec.All())
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role, user)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role, user)
 	if err != nil {
 		return err
 	}
@@ -223,7 +225,7 @@ func (s *RoleService) AssignRoleToUser(ctx context.Context, roleID, userID int64
 	}
 
 	// 4. 分配角色
-	if err := s.roleRepo.AssignToUserWithConstraint(tenantCtx, roleID, userID, guard); err != nil {
+	if err := s.roleRepo.AssignToUser(tenantCtx, roleID, userID, guard); err != nil {
 		return err
 	}
 
@@ -238,15 +240,15 @@ func (s *RoleService) RemoveRoleFromUser(ctx context.Context, roleID, userID int
 	if err != nil {
 		return err
 	}
-	user, err := s.userRepo.Get(tenantCtx, userID)
+	user, err := s.userRepo.Get(tenantCtx, userID, spec.All())
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role, user)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role, user)
 	if err != nil {
 		return err
 	}
-	if err := s.roleRepo.RemoveFromUserWithConstraint(tenantCtx, roleID, userID, guard); err != nil {
+	if err := s.roleRepo.RemoveFromUser(tenantCtx, roleID, userID, guard); err != nil {
 		return err
 	}
 
@@ -262,11 +264,11 @@ func (s *RoleService) AssignRoleToGroup(ctx context.Context, roleID, groupID int
 	if err != nil {
 		return err
 	}
-	group, err := s.groupRepo.Get(tenantCtx, groupID)
+	group, err := s.groupRepo.Get(tenantCtx, groupID, spec.All())
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role, group)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role, group)
 	if err != nil {
 		return err
 	}
@@ -277,7 +279,7 @@ func (s *RoleService) AssignRoleToGroup(ctx context.Context, roleID, groupID int
 	}
 
 	// 4. 分配角色给组织
-	return s.roleRepo.AssignToGroupWithConstraint(tenantCtx, roleID, groupID, guard)
+	return s.roleRepo.AssignToGroup(tenantCtx, roleID, groupID, guard)
 }
 
 // RemoveRoleFromGroup 从组织移除默认角色
@@ -286,15 +288,15 @@ func (s *RoleService) RemoveRoleFromGroup(ctx context.Context, roleID, groupID i
 	if err != nil {
 		return err
 	}
-	group, err := s.groupRepo.Get(tenantCtx, groupID)
+	group, err := s.groupRepo.Get(tenantCtx, groupID, spec.All())
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role, group)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role, group)
 	if err != nil {
 		return err
 	}
-	return s.roleRepo.RemoveFromGroupWithConstraint(tenantCtx, roleID, groupID, guard)
+	return s.roleRepo.RemoveFromGroup(tenantCtx, roleID, groupID, guard)
 }
 
 // AddPermission 为角色添加权限
@@ -304,7 +306,7 @@ func (s *RoleService) AddPermission(ctx context.Context, roleID int64, permissio
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
 	if err != nil {
 		return err
 	}
@@ -324,7 +326,7 @@ func (s *RoleService) AddPermission(ctx context.Context, roleID int64, permissio
 	}
 	// 4. 添加权限
 	role.AddPermission(permission)
-	return s.roleRepo.UpdateWithConstraint(tenantCtx, role, guard)
+	return s.roleRepo.Update(tenantCtx, role, guard)
 }
 
 // RemovePermission 从角色移除权限
@@ -334,7 +336,7 @@ func (s *RoleService) RemovePermission(ctx context.Context, roleID int64, permis
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
 	if err != nil {
 		return err
 	}
@@ -346,7 +348,7 @@ func (s *RoleService) RemovePermission(ctx context.Context, roleID int64, permis
 
 	// 3. 移除权限
 	role.RemovePermission(permission)
-	return s.roleRepo.UpdateWithConstraint(tenantCtx, role, guard)
+	return s.roleRepo.Update(tenantCtx, role, guard)
 }
 
 // ActivateRole 激活角色
@@ -355,13 +357,13 @@ func (s *RoleService) ActivateRole(ctx context.Context, roleID int64) error {
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
 	if err != nil {
 		return err
 	}
 
 	role.Activate()
-	return s.roleRepo.UpdateWithConstraint(tenantCtx, role, guard)
+	return s.roleRepo.Update(tenantCtx, role, guard)
 }
 
 // DeactivateRole 停用角色
@@ -374,13 +376,13 @@ func (s *RoleService) DeactivateRole(ctx context.Context, roleID int64) error {
 	if role.IsSystem {
 		return errors.NewCode(errors.Validation, "系统角色不能被停用")
 	}
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
 	if err != nil {
 		return err
 	}
 
 	role.Deactivate()
-	return s.roleRepo.UpdateWithConstraint(tenantCtx, role, guard)
+	return s.roleRepo.Update(tenantCtx, role, guard)
 }
 
 // CloneRole 克隆角色
@@ -409,11 +411,11 @@ func (s *RoleService) CloneRole(ctx context.Context, roleID int64, newName strin
 	}
 
 	// 4. 保存克隆的角色
-	guard, err := svc.AuthorizeWriteConstraint(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), clonedRole)
+	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), clonedRole)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.roleRepo.CreateWithConstraint(tenantCtx, clonedRole, guard); err != nil {
+	if err := s.roleRepo.Create(tenantCtx, clonedRole, guard); err != nil {
 		return nil, errors.Wrap(err, errors.Database, "保存克隆角色失败")
 	}
 
@@ -429,7 +431,26 @@ func (s *RoleService) RoleUsers(ctx context.Context, roleID int64) ([]*iamentity
 	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionRead), role); err != nil {
 		return nil, err
 	}
-	return s.userRepo.FindByRoleID(tenantCtx, roleID)
+	readSpec, err := roleReadSpec(tenantCtx)
+	if err != nil {
+		return nil, err
+	}
+	users, err := s.userRepo.FindByRoleID(tenantCtx, roleID)
+	if err != nil {
+		return nil, err
+	}
+	visible := users[:0]
+	interpreter := spec.NewInterpreter()
+	for _, user := range users {
+		matches, err := interpreter.Match(readSpec, user)
+		if err != nil {
+			return nil, err
+		}
+		if matches {
+			visible = append(visible, user)
+		}
+	}
+	return visible, nil
 }
 
 // RoleGroups 获取使用指定角色作为默认角色的组织
@@ -555,42 +576,59 @@ func (s *RoleService) RoleStatistics(ctx context.Context) (map[string]interface{
 	if err != nil {
 		return nil, err
 	}
+	readSpec, err := roleReadSpec(tenantCtx)
+	if err != nil {
+		return nil, err
+	}
 
 	// 1. 统计总角色数
-	totalRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{})
+	totalRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{}, readSpec)
 	if err != nil {
 		return nil, err
 	}
 
 	// 2. 统计激活角色数
-	activeRoles, err := s.roleRepo.FindByStatus(tenantCtx, svc.RoleStatusActive)
+	activeRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{}, spec.And(readSpec, spec.Eq("Status", svc.RoleStatusActive)))
 	if err != nil {
 		return nil, err
 	}
 
 	// 3. 统计系统角色数
-	systemRoles, err := s.roleRepo.FindSystemRoles(tenantCtx)
+	systemRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{}, spec.And(readSpec, spec.Eq("IsSystem", true)))
 	if err != nil {
 		return nil, err
 	}
 
 	// 4. 统计各状态角色数
-	statusCounts, err := s.roleRepo.CountByStatus(tenantCtx)
+	statusCounts, err := s.roleRepo.CountByStatus(tenantCtx, readSpec)
 	if err != nil {
 		return nil, err
 	}
 
 	return map[string]interface{}{
 		"total_roles":     totalRoles,
-		"active_roles":    len(activeRoles),
-		"system_roles":    len(systemRoles),
+		"active_roles":    int(activeRoles),
+		"system_roles":    int(systemRoles),
 		"roles_by_status": statusCounts,
 	}, nil
 }
 
-// BatchAssignRole 批量分配角色（事务包裹）
-func (s *RoleService) BatchAssignRole(ctx context.Context, req *svc.RoleAssignRequest) (*svc.BatchOperationResponse, error) {
-	response := &svc.BatchOperationResponse{}
+// roleReadSpec 使用 IAM 的统一事实源解析自定义读取的数据范围。
+func roleReadSpec(ctx context.Context) (spec.Spec, error) {
+	scope, err := iamauth.DefaultDataScopeResolver.ResolveDataScope(ctx)
+	if err != nil {
+		return spec.Spec{}, err
+	}
+	boundCtx, err := scoped.WithDataScope(ctx, scope)
+	if err != nil {
+		return spec.Spec{}, err
+	}
+	return svc.DataScopeSpec(boundCtx), nil
+}
+
+// BulkAssignRole 批量分配角色（事务包裹）
+func (s *RoleService) BulkAssignRole(ctx context.Context, req *svc.RoleAssignRequest) (*svc.BulkOperationResponse, error) {
+	response := &svc.BulkOperationResponse{}
 	err := appcrud.WithTx(ctx, s.roleRepo, func(txCtx context.Context) error {
 		for _, userID := range req.UserIDs {
 			if err := s.AssignRoleToUser(txCtx, req.RoleID, userID); err != nil {
@@ -602,11 +640,11 @@ func (s *RoleService) BatchAssignRole(ctx context.Context, req *svc.RoleAssignRe
 		}
 		if response.FailureCount > 0 {
 			response.SuccessCount = 0
-			return errBatchAssignRoleRollback
+			return errBulkAssignRoleRollback
 		}
 		return nil
 	})
-	if err != nil && !stdErrors.Is(err, errBatchAssignRoleRollback) {
+	if err != nil && !stdErrors.Is(err, errBulkAssignRoleRollback) {
 		return nil, err
 	}
 
@@ -693,7 +731,7 @@ func (s *RoleService) initializeBuiltinRoles(ctx context.Context, tenantID strin
 		clone.TenantID = tenantID
 		clone.NamespaceScopeID = namespaceScope.ID
 		clone.Code = builtin.Name
-		if err := s.roleRepo.Create(ctx, &clone); err != nil {
+		if err := s.roleRepo.Create(ctx, &clone, spec.All()); err != nil {
 			return errors.Wrap(err, errors.Database, "初始化内置角色失败: "+builtin.Name)
 		}
 	}

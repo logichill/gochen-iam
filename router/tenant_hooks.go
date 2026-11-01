@@ -18,6 +18,7 @@ import (
 	appcrud "gochen/app/crud"
 	"gochen/db/orm"
 	"gochen/domain"
+	"gochen/domain/spec"
 	"gochen/errors"
 )
 
@@ -37,9 +38,9 @@ func isBcryptHash(password string) bool {
 }
 
 // TenantHooksForUser 创建用户租户隔离钩子。
-func TenantHooksForUser(repo svc.IResourceContextRepository[*iamentity.User, int64]) *appcrud.Hooks[*iamentity.User, int64] {
-	return &appcrud.Hooks[*iamentity.User, int64]{
-		Create: appcrud.Stage[*iamentity.User]{
+func TenantHooksForUser(repo svc.IResourceContextRepository[*iamentity.User, int64]) appcrud.Hooks[*iamentity.User] {
+	return appcrud.Hooks[*iamentity.User]{
+		appcrud.ActionCreate: {
 			Before: func(ctx context.Context, entity *iamentity.User) error {
 				tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 				if err != nil {
@@ -70,7 +71,7 @@ func TenantHooksForUser(repo svc.IResourceContextRepository[*iamentity.User, int
 				return nil
 			},
 		},
-		Update: appcrud.Stage[*iamentity.User]{
+		appcrud.ActionUpdate: {
 			Before: func(ctx context.Context, entity *iamentity.User) error {
 				contextTenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 				if err != nil {
@@ -126,9 +127,9 @@ func TenantHooksForUser(repo svc.IResourceContextRepository[*iamentity.User, int
 				return nil
 			},
 		},
-		Delete: appcrud.Stage[int64]{
-			Before: func(ctx context.Context, id int64) error {
-				return checkTenantOwnership(ctx, repo, id)
+		appcrud.ActionDelete: {
+			Before: func(ctx context.Context, entity *iamentity.User) error {
+				return checkTenantOwnership(ctx, repo, entity.GetID())
 			},
 		},
 	}
@@ -139,9 +140,9 @@ func TenantHooksForRole(
 	repo svc.IResourceContextRepository[*iamentity.Role, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
 	governance *rolesvc.Governance,
-) *appcrud.Hooks[*iamentity.Role, int64] {
-	return &appcrud.Hooks[*iamentity.Role, int64]{
-		Create: appcrud.Stage[*iamentity.Role]{
+) appcrud.Hooks[*iamentity.Role] {
+	return appcrud.Hooks[*iamentity.Role]{
+		appcrud.ActionCreate: {
 			Before: func(ctx context.Context, entity *iamentity.Role) error {
 				if governance != nil {
 					return governance.PrepareCreate(ctx, entity)
@@ -173,7 +174,7 @@ func TenantHooksForRole(
 				return nil
 			},
 		},
-		Update: appcrud.Stage[*iamentity.Role]{
+		appcrud.ActionUpdate: {
 			Before: func(ctx context.Context, entity *iamentity.Role) error {
 				if governance != nil {
 					return governance.PrepareUpdate(ctx, entity)
@@ -202,12 +203,12 @@ func TenantHooksForRole(
 				return nil
 			},
 		},
-		Delete: appcrud.Stage[int64]{
-			Before: func(ctx context.Context, id int64) error {
+		appcrud.ActionDelete: {
+			Before: func(ctx context.Context, entity *iamentity.Role) error {
 				if governance != nil {
-					return governance.ValidateDelete(ctx, id)
+					return governance.ValidateDelete(ctx, entity.GetID())
 				}
-				return checkTenantOwnership(ctx, repo, id)
+				return checkTenantOwnership(ctx, repo, entity.GetID())
 			},
 		},
 	}
@@ -218,9 +219,9 @@ func TenantHooksForTenant(
 	repo svc.IResourceContextRepository[*iamentity.Tenant, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
 	deleteGovernance *tenantDeleteGovernance,
-) *appcrud.Hooks[*iamentity.Tenant, int64] {
-	return &appcrud.Hooks[*iamentity.Tenant, int64]{
-		Create: appcrud.Stage[*iamentity.Tenant]{
+) appcrud.Hooks[*iamentity.Tenant] {
+	return appcrud.Hooks[*iamentity.Tenant]{
+		appcrud.ActionCreate: {
 			Before: func(ctx context.Context, entity *iamentity.Tenant) error {
 				if entity == nil {
 					return nil
@@ -236,7 +237,7 @@ func TenantHooksForTenant(
 				return err
 			},
 		},
-		Update: appcrud.Stage[*iamentity.Tenant]{
+		appcrud.ActionUpdate: {
 			Before: func(ctx context.Context, entity *iamentity.Tenant) error {
 				if entity == nil || entity.GetID() <= 0 {
 					return nil
@@ -249,12 +250,12 @@ func TenantHooksForTenant(
 				return nil
 			},
 		},
-		Delete: appcrud.Stage[int64]{
-			Before: func(ctx context.Context, id int64) error {
+		appcrud.ActionDelete: {
+			Before: func(ctx context.Context, entity *iamentity.Tenant) error {
 				if deleteGovernance == nil {
 					return nil
 				}
-				tenant, err := repo.Get(ctx, id)
+				tenant, err := repo.Get(ctx, entity.GetID(), spec.All())
 				if err != nil {
 					return err
 				}
@@ -268,7 +269,7 @@ func newScopeBackedRoleCRUDHooks(
 	repo svc.IResourceContextRepository[*iamentity.Role, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
 	governance *rolesvc.Governance,
-) *appcrud.Hooks[*iamentity.Role, int64] {
+) appcrud.Hooks[*iamentity.Role] {
 	return TenantHooksForRole(repo, scopeAuthorizer, governance)
 }
 
@@ -311,11 +312,8 @@ func newTenantDeleteGovernance(
 		governance.countScopeChild = scopeRepo.CountChildren
 		governance.getScope = scopeRepo.Get
 		governance.deleteScope = func(ctx context.Context, scope *iamentity.Scope) error {
-			guard, err := svc.NewPlatformEntityConstraint(ctx, svc.ScopeResourceKind, scope)
-			if err != nil {
-				return err
-			}
-			if err := scopeRepo.DeleteWithConstraint(ctx, scope.ID, guard); err != nil {
+			guard := svc.PlatformWriteSpec(ctx)
+			if err := scopeRepo.Delete(ctx, scope, guard); err != nil {
 				return errors.Wrap(err, errors.Database, "删除租户 root scope 失败")
 			}
 			return nil

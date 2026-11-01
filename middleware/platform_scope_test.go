@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"strconv"
 	"testing"
 
 	iamauth "gochen-iam/auth"
@@ -34,7 +35,7 @@ func TestPlatformScopeMiddlewareTenantModeStillRejectsTenantScope(t *testing.T) 
 
 func bindPlatformScopeTestIdentity(t *testing.T, requestCtx httpx.IRequestContext, userID int64, scopeKind string) httpx.IRequestContext {
 	t.Helper()
-	derived, err := contextx.WithUserID(requestCtx, userID)
+	derived, err := contextx.WithUserID(requestCtx, strconv.FormatInt(userID, 10))
 	if err != nil {
 		t.Fatalf("WithUserID: %v", err)
 	}

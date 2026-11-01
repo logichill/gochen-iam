@@ -43,7 +43,7 @@ type IGroupService interface {
 	GroupUsers(ctx context.Context, groupID int64) ([]*iamentity.User, error)
 	AddUserToGroup(ctx context.Context, groupID, userID int64) error
 	RemoveUserFromGroup(ctx context.Context, groupID, userID int64) error
-	BatchAddUsersToGroup(ctx context.Context, groupID int64, userIDs []int64) (*svc.BatchOperationResponse, error)
+	BulkAddUsersToGroup(ctx context.Context, groupID int64, userIDs []int64) (*svc.BulkOperationResponse, error)
 	GroupRoles(ctx context.Context, groupID int64) ([]*iamentity.Role, error)
 	AddGroupRole(ctx context.Context, groupID, roleID int64) error
 	RemoveGroupRole(ctx context.Context, groupID, roleID int64) error
@@ -56,7 +56,7 @@ type IRoleService interface {
 	AddPermission(ctx context.Context, roleID int64, permission string) error
 	RemovePermission(ctx context.Context, roleID int64, permission string) error
 	RoleUsers(ctx context.Context, roleID int64) ([]*iamentity.User, error)
-	BatchAssignRole(ctx context.Context, req *svc.RoleAssignRequest) (*svc.BatchOperationResponse, error)
+	BulkAssignRole(ctx context.Context, req *svc.RoleAssignRequest) (*svc.BulkOperationResponse, error)
 	RemoveRoleFromUser(ctx context.Context, roleID, userID int64) error
 	ActivateRole(ctx context.Context, roleID int64) error
 	DeactivateRole(ctx context.Context, roleID int64) error

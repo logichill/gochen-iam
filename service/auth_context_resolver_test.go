@@ -14,6 +14,7 @@ import (
 	"gochen/cache"
 	"gochen/clock"
 	"gochen/domain/crud"
+	"gochen/domain/spec"
 	"gochen/errors"
 	"gochen/testkit"
 
@@ -157,7 +158,7 @@ func TestAuthContextResolverVisibleScopesRespectTenantMode(t *testing.T) {
 		},
 	}
 	for _, scope := range scopes {
-		if err := scopeRepo.Create(context.Background(), scope); err != nil {
+		if err := scopeRepo.Create(context.Background(), scope, spec.All()); err != nil {
 			t.Fatalf("create scope %s: %v", scope.Key, err)
 		}
 	}

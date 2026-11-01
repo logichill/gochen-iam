@@ -7,12 +7,15 @@ import (
 	"strings"
 	"testing"
 
+	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
 	iamtenant "gochen-iam/tenant"
 	authz "gochen-runtime/host/authz"
 	"gochen-runtime/http/nethttp"
+	"gochen/contextx"
+	"gochen/domain/spec"
 	"gochen/errors"
 )
 
@@ -21,18 +24,18 @@ type tenantAuthorizationRepo struct {
 	writes int
 }
 
-func (r *tenantAuthorizationRepo) Create(_ context.Context, tenant *iamentity.Tenant) error {
+func (r *tenantAuthorizationRepo) Create(_ context.Context, tenant *iamentity.Tenant, _ spec.Spec) error {
 	r.writes++
 	tenant.ID = 42
 	return nil
 }
 
-func (r *tenantAuthorizationRepo) Update(context.Context, *iamentity.Tenant) error {
+func (r *tenantAuthorizationRepo) Update(context.Context, *iamentity.Tenant, spec.Spec) error {
 	r.writes++
 	return nil
 }
 
-func (r *tenantAuthorizationRepo) Delete(context.Context, int64) error {
+func (r *tenantAuthorizationRepo) Delete(context.Context, *iamentity.Tenant, spec.Spec) error {
 	r.writes++
 	return nil
 }
@@ -61,10 +64,15 @@ func TestTenantCRUDRequiresActionPermission(t *testing.T) {
 			tenant.ID = 42
 			repo := &tenantAuthorizationRepo{routeScopedRepo: routeScopedRepo[*iamentity.Tenant]{entity: tenant}}
 			root := newRecordingGroup("", nil)
-			if err := NewTenantRoutes(nil, repo, nil, nil, nil, nil, nil).RegisterRoutes(root); err != nil {
+			if err := NewTenantRoutes(nil, repo, nil, svc.NewIAMAuthorizer(nil), nil, nil, nil, nil).RegisterRoutes(root); err != nil {
 				t.Fatal(err)
 			}
-			base, err := authz.WithPrincipal(iamtenant.WithPolicy(context.Background(), iamtenant.Policy{Mode: iamtenant.ModeSingle}), authz.Principal{SubjectID: 7, Permissions: tt.permissions})
+			base, err := authz.WithPrincipal(iamtenant.WithPolicy(context.Background(), iamtenant.Policy{Mode: iamtenant.ModeSingle}), authz.Principal{SubjectID: "7", Permissions: tt.permissions, ActiveScopeID: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			base = iamauth.BindActiveScopeContext(base, 1, string(iammw.ScopePlatform))
+			base, err = contextx.WithUserID(base, "7")
 			if err != nil {
 				t.Fatal(err)
 			}

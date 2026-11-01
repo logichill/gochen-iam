@@ -3,18 +3,16 @@ package role
 import (
 	"context"
 
-	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
-	assocguard "gochen-iam/repo/internal/guard"
 	"gochen-iam/repo/internal/likesafe"
 	scoperesolver "gochen-iam/repo/internal/scope"
 	iamtenant "gochen-iam/tenant"
 	"gochen-runtime/db/orm/repo"
 	auth "gochen-runtime/host/authz"
 	"gochen/app/query"
-	"gochen/auth/scoped"
 	"gochen/db/orm"
 	domaincrud "gochen/domain/crud"
+	"gochen/domain/spec"
 	"gochen/errors"
 	"gochen/gen"
 )
@@ -72,8 +70,6 @@ func NewRoleRepository(o orm.IOrm, idGenerator gen.IGenerator[int64]) (*RoleRepo
 		repo.WithResourceKind[*iamentity.Role, int64]("iam.role"),
 		repo.WithSoftDeleteColumns[*iamentity.Role, int64]("deleted_at", ""),
 		repo.WithIsolation[*iamentity.Role, int64](repo.IsolationCols{Column: "tenant_id"}),
-		repo.WithScope[*iamentity.Role, int64](repo.ScopeCols{ManagedScopeID: "namespace_scope_id", OwnerID: "owner_id", Revision: "version"}),
-		repo.WithDataScopeResolver[*iamentity.Role, int64](scoperesolver.DefaultResolver),
 	)
 	if err != nil {
 		return nil, err
@@ -83,7 +79,7 @@ func NewRoleRepository(o orm.IOrm, idGenerator gen.IGenerator[int64]) (*RoleRepo
 
 // shared 原生 ICRUDRepository 方法由 CrudBase 提供
 
-func (r *RoleRepo) Create(ctx context.Context, role *iamentity.Role) error {
+func (r *RoleRepo) Create(ctx context.Context, role *iamentity.Role, s spec.Spec) error {
 	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 	if err == nil {
 		if role.TenantID == "" {
@@ -100,10 +96,10 @@ func (r *RoleRepo) Create(ctx context.Context, role *iamentity.Role) error {
 	if role.NamespaceScopeID == 0 {
 		role.NamespaceScopeID = scoperesolver.ResolveManagedScopeID(ctx)
 	}
-	return r.Repo.Create(ctx, role)
+	return r.Repo.Create(ctx, role, s)
 }
 
-func (r *RoleRepo) Update(ctx context.Context, role *iamentity.Role) error {
+func (r *RoleRepo) Update(ctx context.Context, role *iamentity.Role, s spec.Spec) error {
 	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 	if err != nil {
 		return err
@@ -119,7 +115,13 @@ func (r *RoleRepo) Update(ctx context.Context, role *iamentity.Role) error {
 	if role.NamespaceScopeID == 0 {
 		role.NamespaceScopeID = scoperesolver.ResolveManagedScopeID(ctx)
 	}
-	return r.Repo.Update(ctx, roleWithoutAssociations(role))
+	updated := roleWithoutAssociations(role)
+	if err := r.Repo.Update(ctx, updated, s); err != nil {
+		return err
+	}
+	role.Version = updated.Version
+	role.Timestamps = updated.Timestamps
+	return nil
 }
 
 func roleWithoutAssociations(role *iamentity.Role) *iamentity.Role {
@@ -133,24 +135,21 @@ func roleWithoutAssociations(role *iamentity.Role) *iamentity.Role {
 	return &clone
 }
 
-func (r *RoleRepo) CreateWithConstraint(ctx context.Context, role *iamentity.Role, guard iamaccess.WriteConstraint) error {
-	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Repo.Create(boundCtx, role)
-}
-
-func (r *RoleRepo) UpdateWithConstraint(ctx context.Context, role *iamentity.Role, guard iamaccess.WriteConstraint) error {
-	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Repo.Update(boundCtx, role)
-}
-
-func (r *RoleRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
-	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Delete(boundCtx, id)
+// Delete 执行软删除并保留 IAM 既有语义；物理删除请使用 Purge。
+func (r *RoleRepo) Delete(ctx context.Context, role *iamentity.Role, s spec.Spec) error {
+	if role == nil {
+		return errors.NewCode(errors.InvalidInput, "role cannot be nil")
+	}
+	if role.IsDeleted() {
+		return errors.NewCode(errors.Conflict, "角色已删除").WithContext("id", role.GetID())
+	}
+	role.MarkAsDeleted()
+	return r.Update(ctx, role, s)
 }
 
 // Query 覆盖通用查询，补齐 namespace scope 关系。
-func (r *RoleRepo) Query(ctx context.Context, opts query.QueryOptions) ([]*iamentity.Role, error) {
-	roles, err := r.Repo.Query(ctx, opts)
+func (r *RoleRepo) Query(ctx context.Context, opts query.QueryOptions, s spec.Spec) ([]*iamentity.Role, error) {
+	roles, err := r.Repo.Query(ctx, opts, s)
 	if err != nil {
 		return nil, err
 	}
@@ -158,8 +157,8 @@ func (r *RoleRepo) Query(ctx context.Context, opts query.QueryOptions) ([]*iamen
 }
 
 // Get 根据ID获取角色。
-func (r *RoleRepo) Get(ctx context.Context, id int64) (*iamentity.Role, error) {
-	role, err := r.getByID(ctx, id)
+func (r *RoleRepo) Get(ctx context.Context, id int64, s spec.Spec) (*iamentity.Role, error) {
+	role, err := r.Repo.Get(ctx, id, s)
 	if err != nil {
 		if errors.Is(err, errors.NotFound) {
 			return nil, errors.NewCode(errors.NotFound, "角色不存在")
@@ -388,162 +387,87 @@ func (r *RoleRepo) FindByGroupIDs(ctx context.Context, groupIDs []int64) ([]*iam
 	return r.hydrateRoleScopes(ctx, uniqueRoles)
 }
 
-// AssignToUser 将角色分配给用户
-func (r *RoleRepo) AssignToUser(ctx context.Context, roleID, userID int64) error {
-	// 检查角色是否存在
-	role, err := r.getByID(ctx, roleID)
-	if err != nil {
-		return err
-	}
-	// 检查用户是否存在且属于同一租户
-	if _, err := r.userByID(ctx, userID); err != nil {
-		return err
-	}
-
-	engine := r.Orm()
-	if session, ok := orm.SessionFromContext(ctx); ok && session != nil {
-		engine = session
-	}
-	model, err := engine.Model(&orm.ModelMeta{
-		ModelFactory: orm.NewModelFactory[iamentity.UserRoleBinding](),
-		Table:        "user_role_bindings",
-	})
-	if err != nil {
-		return errors.Wrap(err, errors.Database, "初始化 user_role_bindings 模型失败")
-	}
-	grantScopeID := role.NamespaceScopeID
-	if override := scoperesolver.ResolveManagedScopeID(ctx); override > 0 {
-		grantScopeID = override
-	}
-	if err := model.Create(ctx, &iamentity.UserRoleBinding{
-		UserID:       userID,
-		RoleID:       roleID,
-		GrantScopeID: grantScopeID,
-		Status:       "active",
-	}); err != nil {
-		return errors.Wrap(err, errors.Database, "分配角色给用户失败")
-	}
-
-	return nil
-}
-
-// AssignToUserWithConstraint 在显式多资源写边界下给用户分配角色。
-func (r *RoleRepo) AssignToUserWithConstraint(ctx context.Context, roleID, userID int64, guard iamaccess.WriteConstraint) error {
-	return assocguard.MutatePair(ctx, r, guard, roleResourceKind, roleID, userResourceKind, userID, func(ctx context.Context) error {
-		return r.AssignToUser(ctx, roleID, userID)
+// AssignToUser 将角色分配给用户。
+func (r *RoleRepo) AssignToUser(ctx context.Context, roleID, userID int64, s spec.Spec) error {
+	return r.WithinTx(ctx, func(txCtx context.Context) error {
+		role, err := r.Repo.Get(txCtx, roleID, s)
+		if err != nil {
+			return err
+		}
+		user, err := r.userByID(txCtx, userID)
+		if err != nil {
+			return err
+		}
+		if err := requireSpecMatch(s, user); err != nil {
+			return err
+		}
+		grantScopeID := role.NamespaceScopeID
+		if override := scoperesolver.ResolveManagedScopeID(txCtx); override > 0 {
+			grantScopeID = override
+		}
+		engine := r.Orm()
+		if session, ok := orm.SessionFromContext(txCtx); ok && session != nil {
+			engine = session
+		}
+		bindingModel, err := engine.Model(&orm.ModelMeta{
+			ModelFactory: orm.NewModelFactory[iamentity.UserRoleBinding](),
+			Table:        "user_role_bindings",
+		})
+		if err != nil {
+			return errors.Wrap(err, errors.Database, "初始化 user_role_bindings 模型失败")
+		}
+		if err := bindingModel.Create(txCtx, &iamentity.UserRoleBinding{
+			UserID:       userID,
+			RoleID:       roleID,
+			GrantScopeID: grantScopeID,
+			Status:       "active",
+		}); err != nil {
+			return errors.Wrap(err, errors.Database, "分配角色给用户失败")
+		}
+		return nil
 	})
 }
 
-// RemoveFromUser 从用户移除角色
-func (r *RoleRepo) RemoveFromUser(ctx context.Context, roleID, userID int64) error {
-	// 检查角色是否存在
-	if _, err := r.getByID(ctx, roleID); err != nil {
-		return err
-	}
-
-	engine := r.Orm()
-	if session, ok := orm.SessionFromContext(ctx); ok && session != nil {
-		engine = session
-	}
-	model, err := engine.Model(&orm.ModelMeta{
-		ModelFactory: orm.NewModelFactory[iamentity.UserRoleBinding](),
-		Table:        "user_role_bindings",
-	})
-	if err != nil {
-		return errors.Wrap(err, errors.Database, "初始化 user_role_bindings 模型失败")
-	}
-	if err := model.Delete(ctx,
-		orm.WithWhere("role_id = ?", roleID),
-		orm.WithWhere("user_id = ?", userID),
-	); err != nil {
-		return errors.Wrap(err, errors.Database, "从用户移除角色失败")
-	}
-
-	return nil
-}
-
-// RemoveFromUserWithConstraint 在显式多资源写边界下移除用户角色。
-func (r *RoleRepo) RemoveFromUserWithConstraint(ctx context.Context, roleID, userID int64, guard iamaccess.WriteConstraint) error {
-	return assocguard.MutatePair(ctx, r, guard, roleResourceKind, roleID, userResourceKind, userID, func(ctx context.Context) error {
-		return r.RemoveFromUser(ctx, roleID, userID)
+// RemoveFromUser 从用户移除角色。
+func (r *RoleRepo) RemoveFromUser(ctx context.Context, roleID, userID int64, s spec.Spec) error {
+	return r.WithinTx(ctx, func(txCtx context.Context) error {
+		if _, err := r.Repo.Get(txCtx, roleID, s); err != nil {
+			return err
+		}
+		user, err := r.userByID(txCtx, userID)
+		if err != nil {
+			return err
+		}
+		if err := requireSpecMatch(s, user); err != nil {
+			return err
+		}
+		model, err := r.userRoleBindingModel(txCtx)
+		if err != nil {
+			return err
+		}
+		if err := model.Delete(txCtx,
+			orm.WithWhere("role_id = ?", roleID),
+			orm.WithWhere("user_id = ?", userID),
+		); err != nil {
+			return errors.Wrap(err, errors.Database, "从用户移除角色失败")
+		}
+		return nil
 	})
 }
 
-// AssignToGroup 将角色分配给组织作为默认角色
-func (r *RoleRepo) AssignToGroup(ctx context.Context, roleID, groupID int64) error {
-	// 检查角色是否存在
-	role, err := r.getByID(ctx, roleID)
-	if err != nil {
-		return err
-	}
-
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return err
-	}
-	err = model.Association(role, "Groups").
-		Append(ctx, &iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}})
-
-	if err != nil {
-		return errors.Wrap(err, errors.Database, "分配角色给组织失败")
-	}
-
-	return nil
+// AssignToGroup 将角色分配给组织作为默认角色。
+func (r *RoleRepo) AssignToGroup(ctx context.Context, roleID, groupID int64, s spec.Spec) error {
+	return r.mutateRoleAssociation(ctx, roleID, "Groups", groupResourceKind, groupID,
+		&iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}}, false, "分配角色给组织失败", s)
 }
 
-// AssignToGroupWithConstraint 在显式多资源写边界下给组织分配默认角色。
-func (r *RoleRepo) AssignToGroupWithConstraint(ctx context.Context, roleID, groupID int64, guard iamaccess.WriteConstraint) error {
-	return r.mutateRoleAssociationWithConstraint(
-		ctx,
-		roleID,
-		"Groups",
-		groupResourceKind,
-		groupID,
-		&iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}},
-		false,
-		"分配角色给组织失败",
-		guard,
-	)
+// RemoveFromGroup 从组织移除默认角色。
+func (r *RoleRepo) RemoveFromGroup(ctx context.Context, roleID, groupID int64, s spec.Spec) error {
+	return r.mutateRoleAssociation(ctx, roleID, "Groups", groupResourceKind, groupID,
+		&iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}}, true, "从组织移除角色失败", s)
 }
 
-// RemoveFromGroup 从组织移除默认角色
-func (r *RoleRepo) RemoveFromGroup(ctx context.Context, roleID, groupID int64) error {
-	// 检查角色是否存在
-	role, err := r.getByID(ctx, roleID)
-	if err != nil {
-		return err
-	}
-
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return err
-	}
-	err = model.Association(role, "Groups").
-		Delete(ctx, &iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}})
-
-	if err != nil {
-		return errors.Wrap(err, errors.Database, "从组织移除角色失败")
-	}
-
-	return nil
-}
-
-// RemoveFromGroupWithConstraint 在显式多资源写边界下移除组织默认角色。
-func (r *RoleRepo) RemoveFromGroupWithConstraint(ctx context.Context, roleID, groupID int64, guard iamaccess.WriteConstraint) error {
-	return r.mutateRoleAssociationWithConstraint(
-		ctx,
-		roleID,
-		"Groups",
-		groupResourceKind,
-		groupID,
-		&iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}},
-		true,
-		"从组织移除角色失败",
-		guard,
-	)
-}
-
-func (r *RoleRepo) mutateRoleAssociationWithConstraint(
+func (r *RoleRepo) mutateRoleAssociation(
 	ctx context.Context,
 	roleID int64,
 	association string,
@@ -552,24 +476,25 @@ func (r *RoleRepo) mutateRoleAssociationWithConstraint(
 	related any,
 	remove bool,
 	message string,
-	guard iamaccess.WriteConstraint,
+	s spec.Spec,
 ) error {
-	return assocguard.MutatePair(ctx, r, guard, roleResourceKind, roleID, relatedKind, relatedID, func(ctx context.Context) error {
-
-		role, err := r.getByID(ctx, roleID)
+	if err := r.requireRelatedInSpec(ctx, relatedKind, relatedID, s); err != nil {
+		return err
+	}
+	return r.WithinTx(ctx, func(txCtx context.Context) error {
+		role, err := r.Repo.Get(txCtx, roleID, s)
 		if err != nil {
 			return err
 		}
-		model, err := r.ModelFor(ctx)
+		model, err := r.ModelFor(txCtx)
 		if err != nil {
 			return err
 		}
-
 		associationRef := model.Association(role, association)
 		if remove {
-			err = associationRef.Delete(ctx, related)
+			err = associationRef.Delete(txCtx, related)
 		} else {
-			err = associationRef.Append(ctx, related)
+			err = associationRef.Append(txCtx, related)
 		}
 		if err != nil {
 			return errors.Wrap(err, errors.Database, message)
@@ -578,33 +503,108 @@ func (r *RoleRepo) mutateRoleAssociationWithConstraint(
 	})
 }
 
-// CountByStatus 统计各状态角色数量。
-func (r *RoleRepo) CountByStatus(ctx context.Context) (map[string]int64, error) {
-	type StatusCount struct {
-		Status string `json:"status"`
-		Count  int64  `json:"count"`
+func (r *RoleRepo) requireRelatedInSpec(ctx context.Context, kind string, id int64, s spec.Spec) error {
+	switch kind {
+	case userResourceKind:
+		user, err := r.userByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		return requireSpecMatch(s, user)
+	case groupResourceKind:
+		group, err := r.groupByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		return requireSpecMatch(s, group)
+	default:
+		return errors.NewCode(errors.InvalidInput, "unsupported related resource kind").
+			WithContext("kind", kind)
 	}
+}
 
-	var results []StatusCount
-	query, err := r.tenantScopedQuery(ctx)
+func (r *RoleRepo) userRoleBindingModel(ctx context.Context) (orm.IModel, error) {
+	engine := r.Orm()
+	if session, ok := orm.SessionFromContext(ctx); ok && session != nil {
+		engine = session
+	}
+	model, err := engine.Model(&orm.ModelMeta{
+		ModelFactory: orm.NewModelFactory[iamentity.UserRoleBinding](),
+		Table:        "user_role_bindings",
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, errors.Database, "初始化 user_role_bindings 模型失败")
+	}
+	return model, nil
+}
+
+func (r *RoleRepo) groupByID(ctx context.Context, groupID int64) (*iamentity.Group, error) {
+	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	err = query.
-		Select("status").
-		SelectExprUnsafe(repo.AllowUnsafeSelectExpr(), "COUNT(*) as count").
-		GroupBy("status").
-		Find(&results)
+	engine := r.Orm()
+	if session, ok := orm.SessionFromContext(ctx); ok && session != nil {
+		engine = session
+	}
+	model, err := engine.Model(&orm.ModelMeta{
+		ModelFactory: orm.NewModelFactory[iamentity.Group](),
+		Table:        "groups",
+	})
 	if err != nil {
-		return nil, errors.Wrap(err, errors.Database, "统计角色状态失败")
+		return nil, errors.Wrap(err, errors.Database, "初始化 groups 模型失败")
 	}
+	var group iamentity.Group
+	if err := model.First(ctx, &group,
+		orm.WithWhere("id = ?", groupID),
+		orm.WithWhere("tenant_id = ?", tenantID),
+		orm.WithWhere("deleted_at IS NULL"),
+	); err != nil {
+		if errors.Is(err, errors.NotFound) {
+			return nil, errors.NewCode(errors.NotFound, "组织不存在")
+		}
+		return nil, errors.Wrap(err, errors.Database, "查询组织失败")
+	}
+	return &group, nil
+}
 
+func requireSpecMatch(s spec.Spec, entity any) error {
+	if s.Err() != nil {
+		return s.Err()
+	}
+	ok, err := spec.NewInterpreter().Match(s, entity)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return errors.NewCode(errors.Forbidden, "entity does not satisfy the required scope")
+	}
+	return nil
+}
+
+// CountByStatus 统计各状态角色数量。
+func (r *RoleRepo) CountByStatus(ctx context.Context, s spec.Spec) (map[string]int64, error) {
 	statusMap := make(map[string]int64)
-	for _, result := range results {
-		statusMap[result.Status] = result.Count
+	const pageSize = 1000
+	for offset := 0; ; offset += pageSize {
+		// 只统计 id/status 投影，绕过 Query 覆盖以跳过关联补齐。
+		roles, err := r.Repo.Query(ctx, query.QueryOptions{
+			Offset: offset,
+			Limit:  pageSize,
+			Fields: []string{"id", "status"},
+		}, s)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.Database, "统计角色状态失败")
+		}
+		for _, role := range roles {
+			if role != nil {
+				statusMap[role.Status]++
+			}
+		}
+		if len(roles) < pageSize {
+			return statusMap, nil
+		}
 	}
-
-	return statusMap, nil
 }
 
 // RoleUsageStats 获取角色使用统计
@@ -773,7 +773,7 @@ func (r *RoleRepo) InitializeSystemRoles(ctx context.Context) error {
 		if existing == nil {
 			// 角色不存在，创建它
 			clone := *role
-			if err := r.Repo.Create(ctx, &clone); err != nil {
+			if err := r.Repo.Create(ctx, &clone, spec.All()); err != nil {
 				return errors.Wrap(err, errors.Database, "初始化系统角色失败: "+role.Name)
 			}
 		}

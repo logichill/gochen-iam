@@ -10,7 +10,6 @@ import (
 	"gochen/observe/logging"
 	"gochen/testkit"
 
-	iamaccess "gochen-iam/access"
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	"gochen-iam/persistence/gormsetup"
@@ -28,6 +27,7 @@ import (
 	auth "gochen-runtime/host/authz"
 	"gochen/auth/scoped"
 	"gochen/contextx"
+	"gochen/domain/spec"
 	"gochen/errors"
 
 	"gorm.io/driver/sqlite"
@@ -110,7 +110,7 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	// 创建背景上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
-		SubjectID:   1,
+		SubjectID:   "1",
 		Permissions: []string{"*:*:*"},
 		IsSystem:    true,
 	})
@@ -128,7 +128,7 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 		Name:   "Test Tenant",
 		Status: svc.TenantStatusActive,
 	}
-	if err := tenantRepo.Create(ctx, tenant); err != nil {
+	if err := tenantRepo.Create(ctx, tenant, spec.All()); err != nil {
 		t.Fatalf("create tenant: %v", err)
 	}
 	rootScope, err := scopeAuthorizer.EnsureTenantRootScope(ctx, tenant)
@@ -153,25 +153,8 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	if err != nil {
 		t.Fatalf("rebind tenant context: %v", err)
 	}
-	ctx = scoped.WithConstraint(ctx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
-		return scoped.WriteConstraint{
-			Resources: []scoped.ResourceConstraint{{
-				Kind:           entityType,
-				TenantID:       tenant.Key,
-				ManagedScopeID: rootScope.ID,
-				Revision:       "0",
-			}},
-		}, true
-	}))
 
-	authzRegistry, err := iamservice.NewIAMAuthzRegistry()
-	if err != nil {
-		t.Fatalf("NewIAMAuthzRegistry: %v", err)
-	}
-	authorizer, err := iamservice.NewIAMAuthorizer(scopeAuthorizer, authzRegistry)
-	if err != nil {
-		t.Fatalf("NewIAMAuthorizer: %v", err)
-	}
+	authorizer := iamservice.NewIAMAuthorizer(scopeAuthorizer)
 
 	// 创建服务
 	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, scopeAuthorizer, authorizer, logging.NewNoopLogger())
@@ -214,7 +197,7 @@ func (env *userServiceTestEnv) createTestRole(t *testing.T, name string, permiss
 		Permissions:      iamentity.PermissionArray(permissions),
 		Status:           svc.RoleStatusActive,
 	}
-	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
+	if err := env.roleRepo.Create(env.backgroundCtx, role, spec.All()); err != nil {
 		t.Fatalf("create test role: %v", err)
 	}
 	return role
@@ -374,11 +357,11 @@ func TestUserServiceAuthenticate_ListsPlatformScopeWhenUserHasPlatformBinding(t 
 		IsSystem:         true,
 		Status:           svc.RoleStatusActive,
 	}
-	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
+	if err := env.roleRepo.Create(env.backgroundCtx, role, spec.All()); err != nil {
 		t.Fatalf("create platform admin role: %v", err)
 	}
 	assignCtx := iamauth.BindActiveScopeContext(env.backgroundCtx, platformScope.ID, string(platformScope.Type))
-	if err := env.roleRepo.AssignToUser(assignCtx, role.ID, user.ID); err != nil {
+	if err := env.roleRepo.AssignToUser(assignCtx, role.ID, user.ID, spec.All()); err != nil {
 		t.Fatalf("assign platform admin role: %v", err)
 	}
 
@@ -421,7 +404,7 @@ func TestTenantRepo_Create_AllowsMultipleTenants(t *testing.T) {
 		Name:   "Tenant A",
 		Status: svc.TenantStatusActive,
 	}
-	if err := env.tenantRepo.Create(context.Background(), first); err != nil {
+	if err := env.tenantRepo.Create(context.Background(), first, spec.All()); err != nil {
 		t.Fatalf("create first tenant: %v", err)
 	}
 
@@ -430,7 +413,7 @@ func TestTenantRepo_Create_AllowsMultipleTenants(t *testing.T) {
 		Name:   "Tenant B",
 		Status: svc.TenantStatusActive,
 	}
-	if err := env.tenantRepo.Create(context.Background(), second); err != nil {
+	if err := env.tenantRepo.Create(context.Background(), second, spec.All()); err != nil {
 		t.Fatalf("create second tenant: %v", err)
 	}
 }
@@ -593,29 +576,11 @@ func TestUserServiceAuthSnapshotFiltersInactiveAndDeletedRoles(t *testing.T) {
 
 	inactiveRole.Status = svc.RoleStatusInactive
 	inactiveRole.SetUpdatedAt(time.Now())
-	inactiveRoleCtx := scoped.WithConstraint(env.backgroundCtx, scoped.SingleEntityConstraint("iam.role", scoped.WriteConstraint{
-		Resources: []scoped.ResourceConstraint{{
-			Kind:           "iam.role",
-			ResourceID:     strconv.FormatInt(inactiveRole.GetID(), 10),
-			TenantID:       env.tenantID,
-			ManagedScopeID: inactiveRole.NamespaceScopeID,
-			Revision:       "0",
-		}},
-	}))
-	if err := env.roleRepo.Update(inactiveRoleCtx, inactiveRole); err != nil {
+	if err := env.roleRepo.Update(env.backgroundCtx, inactiveRole, spec.All()); err != nil {
 		t.Fatalf("deactivate role: %v", err)
 	}
-	deletedRoleCtx := scoped.WithConstraint(env.backgroundCtx, scoped.SingleEntityConstraint("iam.role", scoped.WriteConstraint{
-		Resources: []scoped.ResourceConstraint{{
-			Kind:           "iam.role",
-			ResourceID:     strconv.FormatInt(deletedRole.GetID(), 10),
-			TenantID:       env.tenantID,
-			ManagedScopeID: deletedRole.NamespaceScopeID,
-			Revision:       "0",
-		}},
-	}))
 
-	if err := env.roleRepo.Delete(deletedRoleCtx, deletedRole.GetID()); err != nil {
+	if err := env.roleRepo.Delete(env.backgroundCtx, deletedRole, spec.All()); err != nil {
 		t.Fatalf("soft delete role: %v", err)
 	}
 
@@ -874,7 +839,7 @@ func TestUserServiceAuthSnapshotQueryCountIsBounded(t *testing.T) {
 						Password:       "password-hash",
 						Status:         svc.UserStatusActive,
 					}
-					if err := env.userRepo.Create(env.backgroundCtx, user); err != nil {
+					if err := env.userRepo.Create(env.backgroundCtx, user, spec.All()); err != nil {
 						t.Fatalf("create user: %v", err)
 					}
 					for i := 0; i < bindingCount; i++ {
@@ -959,7 +924,7 @@ func TestUserServiceSingleTenantProjectsAncestorGrantIntoRootScope(t *testing.T)
 		Permissions:      iamentity.PermissionArray{"*:*:*"},
 		Status:           svc.RoleStatusActive,
 	}
-	if err := env.roleRepo.Create(env.backgroundCtx, platformRole); err != nil {
+	if err := env.roleRepo.Create(env.backgroundCtx, platformRole, spec.All()); err != nil {
 		t.Fatalf("create platform role: %v", err)
 	}
 	binding := &iamentity.UserRoleBinding{
@@ -1159,7 +1124,7 @@ func TestUserServiceActivateDeactivate(t *testing.T) {
 	}
 
 	// 验证状态
-	dbUser, err := env.userRepo.Get(env.backgroundCtx, user.GetID())
+	dbUser, err := env.userRepo.Get(env.backgroundCtx, user.GetID(), spec.All())
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
@@ -1174,7 +1139,7 @@ func TestUserServiceActivateDeactivate(t *testing.T) {
 	}
 
 	// 验证状态
-	dbUser, err = env.userRepo.Get(env.backgroundCtx, user.GetID())
+	dbUser, err = env.userRepo.Get(env.backgroundCtx, user.GetID(), spec.All())
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
@@ -1218,12 +1183,12 @@ func TestUserServiceActivateUserRejectsPlatformOwnedUserFromTenantScopeInSingleT
 		Password:       "!ACTIVATION_REQUIRED!",
 		Status:         svc.UserStatusInactive,
 	}
-	if err := env.userRepo.Create(platformCtx, placeholder); err != nil {
+	if err := env.userRepo.Create(platformCtx, placeholder, spec.All()); err != nil {
 		t.Fatalf("create platform-owned placeholder: %v", err)
 	}
 
 	tenantPrincipal := auth.Principal{
-		SubjectID:     42,
+		SubjectID:     "42",
 		Permissions:   []string{"user:api:*"},
 		ActiveScopeID: env.rootScopeID,
 	}
@@ -1237,7 +1202,7 @@ func TestUserServiceActivateUserRejectsPlatformOwnedUserFromTenantScopeInSingleT
 		t.Fatalf("expected forbidden activation, got %v", err)
 	}
 
-	stored, err := env.userRepo.Get(platformCtx, placeholder.GetID())
+	stored, err := env.userRepo.Get(platformCtx, placeholder.GetID(), spec.All())
 	if err != nil {
 		t.Fatalf("reload platform-owned placeholder: %v", err)
 	}
@@ -1270,7 +1235,7 @@ func TestUserServiceLockUnlock(t *testing.T) {
 	}
 
 	// 验证状态
-	dbUser, err := env.userRepo.Get(env.backgroundCtx, user.GetID())
+	dbUser, err := env.userRepo.Get(env.backgroundCtx, user.GetID(), spec.All())
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
@@ -1285,7 +1250,7 @@ func TestUserServiceLockUnlock(t *testing.T) {
 	}
 
 	// 验证状态
-	dbUser, err = env.userRepo.Get(env.backgroundCtx, user.GetID())
+	dbUser, err = env.userRepo.Get(env.backgroundCtx, user.GetID(), spec.All())
 	if err != nil {
 		t.Fatalf("get user: %v", err)
 	}
@@ -1333,7 +1298,7 @@ func TestUserServiceAssignRole(t *testing.T) {
 	}
 }
 
-func TestUserRepoAssignRoleWithConstraint_AllowsSameTenantDifferentManagedScopes(t *testing.T) {
+func TestUserRepoAssignRole_AllowsSameTenantDifferentManagedScopes(t *testing.T) {
 	env := setupUserServiceTest(t)
 	defer env.teardown(t)
 
@@ -1359,11 +1324,7 @@ func TestUserRepoAssignRoleWithConstraint_AllowsSameTenantDifferentManagedScopes
 		Depth:    rootScope.Depth + 1,
 		Status:   iamentity.ScopeStatusActive,
 	}
-	scopeGuard, err := svc.NewPlatformCreateConstraint(env.backgroundCtx, svc.ScopeResourceKind)
-	if err != nil {
-		t.Fatalf("NewPlatformCreateConstraint: %v", err)
-	}
-	if err := env.scopeRepo.CreateWithConstraint(env.backgroundCtx, childScope, scopeGuard); err != nil {
+	if err := env.scopeRepo.Create(env.backgroundCtx, childScope, spec.All()); err != nil {
 		t.Fatalf("create child scope: %v", err)
 	}
 
@@ -1376,50 +1337,13 @@ func TestUserRepoAssignRoleWithConstraint_AllowsSameTenantDifferentManagedScopes
 		Permissions:      iamentity.PermissionArray([]string{"test:api:read"}),
 		Status:           svc.RoleStatusActive,
 	}
-	if err := env.roleRepo.Create(env.backgroundCtx, role); err != nil {
+	if err := env.roleRepo.Create(env.backgroundCtx, role, spec.All()); err != nil {
 		t.Fatalf("create child scope role: %v", err)
 	}
 
-	guard := iamaccess.NewWriteConstraint(scoped.WriteConstraint{
-		Resources: []scoped.ResourceConstraint{
-			{
-				Kind:           svc.UserResourceKind,
-				ResourceID:     guardID(user.GetID()),
-				ManagedScopeID: user.ManagedScopeID,
-				TenantID:       env.tenantID,
-				Revision:       strconv.FormatUint(user.GetVersion(), 10),
-			},
-			{
-				Kind:           svc.RoleResourceKind,
-				ResourceID:     guardID(role.GetID()),
-				ManagedScopeID: role.NamespaceScopeID,
-				TenantID:       env.tenantID,
-				Revision:       strconv.FormatUint(role.GetVersion(), 10),
-			},
-		},
-	})
-
-	// 版本缺失或不匹配时，跨 scope 关联同样不能绕过资源快照校验。
-	roleRevision := guard.Resources[1].Revision
-	for _, tc := range []struct {
-		revision string
-		code     errors.ErrorCode
-	}{
-		{"", errors.InvalidInput},
-		{strconv.FormatUint(role.GetVersion()+1, 10), errors.Conflict},
-	} {
-		guard.Resources[1].Revision = tc.revision
-		if err := env.userRepo.AssignRoleWithConstraint(env.backgroundCtx, user.GetID(), role.GetID(), guard); !errors.Is(err, tc.code) {
-			t.Fatalf("revision %q: expected %s, got %v", tc.revision, tc.code, err)
-		}
-	}
-	guard.Resources[1].Revision = roleRevision
-	if bindings, err := env.userRepo.ListRoleBindings(env.backgroundCtx, user.GetID()); err != nil || len(bindings) != 0 {
-		t.Fatalf("rejected constraints changed bindings: %v, %v", bindings, err)
-	}
-
-	if err := env.userRepo.AssignRoleWithConstraint(env.backgroundCtx, user.GetID(), role.GetID(), guard); err != nil {
-		t.Fatalf("AssignRoleWithConstraint: %v", err)
+	// 租户边界由授权器判定；通过后使用无范围限制的写规约，允许同租户、不同 scope 的关联。
+	if err := env.userRepo.AssignRole(env.backgroundCtx, user.GetID(), role.GetID(), spec.All()); err != nil {
+		t.Fatalf("AssignRole: %v", err)
 	}
 
 	bindings, err := env.userRepo.ListRoleBindings(env.backgroundCtx, user.GetID())
@@ -1433,14 +1357,11 @@ func TestUserRepoAssignRoleWithConstraint_AllowsSameTenantDifferentManagedScopes
 		t.Fatalf("expected role %d, got %d", role.GetID(), bindings[0].RoleID)
 	}
 
-	guard.Resources[1].TenantID = "other-tenant"
-	if err := env.userRepo.AssignRoleWithConstraint(env.backgroundCtx, user.GetID(), role.GetID(), guard); !errors.Is(err, errors.Forbidden) {
-		t.Fatalf("expected cross-tenant guard to be forbidden, got %v", err)
+	// 仅覆盖用户所在 scope 的规约不能授权其它 scope 的角色。
+	userScopeSpec := spec.Eq(spec.RoleScope, user.ManagedScopeID)
+	if err := env.userRepo.AssignRole(env.backgroundCtx, user.GetID(), role.GetID(), userScopeSpec); !errors.Is(err, errors.Forbidden) {
+		t.Fatalf("expected out-of-scope role assignment to be forbidden, got %v", err)
 	}
-}
-
-func guardID(id int64) string {
-	return strconv.FormatInt(id, 10)
 }
 
 // TestUserServiceAssignToGroup 测试加入组织
@@ -1579,16 +1500,6 @@ func TestUserServiceAssignRoleMasksCrossTenantRoleAsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BindTenantContext(other): %v", err)
 	}
-	otherCtx = scoped.WithConstraint(otherCtx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
-		return scoped.WriteConstraint{
-			Resources: []scoped.ResourceConstraint{{
-				Kind:           entityType,
-				TenantID:       "other-tenant",
-				ManagedScopeID: 1,
-				Revision:       "0",
-			}},
-		}, true
-	}))
 	otherRole := &iamentity.Role{
 		TenantID:         "other-tenant",
 		OwnerID:          svc.TenantOwnerID("other-tenant"),
@@ -1598,7 +1509,7 @@ func TestUserServiceAssignRoleMasksCrossTenantRoleAsNotFound(t *testing.T) {
 		Permissions:      iamentity.PermissionArray([]string{"test:api:read"}),
 		Status:           svc.RoleStatusActive,
 	}
-	if err := env.roleRepo.Create(otherCtx, otherRole); err != nil {
+	if err := env.roleRepo.Create(otherCtx, otherRole, spec.All()); err != nil {
 		t.Fatalf("create other tenant role: %v", err)
 	}
 
@@ -1625,23 +1536,13 @@ func TestUserServiceAssignToGroupMasksCrossTenantGroupAsNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BindTenantContext(other): %v", err)
 	}
-	otherCtx = scoped.WithConstraint(otherCtx, scoped.ConstraintProviderFunc(func(entityType string) (scoped.WriteConstraint, bool) {
-		return scoped.WriteConstraint{
-			Resources: []scoped.ResourceConstraint{{
-				Kind:           entityType,
-				TenantID:       "other-tenant",
-				ManagedScopeID: 1,
-				Revision:       "0",
-			}},
-		}, true
-	}))
 
 	otherTenant := &iamentity.Tenant{
 		Key:    "other-tenant",
 		Name:   "Other Tenant",
 		Status: svc.TenantStatusActive,
 	}
-	if err := env.tenantRepo.Create(env.backgroundCtx, otherTenant); err != nil {
+	if err := env.tenantRepo.Create(env.backgroundCtx, otherTenant, spec.All()); err != nil {
 		t.Fatalf("create other tenant: %v", err)
 	}
 	if _, err := iamservice.NewScopeAuthorizer(env.scopeRepo, env.tenantRepo).EnsureTenantRootScope(env.backgroundCtx, otherTenant); err != nil {
@@ -1686,4 +1587,3 @@ func TestUserService_Register_DefaultRoleAtomic(t *testing.T) {
 		t.Fatalf("expected default role %d, got %v", defaultRole.GetID(), roles)
 	}
 }
-

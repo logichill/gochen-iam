@@ -164,7 +164,7 @@ func TestOptionalAuthMiddleware_BindsTenantAndPrincipalFromToken(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected principal in request context")
 		}
-		if principal.SubjectID != 1 || principal.ActiveScopeID != 101 {
+		if principal.SubjectID != "1" || principal.ActiveScopeID != 101 {
 			t.Fatalf("unexpected principal: %+v", principal)
 		}
 		if got := iamauth.ActiveScopeKind(ctx.RequestContext()); got != "platform" {
@@ -320,8 +320,8 @@ func TestPermissionMiddleware_UsesRegisteredRiskMetadataForRuntime(t *testing.T)
 		if !ok {
 			t.Fatalf("expected principal in context")
 		}
-		if principal.SubjectID != 7 {
-			t.Fatalf("expected subject 7, got %d", principal.SubjectID)
+		if principal.SubjectID != "7" {
+			t.Fatalf("expected subject 7, got %s", principal.SubjectID)
 		}
 		return nil
 	})
@@ -357,8 +357,8 @@ func TestPermissionMiddleware_DoesNotMarkLowRiskPermissionAsHighRisk(t *testing.
 		if !ok {
 			t.Fatalf("expected principal in context")
 		}
-		if principal.SubjectID != 8 {
-			t.Fatalf("expected subject 8, got %d", principal.SubjectID)
+		if principal.SubjectID != "8" {
+			t.Fatalf("expected subject 8, got %s", principal.SubjectID)
 		}
 		return nil
 	})

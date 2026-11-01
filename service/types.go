@@ -246,13 +246,13 @@ type PermissionCheckResponse struct {
 
 // 通用响应类型
 
-// BatchOperationRequest 批量操作请求
-type BatchOperationRequest struct {
+// BulkOperationRequest 批量操作请求
+type BulkOperationRequest struct {
 	IDs []int64 `json:"ids" binding:"required"`
 }
 
-// BatchOperationResponse 批量操作响应
-type BatchOperationResponse struct {
+// BulkOperationResponse 批量操作响应
+type BulkOperationResponse struct {
 	SuccessCount int     `json:"success_count"`
 	FailureCount int     `json:"failure_count"`
 	Errors       []error `json:"errors,omitempty"`

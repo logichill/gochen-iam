@@ -31,7 +31,7 @@ func TestPermissionMiddlewareEnforcesDeclaredScopes(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			base, err := authz.WithPrincipal(tenant.WithPolicy(context.Background(), tenant.Policy{Mode: tenant.Mode(tt.mode)}), authz.Principal{
-				SubjectID: 7, ActiveScopeID: 101, Permissions: []string{"*:*:*"},
+				SubjectID: "7", ActiveScopeID: 101, Permissions: []string{"*:*:*"},
 			})
 			if err != nil {
 				t.Fatal(err)

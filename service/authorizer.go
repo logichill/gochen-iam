@@ -5,13 +5,15 @@ import (
 	"strconv"
 	"strings"
 
-	iamaccess "gochen-iam/access"
-	iamauth "gochen-iam/auth"
+	iamentity "gochen-iam/entity"
 	iamperm "gochen-iam/permissions"
 	"gochen-iam/tenant"
 	auth "gochen-runtime/host/authz"
+	coreauth "gochen/auth"
+	"gochen/auth/action"
 	"gochen/auth/scoped"
 	"gochen/contextx"
+	"gochen/domain/spec"
 	"gochen/errors"
 )
 
@@ -31,73 +33,118 @@ const (
 	ReasonTenantScopeDenied   = "tenant_scope_denied"
 )
 
-// DefaultDataScopeResolver 为 IAM 仓储与路由提供默认数据范围解析，直接复用底层统一事实源。
-var DefaultDataScopeResolver = iamauth.DefaultDataScopeResolver
-
-// NewIAMAuthorizer 创建 IAM 领域统一授权器：
-// - 标准 CRUD 通过 route/builder 自动调用；
-// - 自定义单资源/关联写路径也复用同一套 permission + tenant/scope 决策。
-func NewIAMAuthorizer(scopeAuthorizer *ScopeAuthorizer, registry scoped.IResourceResolver) (scoped.IAuthorizer, error) {
-	evaluator := scoped.EvaluatorFunc(func(
-		ctx context.Context,
-		permission string,
-		resources []scoped.Resource,
-	) (scoped.Decision, error) {
-		principal, _ := auth.PrincipalFromContext(ctx)
-		return evaluateIAMAuthorization(ctx, scopeAuthorizer, principal, permission, resources)
-	})
-	return scoped.NewAuthorizer(registry, evaluator)
+// IAMAuthorizer 是 IAM 领域唯一授权器：
+//   - 标准 CRUD 通过 Application 按 auth.Request 调用；
+//   - 自定义命令通过 AuthorizeTargets 复用同一套权限、租户与数据范围判定；
+//   - 判定结果统一投影为 spec.Spec，由仓储在执行期解释，不再携带写约束。
+type IAMAuthorizer struct {
+	checker         action.IActionChecker
+	scopeAuthorizer *ScopeAuthorizer
 }
 
-// RequireAuthorization 对目标资源执行统一授权，适用于不需要写约束的读取路径。
-func RequireAuthorization(ctx context.Context, authorizer scoped.IAuthorizer, permission string, targets ...any) error {
+// NewIAMAuthorizer 创建 IAM 领域授权器。
+func NewIAMAuthorizer(scopeAuthorizer *ScopeAuthorizer) *IAMAuthorizer {
+	return &IAMAuthorizer{
+		checker:         auth.NewActionChecker(),
+		scopeAuthorizer: scopeAuthorizer,
+	}
+}
+
+// Vocabulary 声明判定结果可能引用的角色。
+func (a *IAMAuthorizer) Vocabulary() coreauth.Vocabulary {
+	return coreauth.Vocabulary{Roles: []spec.Role{spec.RoleScope}}
+}
+
+// Authorize 按标准 CRUD 请求判定，返回调用方可直接传给仓储的规约。
+func (a *IAMAuthorizer) Authorize(ctx context.Context, req coreauth.Request) (coreauth.Decision, error) {
+	targets := []authorizationTarget{targetFromResourceKind(req.Resource)}
+	return a.decide(ctx, req.Permission, targets)
+}
+
+// AuthorizeTargets 对自定义命令的目标实体执行判定。
+func (a *IAMAuthorizer) AuthorizeTargets(ctx context.Context, permission string, targets ...any) (coreauth.Decision, error) {
+	resolved := make([]authorizationTarget, 0, len(targets))
+	for _, target := range targets {
+		entry, ok := authorizationTargetFrom(target)
+		if ok {
+			resolved = append(resolved, entry)
+		}
+	}
+	return a.decide(ctx, permission, resolved)
+}
+
+func (a *IAMAuthorizer) decide(ctx context.Context, permission string, targets []authorizationTarget) (coreauth.Decision, error) {
 	permission = strings.TrimSpace(permission)
 	if permission == "" {
-		return errors.NewCode(errors.InvalidInput, "permission is required")
+		return coreauth.Decision{}, errors.NewCode(errors.InvalidInput, "permission is required")
 	}
+	principal, _ := auth.PrincipalFromContext(ctx)
+	if !principal.IsSystem {
+		if err := action.RequireAction(ctx, a.checker, permission); err != nil {
+			if errors.Is(err, errors.Forbidden) || errors.Is(err, errors.Unauthorized) {
+				return coreauth.Decision{Allowed: false, Reason: "forbidden"}, nil
+			}
+			return coreauth.Decision{}, err
+		}
+	}
+	if requiresPlatformScope(targets) && !principalCanAccessPlatform(principal, ctx) {
+		return coreauth.Decision{Allowed: false, Reason: ReasonPlatformScopeDenied}, nil
+	}
+
+	targetTenantID, hasTenantBoundary, mixedTenantTargets := collectAuthorizedTenant(ctx, targets)
+	if mixedTenantTargets {
+		return coreauth.Decision{Allowed: false, Reason: ReasonCrossTenantDenied}, nil
+	}
+	if hasTenantBoundary {
+		allowed, err := allowTenantAccess(ctx, a.scopeAuthorizer, principal, targetTenantID)
+		if err != nil {
+			return coreauth.Decision{}, err
+		}
+		if !allowed {
+			return coreauth.Decision{Allowed: false, Reason: ReasonTenantScopeDenied}, nil
+		}
+	}
+	return coreauth.Decision{Allowed: true, Spec: a.specFor(ctx, targets, principal)}, nil
+}
+
+func (a *IAMAuthorizer) specFor(ctx context.Context, targets []authorizationTarget, principal auth.Principal) spec.Spec {
+	if principal.IsSystem {
+		return spec.All()
+	}
+	if len(targets) == 0 || !hasManagedTarget(targets) {
+		return spec.All()
+	}
+	return DataScopeSpec(ctx)
+}
+
+// RequireAuthorization 对目标资源执行统一授权，适用于不需要写规约的读取路径。
+func RequireAuthorization(ctx context.Context, authorizer *IAMAuthorizer, permission string, targets ...any) error {
 	if authorizer == nil {
 		return errors.NewCode(errors.InvalidInput, "authorizer is required")
 	}
-	decision, err := authorizer.Authorize(ctx, permission, targets...)
+	decision, err := authorizer.AuthorizeTargets(ctx, permission, targets...)
 	if err != nil {
 		return err
 	}
-	if !decision.IsAllowed() {
-		return errors.NewCode(errors.Forbidden, "authorization denied: "+decision.ReasonCode)
+	if !decision.Allowed {
+		return errors.NewCode(errors.Forbidden, "authorization denied: "+decision.Reason)
 	}
 	return nil
 }
 
-// AuthorizeWriteConstraint 执行统一授权，并把 allow 决策投影成显式写约束。
-func AuthorizeWriteConstraint(ctx context.Context, authorizer scoped.IAuthorizer, permission string, targets ...any) (WriteConstraint, error) {
-	permission = strings.TrimSpace(permission)
-	if permission == "" {
-		return WriteConstraint{}, errors.NewCode(errors.InvalidInput, "permission is required")
-	}
+// AuthorizeWriteSpec 执行统一授权，并返回仓储写路径使用的行级规约。
+func AuthorizeWriteSpec(ctx context.Context, authorizer *IAMAuthorizer, permission string, targets ...any) (spec.Spec, error) {
 	if authorizer == nil {
-		return WriteConstraint{}, errors.NewCode(errors.InvalidInput, "authorizer is required")
+		return spec.Spec{}, errors.NewCode(errors.InvalidInput, "authorizer is required")
 	}
-	decision, err := authorizer.Authorize(ctx, permission, targets...)
+	decision, err := authorizer.AuthorizeTargets(ctx, permission, targets...)
 	if err != nil {
-		return WriteConstraint{}, err
+		return spec.Spec{}, err
 	}
-	if !decision.IsAllowed() {
-		return WriteConstraint{}, errors.NewCode(errors.Forbidden, "authorization denied: "+decision.ReasonCode)
+	if !decision.Allowed {
+		return spec.Spec{}, errors.NewCode(errors.Forbidden, "authorization denied: "+decision.Reason)
 	}
-	return iamaccess.NewWriteConstraint(schemaSafeWriteConstraint(decision)), nil
-}
-
-// AuthorizeCreateConstraint 为 create 路径构造写入约束。
-func AuthorizeCreateConstraint(ctx context.Context, authorizer scoped.IAuthorizer, permission string, targets ...any) (WriteConstraint, error) {
-	constraint, err := AuthorizeWriteConstraint(ctx, authorizer, permission, targets...)
-	if err != nil {
-		return WriteConstraint{}, err
-	}
-	for i := range constraint.Resources {
-		constraint.Resources[i].ResourceID = ""
-		constraint.Resources[i].Revision = ""
-	}
-	return constraint, nil
+	return decision.Spec, nil
 }
 
 // WithSystemPrincipal 为后台/内部任务构造统一的 system principal 运行时。
@@ -120,93 +167,94 @@ func WithSystemPrincipal(ctx context.Context, tenantID string) (context.Context,
 	return ctx, nil
 }
 
-func evaluateIAMAuthorization(
-	ctx context.Context,
-	scopeAuthorizer *ScopeAuthorizer,
-	principal auth.Principal,
-	permission string,
-	resources []scoped.Resource,
-) (scoped.Decision, error) {
-	resources = normalizeIAMAuthorizedResources(ctx, resources)
-	if !principal.AllowsPermission(permission) {
-		return scoped.Deny(scoped.ReasonActionDenied), nil
-	}
-	if requiresPlatformScope(resources) && !principalCanAccessPlatform(principal, ctx) {
-		return scoped.Deny(ReasonPlatformScopeDenied), nil
-	}
-
-	targetTenantID, hasTenantBoundary, mixedTenantTargets := collectAuthorizedTenant(ctx, resources)
-	if mixedTenantTargets {
-		return scoped.Deny(ReasonCrossTenantDenied), nil
-	}
-	if !hasTenantBoundary {
-		return scoped.Allow(resources...), nil
-	}
-
-	allowed, err := allowTenantAccess(ctx, scopeAuthorizer, principal, targetTenantID)
-	if err != nil {
-		return scoped.Decision{}, err
-	}
-	if !allowed {
-		return scoped.Deny(ReasonTenantScopeDenied), nil
-	}
-
-	return scoped.Allow(resources...), nil
+// authorizationTarget 是判定所需的最小资源事实。
+type authorizationTarget struct {
+	kind     string
+	tenantID string
+	platform bool
 }
 
-func normalizeIAMAuthorizedResources(ctx context.Context, resources []scoped.Resource) []scoped.Resource {
-	if len(resources) == 0 {
-		return resources
-	}
-	tenantID := strings.TrimSpace(contextx.TenantID(ctx))
-	out := make([]scoped.Resource, len(resources))
-	copy(out, resources)
-	for i := range out {
-		if requiresPlatformScope([]scoped.Resource{out[i]}) {
-			out[i].GlobalScope = true
-			out[i].ManagedScopeID = 0
-			continue
-		}
-		if tenantID != "" {
-			if out[i].TenantID == "" {
-				out[i].TenantID = tenantID
-			}
-			if out[i].OwnerID == "" {
-				out[i].OwnerID = tenantOwnerID(tenantID)
-			}
-		}
-	}
-	return out
+func managedTarget(kind, tenantID string) authorizationTarget {
+	return authorizationTarget{kind: strings.TrimSpace(kind), tenantID: strings.TrimSpace(tenantID)}
 }
 
-func schemaSafeWriteConstraint(decision scoped.Decision) scoped.WriteConstraint {
-	constraint := decision.WriteConstraint()
-	for i := range constraint.Resources {
-		if !resourceKindUsesManagedScope(constraint.Resources[i].Kind) {
-			// 平台级资源显式标记 GlobalScope，避免与"未填充 ManagedScopeID"语义混淆。
-			constraint.Resources[i].GlobalScope = true
-			constraint.Resources[i].ManagedScopeID = 0
-		}
-	}
-	return constraint
+func platformTarget(kind string) authorizationTarget {
+	return authorizationTarget{kind: strings.TrimSpace(kind), platform: true}
 }
 
-func resourceKindUsesManagedScope(kind string) bool {
-	switch strings.TrimSpace(kind) {
-	case UserResourceKind, GroupResourceKind, RoleResourceKind:
-		return true
+func targetFromResourceKind(resource string) authorizationTarget {
+	resource = strings.ToLower(strings.TrimSpace(resource))
+	switch resource {
+	case "tenant":
+		return platformTarget(TenantResourceKind)
+	case "menu":
+		return platformTarget(MenuResourceKind)
+	case "scope":
+		return platformTarget(ScopeResourceKind)
+	case "user":
+		return managedTarget(UserResourceKind, "")
+	case "group":
+		return managedTarget(GroupResourceKind, "")
+	case "role":
+		return managedTarget(RoleResourceKind, "")
 	default:
-		return false
+		return authorizationTarget{kind: resource}
 	}
 }
 
-func requiresPlatformScope(resources []scoped.Resource) bool {
-	for _, resource := range resources {
-		if strings.EqualFold(strings.TrimSpace(resource.OwnerID), string(iamperm.ScopePlatform)) {
+func authorizationTargetFrom(target any) (authorizationTarget, bool) {
+	switch entity := target.(type) {
+	case *iamentity.User:
+		if entity == nil {
+			return authorizationTarget{}, false
+		}
+		return managedTarget(UserResourceKind, entity.GetTenantID()), true
+	case *iamentity.Group:
+		if entity == nil {
+			return authorizationTarget{}, false
+		}
+		return managedTarget(GroupResourceKind, entity.GetTenantID()), true
+	case *iamentity.Role:
+		if entity == nil {
+			return authorizationTarget{}, false
+		}
+		// 平台自有角色只在 platform 授权域内可管理。
+		if strings.EqualFold(strings.TrimSpace(entity.GetOwnerID()), string(iamperm.ScopePlatform)) {
+			return platformTarget(RoleResourceKind), true
+		}
+		return managedTarget(RoleResourceKind, entity.GetTenantID()), true
+	case *iamentity.Tenant:
+		if entity == nil {
+			return authorizationTarget{}, false
+		}
+		return platformTarget(TenantResourceKind), true
+	case *iamentity.MenuItem:
+		if entity == nil {
+			return authorizationTarget{}, false
+		}
+		return platformTarget(MenuResourceKind), true
+	case *iamentity.Scope:
+		if entity == nil {
+			return authorizationTarget{}, false
+		}
+		return platformTarget(ScopeResourceKind), true
+	default:
+		return authorizationTarget{}, false
+	}
+}
+
+func hasManagedTarget(targets []authorizationTarget) bool {
+	for _, target := range targets {
+		if !target.platform {
 			return true
 		}
-		switch strings.TrimSpace(resource.Kind) {
-		case TenantResourceKind, MenuResourceKind, ScopeResourceKind:
+	}
+	return false
+}
+
+func requiresPlatformScope(targets []authorizationTarget) bool {
+	for _, target := range targets {
+		if target.platform {
 			return true
 		}
 	}
@@ -305,9 +353,9 @@ func resolveTenantAccessForPrincipal(
 	return tenantAccessResolution{TenantID: tenantID}, nil
 }
 
-func collectAuthorizedTenant(ctx context.Context, resources []scoped.Resource) (tenantID string, hasTenantBoundary bool, mixed bool) {
-	for _, resource := range resources {
-		currentTenantID := tenantIDFromResource(resource)
+func collectAuthorizedTenant(ctx context.Context, targets []authorizationTarget) (tenantID string, hasTenantBoundary bool, mixed bool) {
+	for _, target := range targets {
+		currentTenantID := strings.TrimSpace(target.tenantID)
 		if currentTenantID == "" {
 			continue
 		}
@@ -374,11 +422,4 @@ func platformResourceFromEntity(kind string, entity versionedEntity) (scoped.Res
 	resource.ID = strconv.FormatInt(entity.GetID(), 10)
 	resource.Revision = strconv.FormatUint(entity.GetVersion(), 10)
 	return resource, true
-}
-
-func tenantIDFromResource(resource scoped.Resource) string {
-	if id := strings.TrimSpace(resource.TenantID); id != "" {
-		return id
-	}
-	return ""
 }

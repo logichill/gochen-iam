@@ -6,12 +6,10 @@ import (
 	"strings"
 	"sync"
 
-	iamaccess "gochen-iam/access"
 	iamentity "gochen-iam/entity"
-	assocguard "gochen-iam/repo/internal/guard"
 	"gochen-runtime/db/orm/repo"
-	"gochen/auth/scoped"
 	"gochen/db/orm"
+	"gochen/domain/spec"
 	"gochen/errors"
 	"gochen/gen"
 )
@@ -252,17 +250,14 @@ func (r *ScopeRepo) RebuildVisibilityMap(ctx context.Context) error {
 	return nil
 }
 
-func (r *ScopeRepo) CreateWithConstraint(ctx context.Context, scope *iamentity.Scope, guard iamaccess.WriteConstraint) error {
-	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Create(boundCtx, scope)
-}
-
-func (r *ScopeRepo) UpdateWithConstraint(ctx context.Context, scope *iamentity.Scope, guard iamaccess.WriteConstraint) error {
-	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Update(boundCtx, scope)
-}
-
-func (r *ScopeRepo) DeleteWithConstraint(ctx context.Context, id int64, guard iamaccess.WriteConstraint) error {
-	boundCtx := scoped.WithConstraint(assocguard.BindContext(ctx, guard), scoped.SingleEntityConstraint(r.ResourceKind(), guard.Unwrap()))
-	return r.Delete(boundCtx, id)
+// Delete 执行软删除并保留 IAM 既有语义；物理删除请使用 Purge。
+func (r *ScopeRepo) Delete(ctx context.Context, scope *iamentity.Scope, s spec.Spec) error {
+	if scope == nil {
+		return errors.NewCode(errors.InvalidInput, "scope cannot be nil")
+	}
+	if scope.IsDeleted() {
+		return errors.NewCode(errors.Conflict, "scope 已删除").WithContext("id", scope.GetID())
+	}
+	scope.MarkAsDeleted()
+	return r.Repo.Update(ctx, scope, s)
 }

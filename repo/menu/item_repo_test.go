@@ -3,6 +3,7 @@ package menu
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	coredialect "gochen/db/dialect"
 	"gochen/testkit"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 	"gochen-runtime/db/dialect"
 	"gochen/db"
 	"gochen/db/orm"
+	"gochen/domain/spec"
 )
 
 type capturingModel struct {
@@ -76,10 +78,38 @@ func (m *capturingModel) Delete(ctx context.Context, opts ...orm.QueryOption) er
 
 func (m *capturingModel) Association(owner any, name string) orm.IAssociation { return nil }
 
+type fakeResult struct{ rows int64 }
+
+func (r fakeResult) LastInsertId() (int64, error) { return 0, nil }
+func (r fakeResult) RowsAffected() (int64, error) { return r.rows, nil }
+
+func (m *capturingModel) SaveWithResult(ctx context.Context, entity any, opts ...orm.QueryOption) (sql.Result, error) {
+	if err := m.Save(ctx, entity, opts...); err != nil {
+		return nil, err
+	}
+	return fakeResult{rows: 1}, nil
+}
+
+func (m *capturingModel) UpdateValuesWithResult(ctx context.Context, values map[string]any, opts ...orm.QueryOption) (sql.Result, error) {
+	if err := m.UpdateValues(ctx, values, opts...); err != nil {
+		return nil, err
+	}
+	return fakeResult{rows: 1}, nil
+}
+
+func (m *capturingModel) DeleteWithResult(ctx context.Context, opts ...orm.QueryOption) (sql.Result, error) {
+	if err := m.Delete(ctx, opts...); err != nil {
+		return nil, err
+	}
+	return fakeResult{rows: 1}, nil
+}
+
 type fakeOrm struct {
 	baseModel    *capturingModel
 	sessionModel *capturingModel
 }
+
+func (o *fakeOrm) DatasourceID() string { return fmt.Sprintf("iam-menu-test:%p", o) }
 
 func (o *fakeOrm) Capabilities() orm.Capabilities           { return nil }
 func (o *fakeOrm) WithContext(ctx context.Context) orm.IOrm { return o }
@@ -99,6 +129,8 @@ func (o *fakeOrm) Raw() any               { return nil }
 type fakeSession struct {
 	parent *fakeOrm
 }
+
+func (s *fakeSession) DatasourceID() string { return s.parent.DatasourceID() }
 
 func (s *fakeSession) Capabilities() orm.Capabilities           { return nil }
 func (s *fakeSession) WithContext(ctx context.Context) orm.IOrm { return s }
@@ -166,7 +198,7 @@ func TestMenuItemRepo_RestoreByID_UsesTxSessionModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTxSession: %v", err)
 	}
-	if _, err := r.RestoreByID(txCtx, 1); err != nil {
+	if _, err := r.RestoreByID(txCtx, 1, spec.All()); err != nil {
 		t.Fatalf("RestoreByID: %v", err)
 	}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -158,7 +159,7 @@ func TestAuthRoutesRefreshTokenUsesTenantHeaderAndScopeClaims(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected principal in refresh context")
 			}
-			if principal.SubjectID != userID || principal.ActiveScopeID != activeScopeID {
+			if principal.SubjectID != strconv.FormatInt(userID, 10) || principal.ActiveScopeID != activeScopeID {
 				t.Fatalf("unexpected principal: %+v", principal)
 			}
 			return &svc.ActiveScopeSession{UserID: userID, ActiveScopeID: activeScopeID, BindingVersion: "binding-v2", Permissions: []string{"read"}}, nil
@@ -404,7 +405,7 @@ func TestAuthRoutesRefreshTokenUsesConfiguredResolver(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected principal in refresh context")
 			}
-			if principal.SubjectID != userID || principal.ActiveScopeID != activeScopeID {
+			if principal.SubjectID != strconv.FormatInt(userID, 10) || principal.ActiveScopeID != activeScopeID {
 				t.Fatalf("unexpected principal: %+v", principal)
 			}
 			return &svc.ActiveScopeSession{UserID: userID, ActiveScopeID: activeScopeID, BindingVersion: "binding-v2", Permissions: []string{"read"}}, nil

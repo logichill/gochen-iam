@@ -95,11 +95,8 @@ func (s *ScopeService) CreateScope(ctx context.Context, req *svc.CreateScopeRequ
 		return nil, err
 	}
 
-	guard, err := svc.NewPlatformCreateConstraint(ctx, svc.ScopeResourceKind)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.scopeRepo.CreateWithConstraint(ctx, scope, guard); err != nil {
+	guard := svc.PlatformWriteSpec(ctx)
+	if err := s.scopeRepo.Create(ctx, scope, guard); err != nil {
 		return nil, errors.Wrap(err, errors.Database, "创建授权域失败")
 	}
 	if err := s.scopeRepo.RebuildVisibilityMap(ctx); err != nil {
@@ -138,11 +135,8 @@ func (s *ScopeService) UpdateScope(ctx context.Context, scopeID int64, req *svc.
 	if err := scope.Validate(); err != nil {
 		return nil, err
 	}
-	guard, err := svc.NewPlatformEntityConstraint(ctx, svc.ScopeResourceKind, scope)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.scopeRepo.UpdateWithConstraint(ctx, scope, guard); err != nil {
+	guard := svc.PlatformWriteSpec(ctx)
+	if err := s.scopeRepo.Update(ctx, scope, guard); err != nil {
 		return nil, errors.Wrap(err, errors.Database, "更新授权域失败")
 	}
 	return scope, nil
@@ -173,11 +167,8 @@ func (s *ScopeService) DeleteScope(ctx context.Context, scopeID int64) error {
 	if !state.CanDelete {
 		return errors.NewCode(errors.Validation, state.DeleteBlockReason)
 	}
-	guard, err := svc.NewPlatformEntityConstraint(ctx, svc.ScopeResourceKind, scope)
-	if err != nil {
-		return err
-	}
-	if err := s.scopeRepo.DeleteWithConstraint(ctx, scopeID, guard); err != nil {
+	guard := svc.PlatformWriteSpec(ctx)
+	if err := s.scopeRepo.Delete(ctx, scope, guard); err != nil {
 		return errors.Wrap(err, errors.Database, "删除授权域失败")
 	}
 	if err := s.scopeRepo.RebuildVisibilityMap(ctx); err != nil {
@@ -234,11 +225,8 @@ func (s *ScopeService) RepairScope(ctx context.Context, scopeID int64) (*iamenti
 	if err := scope.Validate(); err != nil {
 		return nil, err
 	}
-	guard, err := svc.NewPlatformEntityConstraint(ctx, svc.ScopeResourceKind, scope)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.scopeRepo.UpdateWithConstraint(ctx, scope, guard); err != nil {
+	guard := svc.PlatformWriteSpec(ctx)
+	if err := s.scopeRepo.Update(ctx, scope, guard); err != nil {
 		return nil, errors.Wrap(err, errors.Database, "修复授权域结构失败")
 	}
 	return scope, nil

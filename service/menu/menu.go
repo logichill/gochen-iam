@@ -11,7 +11,7 @@ import (
 	iamperm "gochen-iam/permissions"
 	menurepo "gochen-iam/repo/menu"
 	svc "gochen-iam/service"
-	"gochen/auth/scoped"
+	"gochen/domain/spec"
 	"gochen/errors"
 	"gochen/httpx"
 	"gochen/observe/logging"
@@ -20,12 +20,12 @@ import (
 // MenuService 负责菜单定义管理与当前用户菜单树组装。
 type MenuService struct {
 	menuRepo   *menurepo.MenuItemRepo
-	authorizer scoped.IAuthorizer
+	authorizer *svc.IAMAuthorizer
 	logger     logging.ILogger
 }
 
 // NewMenuService 创建菜单应用服务。
-func NewMenuService(menuRepo *menurepo.MenuItemRepo, authorizer scoped.IAuthorizer, logger logging.ILogger) *MenuService {
+func NewMenuService(menuRepo *menurepo.MenuItemRepo, authorizer *svc.IAMAuthorizer, logger logging.ILogger) *MenuService {
 	return &MenuService{
 		menuRepo:   menuRepo,
 		authorizer: authorizer,
@@ -162,7 +162,7 @@ func (s *MenuService) UpdateMenuItem(
 	if req == nil {
 		return nil, errors.NewCode(errors.Validation, "update menu item request is required")
 	}
-	item, err := s.menuRepo.Get(ctx, id)
+	item, err := s.menuRepo.Get(ctx, id, spec.All())
 	if err != nil {
 		return nil, err
 	}
@@ -358,7 +358,7 @@ func (s *MenuService) SyncMenuItems(ctx context.Context, req *SyncMenuItemsReque
 
 // DeleteMenuItem 软删除指定菜单。
 func (s *MenuService) DeleteMenuItem(ctx context.Context, id int64) error {
-	item, err := s.menuRepo.Get(ctx, id)
+	item, err := s.menuRepo.Get(ctx, id, spec.All())
 	if err != nil {
 		return err
 	}
@@ -378,11 +378,11 @@ func (s *MenuService) RestoreMenuItem(ctx context.Context, id int64) (*iamentity
 	if err != nil {
 		return nil, err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, svc.MenuPermissionSet.Code(iamperm.ActionWrite), item)
+	guard, err := svc.AuthorizeWriteSpec(ctx, s.authorizer, svc.MenuPermissionSet.Code(iamperm.ActionWrite), item)
 	if err != nil {
 		return nil, err
 	}
-	item, err = s.menuRepo.RestoreByIDWithConstraint(ctx, id, guard)
+	item, err = s.menuRepo.RestoreByID(ctx, id, guard)
 	if err != nil {
 		return nil, err
 	}
@@ -399,11 +399,11 @@ func (s *MenuService) PurgeMenuItem(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, svc.MenuPermissionSet.Code(iamperm.ActionWrite), item)
+	guard, err := svc.AuthorizeWriteSpec(ctx, s.authorizer, svc.MenuPermissionSet.Code(iamperm.ActionWrite), item)
 	if err != nil {
 		return err
 	}
-	if err := s.menuRepo.PurgeByIDWithConstraint(ctx, id, guard); err != nil {
+	if err := s.menuRepo.PurgeByID(ctx, id, guard); err != nil {
 		return err
 	}
 	s.logger.Info(ctx, "[MenuService] purge menu (hard)",
@@ -415,7 +415,7 @@ func (s *MenuService) PurgeMenuItem(ctx context.Context, id int64) error {
 
 // PublishMenuItem 切换菜单的发布状态。
 func (s *MenuService) PublishMenuItem(ctx context.Context, id int64, published bool) (*iamentity.MenuItem, error) {
-	item, err := s.menuRepo.Get(ctx, id)
+	item, err := s.menuRepo.Get(ctx, id, spec.All())
 	if err != nil {
 		return nil, err
 	}
@@ -448,24 +448,12 @@ func (s *MenuService) CreateEntity(ctx context.Context, item *iamentity.MenuItem
 	return s.createMenu(ctx, item)
 }
 
-// CreateEntityWithConstraint 在显式 guard 下创建菜单实体。
-func (s *MenuService) CreateEntityWithConstraint(
-	ctx context.Context,
-	item *iamentity.MenuItem,
-	guard svc.WriteConstraint,
-) error {
-	if err := validateDirectMenuCreatePayload(item); err != nil {
-		return err
-	}
-	return s.createMenuWithConstraint(ctx, item, guard)
-}
-
 // UpdateEntity 更新菜单实体；用于标准 CRUD application 路径，不隐式做额外鉴权。
 func (s *MenuService) UpdateEntity(ctx context.Context, item *iamentity.MenuItem) error {
 	if item == nil {
 		return errors.NewCode(errors.Validation, "menu item is required")
 	}
-	current, err := s.menuRepo.Get(ctx, item.GetID())
+	current, err := s.menuRepo.Get(ctx, item.GetID(), spec.All())
 	if err != nil {
 		return err
 	}
@@ -476,121 +464,92 @@ func (s *MenuService) UpdateEntity(ctx context.Context, item *iamentity.MenuItem
 	return s.updateMenu(ctx, item)
 }
 
-// UpdateEntityWithConstraint 在显式 guard 下更新菜单实体。
-func (s *MenuService) UpdateEntityWithConstraint(
-	ctx context.Context,
-	item *iamentity.MenuItem,
-	guard svc.WriteConstraint,
-) error {
-	if item == nil {
-		return errors.NewCode(errors.Validation, "menu item is required")
-	}
-	current, err := s.menuRepo.Get(ctx, item.GetID())
-	if err != nil {
-		return err
-	}
-	if err := validateDirectMenuUpdatePayload(current, item); err != nil {
-		return err
-	}
-	normalizeDirectMenuUpdate(current, item)
-	return s.updateMenuWithConstraint(ctx, item, guard)
-}
-
 // DeleteEntity 删除菜单实体；用于标准 CRUD application 路径，不隐式做额外鉴权。
 func (s *MenuService) DeleteEntity(ctx context.Context, id int64) error {
-	item, err := s.menuRepo.Get(ctx, id)
+	item, err := s.menuRepo.Get(ctx, id, spec.All())
 	if err != nil {
 		return err
 	}
 	return s.deleteMenu(ctx, item)
 }
 
-// DeleteEntityWithConstraint 在显式 guard 下删除菜单实体。
-func (s *MenuService) DeleteEntityWithConstraint(ctx context.Context, id int64, guard svc.WriteConstraint) error {
-	item, err := s.menuRepo.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-	return s.deleteMenuWithConstraint(ctx, item, guard)
-}
-
 func (s *MenuService) authorizePlatform(ctx context.Context, permission string, targets ...any) error {
 	if s.authorizer == nil {
 		return errors.NewCode(errors.InvalidInput, "authorizer is required")
 	}
-	return s.authorizer.Require(ctx, permission, targets...)
+	return svc.RequireAuthorization(ctx, s.authorizer, permission, targets...)
 }
 
 func (s *MenuService) createMenu(ctx context.Context, item *iamentity.MenuItem) error {
 	if err := s.validateMenuForCreate(ctx, item); err != nil {
 		return err
 	}
-	if err := s.menuRepo.Create(ctx, item); err != nil {
+	if err := s.menuRepo.Create(ctx, item, spec.All()); err != nil {
 		return errors.Wrap(err, errors.Database, "创建菜单失败")
 	}
 	return nil
 }
 
-func (s *MenuService) createMenuWithConstraint(ctx context.Context, item *iamentity.MenuItem, guard svc.WriteConstraint) error {
+func (s *MenuService) createMenuWithSpec(ctx context.Context, item *iamentity.MenuItem, guard spec.Spec) error {
 	if err := s.validateMenuForCreate(ctx, item); err != nil {
 		return err
 	}
-	if err := s.menuRepo.CreateWithConstraint(ctx, item, guard); err != nil {
+	if err := s.menuRepo.Create(ctx, item, guard); err != nil {
 		return errors.Wrap(err, errors.Database, "创建菜单失败")
 	}
 	return nil
 }
 
 func (s *MenuService) createMenuWithAuthorization(ctx context.Context, item *iamentity.MenuItem) error {
-	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, svc.MenuPermissionSet.Code(iamperm.ActionWrite), item)
+	guard, err := svc.AuthorizeWriteSpec(ctx, s.authorizer, svc.MenuPermissionSet.Code(iamperm.ActionWrite), item)
 	if err != nil {
 		return err
 	}
-	return s.createMenuWithConstraint(ctx, item, guard)
+	return s.createMenuWithSpec(ctx, item, guard)
 }
 
 func (s *MenuService) updateMenu(ctx context.Context, item *iamentity.MenuItem) error {
 	if err := s.validateMenuForUpdate(ctx, item); err != nil {
 		return err
 	}
-	if err := s.menuRepo.Update(ctx, item); err != nil {
+	if err := s.menuRepo.Update(ctx, item, spec.All()); err != nil {
 		return errors.Wrap(err, errors.Database, "更新菜单失败")
 	}
 	return nil
 }
 
-func (s *MenuService) updateMenuWithConstraint(ctx context.Context, item *iamentity.MenuItem, guard svc.WriteConstraint) error {
+func (s *MenuService) updateMenuWithSpec(ctx context.Context, item *iamentity.MenuItem, guard spec.Spec) error {
 	if err := s.validateMenuForUpdate(ctx, item); err != nil {
 		return err
 	}
-	if err := s.menuRepo.UpdateWithConstraint(ctx, item, guard); err != nil {
+	if err := s.menuRepo.Update(ctx, item, guard); err != nil {
 		return errors.Wrap(err, errors.Database, "更新菜单失败")
 	}
 	return nil
 }
 
 func (s *MenuService) updateMenuWithAuthorization(ctx context.Context, permission string, item *iamentity.MenuItem) error {
-	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, permission, item)
+	guard, err := svc.AuthorizeWriteSpec(ctx, s.authorizer, permission, item)
 	if err != nil {
 		return err
 	}
-	return s.updateMenuWithConstraint(ctx, item, guard)
+	return s.updateMenuWithSpec(ctx, item, guard)
 }
 
 func (s *MenuService) deleteMenu(ctx context.Context, item *iamentity.MenuItem) error {
-	return s.menuRepo.Delete(ctx, item.GetID())
+	return s.menuRepo.Delete(ctx, item, spec.All())
 }
 
-func (s *MenuService) deleteMenuWithConstraint(ctx context.Context, item *iamentity.MenuItem, guard svc.WriteConstraint) error {
-	return s.menuRepo.DeleteWithConstraint(ctx, item.GetID(), guard)
+func (s *MenuService) deleteMenuWithSpec(ctx context.Context, item *iamentity.MenuItem, guard spec.Spec) error {
+	return s.menuRepo.Delete(ctx, item, guard)
 }
 
 func (s *MenuService) deleteMenuWithAuthorization(ctx context.Context, item *iamentity.MenuItem) error {
-	guard, err := svc.AuthorizeWriteConstraint(ctx, s.authorizer, svc.MenuPermissionSet.Code(iamperm.ActionWrite), item)
+	guard, err := svc.AuthorizeWriteSpec(ctx, s.authorizer, svc.MenuPermissionSet.Code(iamperm.ActionWrite), item)
 	if err != nil {
 		return err
 	}
-	return s.deleteMenuWithConstraint(ctx, item, guard)
+	return s.deleteMenuWithSpec(ctx, item, guard)
 }
 
 func (s *MenuService) validateMenuForCreate(ctx context.Context, item *iamentity.MenuItem) error {
@@ -737,7 +696,7 @@ func (s *MenuService) validateParentNoCycle(ctx context.Context, selfID int64, p
 		}
 		visited[curID] = struct{}{}
 
-		cur, err := s.menuRepo.Get(ctx, curID)
+		cur, err := s.menuRepo.Get(ctx, curID, spec.All())
 		if err != nil {
 			return err
 		}

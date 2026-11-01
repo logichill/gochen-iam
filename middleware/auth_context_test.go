@@ -119,7 +119,7 @@ func TestInjectClaimsRequestContext_BindsPrincipalAndLegacyHelpers(t *testing.T)
 
 	principal, ok := auth.PrincipalFromContext(bound)
 	require.True(t, ok)
-	require.Equal(t, int64(7), principal.SubjectID)
+	require.Equal(t, "7", principal.SubjectID)
 	require.Equal(t, int64(100), principal.ActiveScopeID)
 	require.Equal(t, []string{"platform"}, principal.PermissionScopes)
 	require.True(t, principal.HasPermission("user:api:manage"))

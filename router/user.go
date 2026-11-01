@@ -7,11 +7,8 @@ import (
 	iammw "gochen-iam/middleware"
 	iamsvc "gochen-iam/service"
 	"gochen-runtime/api/rest"
-	"gochen-runtime/security"
 	appcrud "gochen/app/crud"
 	"gochen/app/query"
-	"gochen/auth/action"
-	"gochen/auth/scoped"
 	"gochen/errors"
 	"gochen/httpx"
 )
@@ -31,15 +28,15 @@ var userQuerySchema = query.MustInferQuerySchema[userQueryFields](nil)
 // UserRoutes 用户路由注册器
 type UserRoutes struct {
 	userService IUserService
-	userRepo    iamsvc.IScopedResourceContextRepository[*iamentity.User, int64]
-	authorizer  scoped.IAuthorizer
+	userRepo    appcrud.Repository[*iamentity.User, int64]
+	authorizer  *iamsvc.IAMAuthorizer
 }
 
 // NewUserRoutes 创建用户路由注册器
 func NewUserRoutes(
 	userService IUserService,
-	userRepo iamsvc.IScopedResourceContextRepository[*iamentity.User, int64],
-	authorizer scoped.IAuthorizer,
+	userRepo appcrud.Repository[*iamentity.User, int64],
+	authorizer *iamsvc.IAMAuthorizer,
 ) *UserRoutes {
 	return &UserRoutes{
 		userService: userService,
@@ -62,8 +59,18 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		iammw.ApiPermission(iammw.ResourceUser, iammw.ActionManage).Scope(iammw.ScopePlatform, iammw.ScopeTenant),
 	))
 
-	// 直接使用原生 shared 仓储接口（UserRepo 已实现 ICRUDRepository）
-	appService, err := iamsvc.NewCRUDApplication[*iamentity.User, int64](ur.userRepo, ur.userRepo, &appcrud.Options[*iamentity.User, int64]{Hooks: TenantHooksForUser(ur.userRepo)})
+	app, err := appcrud.NewApplication[*iamentity.User, int64](ur.userRepo, appcrud.Options[*iamentity.User, int64]{
+		Resource:   "user",
+		Authorizer: ur.authorizer,
+		ActionPermissions: map[string]string{
+			appcrud.ActionRead:   iamsvc.UserPermissionSet.Code(iammw.ActionRead),
+			appcrud.ActionList:   iamsvc.UserPermissionSet.Code(iammw.ActionRead),
+			appcrud.ActionCreate: iamsvc.UserPermissionSet.Code(iammw.ActionWrite),
+			appcrud.ActionUpdate: iamsvc.UserPermissionSet.Code(iammw.ActionWrite),
+			appcrud.ActionDelete: iamsvc.UserPermissionSet.Code(iammw.ActionDelete),
+		},
+		Hooks: TenantHooksForUser(ur.userRepo),
+	})
 	if err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("create user crud application").WithContext("route", "iam.user")
@@ -71,45 +78,10 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		return errors.Wrap(err, errors.Internal, "failed to create user crud application").WithContext("route", "iam.user")
 	}
 
-	var app appcrud.IApplication[*iamentity.User, int64] = appService
-	if ur.authorizer != nil {
-		scopedApp, err := security.Scoped(appService, ur.authorizer, security.ScopedConfig{
-			EntityType: iamsvc.UserResourceKind,
-			Policy: action.OperationPolicy{
-				Create: iammw.ApiPermission(iammw.ResourceUser, iammw.ActionWrite).Code,
-				Update: iammw.ApiPermission(iammw.ResourceUser, iammw.ActionWrite).Code,
-				Delete: iammw.ApiPermission(iammw.ResourceUser, iammw.ActionDelete).Code,
-				Read:   iammw.ApiPermission(iammw.ResourceUser, iammw.ActionRead).Code,
-				List:   iammw.ApiPermission(iammw.ResourceUser, iammw.ActionRead).Code,
-			},
-			ScopeResolver: iamsvc.DefaultDataScopeResolver,
-		})
-		if err != nil {
-			return err
-		}
-		app = scopedApp
-	}
-
-	builder, err := rest.NewApiBuilder[*iamentity.User, int64](
-		app,
+	if err := rest.Mount(adminGroup, app,
 		rest.WithQuerySchema[*iamentity.User, int64](userQuerySchema),
-	)
-
-	if err != nil {
-		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
-			return appErr.Wrap("create user api builder").WithContext("route", "iam.user")
-		}
-		return errors.Wrap(err, errors.Internal, "failed to create user api builder").WithContext("route", "iam.user")
-	}
-
-	if err := builder.
-		Route(func(cfg *rest.RouteConfig[int64]) {
-			cfg.Routing.EnableBatch = false
-			cfg.Query.EnablePagination = true
-			cfg.Query.DefaultPageSize = 10
-			cfg.Query.MaxPageSize = 1000
-		}).
-		Build(adminGroup); err != nil {
+		rest.WithPagination[*iamentity.User, int64](10, 1000),
+	); err != nil {
 		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
 			return appErr.Wrap("build user crud routes").WithContext("route", "iam.user")
 		}

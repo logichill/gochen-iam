@@ -11,21 +11,13 @@ import (
 func TestCreateTenantRollsBackWhenRootScopeInsertFails(t *testing.T) {
 	env := setupScopeServiceTest(t)
 	defer env.cancelFunc()
-	registry, err := svc.NewIAMAuthzRegistry()
-	if err != nil {
-		t.Fatal(err)
-	}
-	authorizer, err := svc.NewIAMAuthorizer(env.scopeAuthorizer, registry)
-	if err != nil {
-		t.Fatal(err)
-	}
+	authorizer := svc.NewIAMAuthorizer(env.scopeAuthorizer)
 	service := tenantsvc.NewTenantService(env.tenantRepo, env.scopeAuthorizer, authorizer)
 	if err := env.db.Exec(`CREATE TRIGGER fail_tenant_scope BEFORE INSERT ON scopes
 		WHEN NEW.type = 'tenant' BEGIN SELECT RAISE(ABORT, 'injected scope failure'); END`).Error; err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.CreateTenant(env.backgroundCtx, &svc.CreateTenantRequest{Key: "atomic-tenant", Name: "Atomic Tenant"})
-	if err == nil {
+	if _, err := service.CreateTenant(env.backgroundCtx, &svc.CreateTenantRequest{Key: "atomic-tenant", Name: "Atomic Tenant"}); err == nil {
 		t.Fatal("expected root scope insert failure")
 	}
 	var count int64
