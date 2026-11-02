@@ -71,7 +71,7 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	app, err := appcrud.NewApplication[*iamentity.Role, int64](rr.roleRepo, appcrud.Options[*iamentity.Role, int64]{
 		Resource:   "role",
-		Authorizer: rr.authorizer,
+		Authorizer: rr.authorizer.ForResource("role"),
 		ActionPermissions: map[string]string{
 			appcrud.ActionRead:   svc.RolePermissionSet.Code(iammw.ActionRead),
 			appcrud.ActionList:   svc.RolePermissionSet.Code(iammw.ActionRead),

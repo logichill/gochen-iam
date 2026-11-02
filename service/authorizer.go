@@ -2,16 +2,18 @@ package service
 
 import (
 	"context"
-	"strconv"
+	"gochen/domain/meta"
 	"strings"
 
 	iamentity "gochen-iam/entity"
+
 	iamperm "gochen-iam/permissions"
 	"gochen-iam/tenant"
+
 	auth "gochen-runtime/host/authz"
+
 	coreauth "gochen/auth"
 	"gochen/auth/action"
-	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/domain/spec"
 	"gochen/errors"
@@ -40,6 +42,7 @@ const (
 type IAMAuthorizer struct {
 	checker         action.IActionChecker
 	scopeAuthorizer *ScopeAuthorizer
+	resource        string
 }
 
 // NewIAMAuthorizer 创建 IAM 领域授权器。
@@ -52,11 +55,22 @@ func NewIAMAuthorizer(scopeAuthorizer *ScopeAuthorizer) *IAMAuthorizer {
 
 // Vocabulary 声明判定结果可能引用的角色。
 func (a *IAMAuthorizer) Vocabulary() coreauth.Vocabulary {
-	return coreauth.Vocabulary{Roles: []spec.Role{spec.RoleScope}}
+	if a.resource != "" && targetFromResourceKind(a.resource).platform {
+		return coreauth.Vocabulary{}
+	}
+	return coreauth.Vocabulary{Refs: []meta.Ref{meta.ByDimension("scope")}}
+}
+
+// ForResource 固定 Application 使用的资源与授权词汇。
+func (a *IAMAuthorizer) ForResource(resource string) coreauth.IAuthorizer {
+	return &IAMAuthorizer{checker: a.checker, scopeAuthorizer: a.scopeAuthorizer, resource: resource}
 }
 
 // Authorize 按标准 CRUD 请求判定，返回调用方可直接传给仓储的规约。
 func (a *IAMAuthorizer) Authorize(ctx context.Context, req coreauth.Request) (coreauth.Decision, error) {
+	if a.resource != "" && a.resource != req.Resource {
+		return coreauth.Decision{}, errors.NewCode(errors.Internal, "authorizer resource does not match request")
+	}
 	targets := []authorizationTarget{targetFromResourceKind(req.Resource)}
 	return a.decide(ctx, req.Permission, targets)
 }
@@ -375,51 +389,4 @@ func collectAuthorizedTenant(ctx context.Context, targets []authorizationTarget)
 		}
 	}
 	return tenantID, hasTenantBoundary, false
-}
-
-func resourceFromEntity(kind string, entity tenantVersionedEntity) (scoped.Resource, bool) {
-	if entity == nil {
-		return scoped.Resource{}, false
-	}
-
-	tenantID := strings.TrimSpace(entity.GetTenantID())
-	resource := scoped.Resource{
-		Kind:     strings.TrimSpace(kind),
-		TenantID: tenantID,
-		OwnerID:  tenantOwnerID(tenantID),
-	}
-	if ownable, ok := any(entity).(interface{ GetOwnerID() string }); ok && strings.TrimSpace(ownable.GetOwnerID()) != "" {
-		resource.OwnerID = strings.TrimSpace(ownable.GetOwnerID())
-	}
-	if scopedVal, ok := any(entity).(interface{ GetManagedScopeID() int64 }); ok && scopedVal.GetManagedScopeID() > 0 {
-		resource.ManagedScopeID = scopedVal.GetManagedScopeID()
-	}
-	if entity.GetID() <= 0 {
-		return resource, true
-	}
-
-	resource.ID = strconv.FormatInt(entity.GetID(), 10)
-	resource.Revision = strconv.FormatUint(entity.GetVersion(), 10)
-	return resource, true
-}
-
-type versionedEntity interface {
-	GetID() int64
-	GetVersion() uint64
-}
-
-func platformResourceFromEntity(kind string, entity versionedEntity) (scoped.Resource, bool) {
-	resource := scoped.Resource{
-		Kind:        strings.TrimSpace(kind),
-		GlobalScope: true,
-	}
-	if entity == nil {
-		return scoped.Resource{}, false
-	}
-	if entity.GetID() <= 0 {
-		return resource, true
-	}
-	resource.ID = strconv.FormatInt(entity.GetID(), 10)
-	resource.Revision = strconv.FormatUint(entity.GetVersion(), 10)
-	return resource, true
 }

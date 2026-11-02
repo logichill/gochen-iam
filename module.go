@@ -71,7 +71,6 @@ func NewModule(
 		Name("IAM").
 		Extension(auth.Catalog{
 			PermissionDefinitions: iamservice.IAMAuthzPermissionDefinitions(),
-			ResourceResolvers:     iamservice.IAMResourceResolvers(),
 		}).
 		Provide(
 			// Repos

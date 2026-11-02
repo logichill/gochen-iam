@@ -8,21 +8,20 @@ import (
 
 	"gochen/observe/logging"
 
-	_ "github.com/mattn/go-sqlite3"
 	iammw "gochen-iam/middleware"
 	iamservice "gochen-iam/service"
 	"gochen-runtime/db/orm/lite"
 	"gochen-runtime/db/sql/stdsql"
 	"gochen-runtime/di"
 	"gochen-runtime/di/basic"
-	auth "gochen-runtime/host/authz"
 	"gochen-runtime/host/module"
 	"gochen-runtime/http/nethttp"
-	"gochen/auth/scoped"
 	"gochen/db"
 	"gochen/db/orm"
 	"gochen/gen"
 	"gochen/testkit"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestIAMModulePublicFeaturesExposeOnlyTenantMode(t *testing.T) {
@@ -90,7 +89,6 @@ func TestIAMModulesBindIndependentAuthResolvers(t *testing.T) {
 		register(err)
 		register(di.RegisterInstance[orm.IOrm](container, engine))
 		register(di.RegisterInstance[gen.IGenerator[int64]](container, testkit.GeneratorFunc[int64](func() (int64, error) { return 1, nil })))
-		register(di.RegisterInstance[scoped.IResourceResolver](container, auth.NewRegistry()))
 		register(di.RegisterInstance[logging.ILogger](container, logging.NewNoopLogger()))
 		config := iammw.DefaultAuthConfigForEnvironment("test")
 		register(di.RegisterInstance[*iammw.AuthConfig](container, config))

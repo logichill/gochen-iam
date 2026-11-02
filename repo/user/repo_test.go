@@ -4,14 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"gochen/domain/meta"
+
 	coredialect "gochen/db/dialect"
 	"gochen/testkit"
 	"testing"
 
 	iamentity "gochen-iam/entity"
 	"gochen-runtime/db/dialect"
+
 	auth "gochen-runtime/host/authz"
+
 	appcrud "gochen/app/crud"
+
 	goauth "gochen/auth"
 	"gochen/contextx"
 	"gochen/db"
@@ -55,7 +60,7 @@ func (s scopeAuthorizerStub) Authorize(context.Context, goauth.Request) (goauth.
 }
 
 func (s scopeAuthorizerStub) Vocabulary() goauth.Vocabulary {
-	return goauth.Vocabulary{Roles: []spec.Role{spec.RoleScope}}
+	return goauth.Vocabulary{Refs: []meta.Ref{meta.ByDimension("scope")}}
 }
 
 func TestUserApplicationRejectsHookScopeWidening(t *testing.T) {
@@ -67,7 +72,7 @@ func TestUserApplicationRejectsHookScopeWidening(t *testing.T) {
 	beforeCalled := false
 	base, err := appcrud.NewApplication[*iamentity.User, int64](repository, appcrud.Options[*iamentity.User, int64]{
 		Resource:   "user",
-		Authorizer: scopeAuthorizerStub{spec: spec.Eq(spec.RoleScope, 1)},
+		Authorizer: scopeAuthorizerStub{spec: spec.Eq(meta.ByDimension("scope"), 1)},
 		Hooks: appcrud.Hooks[*iamentity.User]{
 			appcrud.ActionCreate: {
 				Before: func(_ context.Context, user *iamentity.User) error {
@@ -137,7 +142,7 @@ type capturingModel struct {
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities { return nil }
-func (m *capturingModel) Dialect() coredialect.IDialect  { return dialect.New("") }
+func (m *capturingModel) Dialect() coredialect.IDialect  { return dialect.New("sqlite") }
 func (m *capturingModel) First(_ context.Context, _ any, opts ...orm.QueryOption) error {
 	m.firstCalls++
 	m.lastFirstOpts = orm.CollectQueryOptions(opts...)
@@ -325,9 +330,9 @@ func TestUserRepo_Get_FiltersByTenantFromPrincipal(t *testing.T) {
 	}
 
 	where := o.baseModel.lastFirstOpts.Where
-	requireCondition(t, where, "tenant_id = ?", "tenant-a")
-	requireCondition(t, where, "id = ?", int64(7))
-	requireCondition(t, where, "deleted_at IS NULL")
+	requireCondition(t, where, `"tenant_id" = ?`, "tenant-a")
+	requireCondition(t, where, `"id" = ?`, int64(7))
+	requireCondition(t, where, `"deleted_at" IS NULL`)
 }
 
 func TestUserRepo_Update_StripsAssociationsBeforeSave(t *testing.T) {
@@ -369,7 +374,7 @@ func TestUserRepo_Update_StripsAssociationsBeforeSave(t *testing.T) {
 	if _, ok := values["roles"]; ok {
 		t.Fatalf("expected associations stripped before save, got %#v", values)
 	}
-	requireCondition(t, o.baseModel.lastUpdateOpts.Where, "version = ?", uint64(0))
+	requireCondition(t, o.baseModel.lastUpdateOpts.Where, `"version" = ?`, uint64(0))
 	if user.GetVersion() != 1 {
 		t.Fatalf("expected returned entity version 1, got %d", user.GetVersion())
 	}

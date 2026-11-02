@@ -46,9 +46,9 @@ type Role struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	TenantID         string          `json:"tenant_id" role:"tenant" gorm:"size:64;not null;index;uniqueIndex:idx_role_name_tenant"`
-	OwnerID          string          `json:"owner_id" role:"owner" gorm:"size:128;not null;index"`
-	NamespaceScopeID int64           `json:"namespace_scope_id" role:"scope" gorm:"not null;index"`
+	TenantID         string          `json:"tenant_id" dim:"tenant" gorm:"size:64;not null;index;uniqueIndex:idx_role_name_tenant"`
+	OwnerID          string          `json:"owner_id" dim:"owner" gorm:"size:128;not null;index"`
+	NamespaceScopeID int64           `json:"namespace_scope_id" dim:"scope" gorm:"not null;index"`
 	Code             string          `json:"code" gorm:"size:50;index"` // 稳定标识，默认与 Name 相同
 	Name             string          `json:"name" gorm:"size:50;not null;uniqueIndex:idx_role_name_tenant"`
 	Description      string          `json:"description" gorm:"size:500"`

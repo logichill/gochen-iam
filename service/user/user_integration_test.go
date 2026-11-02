@@ -2,25 +2,35 @@ package user_test
 
 import (
 	"context"
+	"gochen/domain/meta"
+	"gochen/observe/logging"
+	"gochen/testkit"
 	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
-	"gochen/observe/logging"
-	"gochen/testkit"
-
 	iamauth "gochen-iam/auth"
+
 	iamentity "gochen-iam/entity"
 	"gochen-iam/persistence/gormsetup"
+
 	grouprepo "gochen-iam/repo/group"
+
 	rolerepo "gochen-iam/repo/role"
+
 	scoperepo "gochen-iam/repo/scope"
+
 	tenantrepo "gochen-iam/repo/tenant"
+
 	userrepo "gochen-iam/repo/user"
+
 	iamservice "gochen-iam/service"
+
 	svc "gochen-iam/service"
+
 	groupsvc "gochen-iam/service/group"
+
 	usersvc "gochen-iam/service/user"
 	"gochen-iam/tenant"
 
@@ -1358,7 +1368,7 @@ func TestUserRepoAssignRole_AllowsSameTenantDifferentManagedScopes(t *testing.T)
 	}
 
 	// 仅覆盖用户所在 scope 的规约不能授权其它 scope 的角色。
-	userScopeSpec := spec.Eq(spec.RoleScope, user.ManagedScopeID)
+	userScopeSpec := spec.Eq(meta.ByDimension("scope"), user.ManagedScopeID)
 	if err := env.userRepo.AssignRole(env.backgroundCtx, user.GetID(), role.GetID(), userScopeSpec); !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("expected out-of-scope role assignment to be forbidden, got %v", err)
 	}

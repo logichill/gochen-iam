@@ -69,7 +69,7 @@ func (tr *TenantRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	app, err := appcrud.NewApplication[*iamentity.Tenant, int64](tr.tenantRepo, appcrud.Options[*iamentity.Tenant, int64]{
 		Resource:   "tenant",
-		Authorizer: tr.authorizer,
+		Authorizer: tr.authorizer.ForResource("tenant"),
 		ActionPermissions: map[string]string{
 			appcrud.ActionRead:   svc.TenantPermissionSet.Code(iammw.ActionRead),
 			appcrud.ActionList:   svc.TenantPermissionSet.Code(iammw.ActionRead),

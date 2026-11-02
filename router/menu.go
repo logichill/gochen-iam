@@ -55,7 +55,7 @@ func (mr *MenuRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	app, err := appcrud.NewApplication[*iamentity.MenuItem, int64](mr.menuRepo, appcrud.Options[*iamentity.MenuItem, int64]{
 		Resource:   "menu",
-		Authorizer: mr.authorizer,
+		Authorizer: mr.authorizer.ForResource("menu"),
 		ActionPermissions: map[string]string{
 			appcrud.ActionRead:   iamsvc.MenuPermissionSet.Code(iammw.ActionRead),
 			appcrud.ActionList:   iamsvc.MenuPermissionSet.Code(iammw.ActionRead),

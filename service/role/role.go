@@ -2,19 +2,30 @@ package role
 
 import (
 	"context"
+	"gochen/domain/meta"
+
 	stdErrors "errors"
 	"strings"
 	"time"
 
 	iamauth "gochen-iam/auth"
+
 	iamentity "gochen-iam/entity"
+
 	iamevent "gochen-iam/event"
+
 	iamperm "gochen-iam/permissions"
+
 	grouprepo "gochen-iam/repo/group"
+
 	rolerepo "gochen-iam/repo/role"
+
 	userrepo "gochen-iam/repo/user"
+
 	svc "gochen-iam/service"
+
 	auth "gochen-runtime/host/authz"
+
 	appcrud "gochen/app/crud"
 	"gochen/app/query"
 	"gochen/auth/scoped"
@@ -588,13 +599,13 @@ func (s *RoleService) RoleStatistics(ctx context.Context) (map[string]interface{
 	}
 
 	// 2. 统计激活角色数
-	activeRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{}, spec.And(readSpec, spec.Eq("Status", svc.RoleStatusActive)))
+	activeRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{}, spec.And(readSpec, spec.Eq(meta.ByField("Status"), svc.RoleStatusActive)))
 	if err != nil {
 		return nil, err
 	}
 
 	// 3. 统计系统角色数
-	systemRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{}, spec.And(readSpec, spec.Eq("IsSystem", true)))
+	systemRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{}, spec.And(readSpec, spec.Eq(meta.ByField("IsSystem"), true)))
 	if err != nil {
 		return nil, err
 	}

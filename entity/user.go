@@ -16,11 +16,11 @@ type User struct {
 	domain.Timestamps
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 
-	TenantID       string     `json:"tenant_id" role:"tenant" gorm:"size:64;not null;index;uniqueIndex:idx_user_username_tenant;uniqueIndex:idx_user_email_tenant"`
+	TenantID       string     `json:"tenant_id" dim:"tenant" gorm:"size:64;not null;index;uniqueIndex:idx_user_username_tenant;uniqueIndex:idx_user_email_tenant"`
 	HomeTenantID   string     `json:"home_tenant_id" gorm:"size:64;not null;index"`
 	HomeScopeID    int64      `json:"home_scope_id" gorm:"not null;index"`
-	ManagedScopeID int64      `json:"managed_scope_id" role:"scope" gorm:"not null;index"`
-	OwnerID        string     `json:"owner_id" role:"owner" gorm:"size:128;not null;index"`
+	ManagedScopeID int64      `json:"managed_scope_id" dim:"scope" gorm:"not null;index"`
+	OwnerID        string     `json:"owner_id" dim:"owner" gorm:"size:128;not null;index"`
 	Username       string     `json:"username" gorm:"size:50;not null;uniqueIndex:idx_user_username_tenant"`
 	Email          string     `json:"email" gorm:"size:100;not null;uniqueIndex:idx_user_email_tenant"`
 	Password       string     `json:"-" gorm:"column:password_hash;size:255;not null"`

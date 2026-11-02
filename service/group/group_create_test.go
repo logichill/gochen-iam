@@ -1,10 +1,12 @@
 package group_test
 
 import (
+	"gochen/domain/meta"
 	"strconv"
 	"testing"
 
 	iamentity "gochen-iam/entity"
+
 	svc "gochen-iam/service"
 	"gochen/auth/scoped"
 	"gochen/domain/spec"
@@ -47,7 +49,7 @@ func TestGroupRepoCreateWithInferredScope(t *testing.T) {
 			// 新建授权早于范围和 ID 补齐；层级字段应随首次写入完整持久化。
 			s := spec.All()
 			if tc.authorizedScope != 0 {
-				s = spec.Eq(spec.RoleScope, tc.authorizedScope)
+				s = spec.Eq(meta.ByDimension("scope"), tc.authorizedScope)
 			}
 			err = env.groupRepo.Create(ctx, group, s)
 			if tc.forbidden {

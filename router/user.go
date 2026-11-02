@@ -61,7 +61,7 @@ func (ur *UserRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	app, err := appcrud.NewApplication[*iamentity.User, int64](ur.userRepo, appcrud.Options[*iamentity.User, int64]{
 		Resource:   "user",
-		Authorizer: ur.authorizer,
+		Authorizer: ur.authorizer.ForResource("user"),
 		ActionPermissions: map[string]string{
 			appcrud.ActionRead:   iamsvc.UserPermissionSet.Code(iammw.ActionRead),
 			appcrud.ActionList:   iamsvc.UserPermissionSet.Code(iammw.ActionRead),

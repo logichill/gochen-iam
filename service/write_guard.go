@@ -37,7 +37,7 @@ func DataScopeSpec(ctx context.Context) spec.Spec {
 	case scoped.ScopeGlobal:
 		return spec.All()
 	case scoped.ScopeFiltered:
-		return scoped.ScopeIn(scope.ScopeIDs...)
+		return scoped.ScopeIn("scope", scope.ScopeIDs...)
 	default:
 		return spec.Spec{}
 	}

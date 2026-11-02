@@ -1,10 +1,8 @@
 package service
 
 import (
-	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	auth "gochen-runtime/host/authz"
-	"gochen/auth/scoped"
 	"gochen/errors"
 )
 
@@ -69,28 +67,6 @@ func SyncRequiredPermissionCatalog(reg auth.ModuleRegistration) error {
 }
 
 // IAMResourceResolvers 返回 IAM 模块声明的资源解析器目录。
-func IAMResourceResolvers() []scoped.ITypedResourceResolver {
-	return []scoped.ITypedResourceResolver{
-		scoped.TypedResourceResolver[*iamentity.User](func(target *iamentity.User) (scoped.Resource, bool) {
-			return resourceFromEntity(UserResourceKind, target)
-		}),
-		scoped.TypedResourceResolver[*iamentity.Group](func(target *iamentity.Group) (scoped.Resource, bool) {
-			return resourceFromEntity(GroupResourceKind, target)
-		}),
-		scoped.TypedResourceResolver[*iamentity.Role](func(target *iamentity.Role) (scoped.Resource, bool) {
-			return resourceFromEntity(RoleResourceKind, target)
-		}),
-		scoped.TypedResourceResolver[*iamentity.Tenant](func(target *iamentity.Tenant) (scoped.Resource, bool) {
-			return platformResourceFromEntity(TenantResourceKind, target)
-		}),
-		scoped.TypedResourceResolver[*iamentity.MenuItem](func(target *iamentity.MenuItem) (scoped.Resource, bool) {
-			return platformResourceFromEntity(MenuResourceKind, target)
-		}),
-		scoped.TypedResourceResolver[*iamentity.Scope](func(target *iamentity.Scope) (scoped.Resource, bool) {
-			return platformResourceFromEntity(ScopeResourceKind, target)
-		}),
-	}
-}
 
 // IAMAuthzRegistration 返回 IAM 模块声明的 authz 目录。
 func IAMAuthzRegistration() auth.ModuleRegistration {
@@ -99,7 +75,6 @@ func IAMAuthzRegistration() auth.ModuleRegistration {
 		ModuleName:            "IAM",
 		Permissions:           append([]string(nil), IAMPermissions...),
 		PermissionDefinitions: IAMAuthzPermissionDefinitions(),
-		ResourceResolvers:     IAMResourceResolvers(),
 	}
 }
 

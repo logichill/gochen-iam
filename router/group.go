@@ -63,7 +63,7 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 
 	app, err := appcrud.NewApplication[*iamentity.Group, int64](gr.groupRepo, appcrud.Options[*iamentity.Group, int64]{
 		Resource:   "group",
-		Authorizer: gr.authorizer,
+		Authorizer: gr.authorizer.ForResource("group"),
 		ActionPermissions: map[string]string{
 			appcrud.ActionRead:   svc.GroupPermissionSet.Code(iammw.ActionRead),
 			appcrud.ActionList:   svc.GroupPermissionSet.Code(iammw.ActionRead),

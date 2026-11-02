@@ -46,7 +46,7 @@ type capturingModel struct {
 
 func (m *capturingModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingModel) Capabilities() orm.Capabilities { return nil }
-func (m *capturingModel) Dialect() coredialect.IDialect  { return dialect.New("") }
+func (m *capturingModel) Dialect() coredialect.IDialect  { return dialect.New("sqlite") }
 func (m *capturingModel) First(_ context.Context, dest any, opts ...orm.QueryOption) error {
 	m.firstCalls++
 	m.lastFirstOpts = orm.CollectQueryOptions(opts...)
@@ -234,9 +234,9 @@ func TestGroupRepo_Get_FiltersByTenantFromPrincipal(t *testing.T) {
 	}
 
 	where := o.baseModel.lastFirstOpts.Where
-	requireCondition(t, where, "tenant_id = ?", "tenant-a")
-	requireCondition(t, where, "id = ?", int64(7))
-	requireCondition(t, where, "deleted_at IS NULL")
+	requireCondition(t, where, `"tenant_id" = ?`, "tenant-a")
+	requireCondition(t, where, `"id" = ?`, int64(7))
+	requireCondition(t, where, `"deleted_at" IS NULL`)
 }
 
 func TestGroupRepo_Update_StripsAssociationsBeforeSave(t *testing.T) {
