@@ -17,7 +17,11 @@ func TestIAMAuthorizerAuthorizeUsesContextTenant(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
 	authorizer := NewIAMAuthorizer(nil)
 
-	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
+	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     "1",
 		Permissions:   []string{"user:api:*"},
 		ActiveScopeID: 101,
@@ -26,10 +30,6 @@ func TestIAMAuthorizerAuthorizeUsesContextTenant(t *testing.T) {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 101, "platform")
-	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
-	}
 	ctx, err = scoped.WithDataScope(ctx, scoped.Filtered(101))
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)
@@ -55,16 +55,16 @@ func TestIAMAuthorizerDeniesMixedTenantResources(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
 	authorizer := NewIAMAuthorizer(nil)
 
-	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
+	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:   "1",
 		Permissions: []string{"user:api:*"},
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
-	}
-	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
 	}
 
 	user := &iamentity.User{TenantID: "tenant-a"}
@@ -88,16 +88,16 @@ func TestIAMAuthorizerDeniesCreateResourceWithForeignTenantBoundary(t *testing.T
 	t.Setenv("IAM_TENANT_MODE", "tenant")
 	authorizer := NewIAMAuthorizer(nil)
 
-	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
+	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:   "1",
 		Permissions: []string{"user:api:*"},
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
-	}
-	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
 	}
 
 	user := &iamentity.User{
@@ -177,7 +177,11 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 func TestIAMAuthorizerManagedTargetUsesDataScopeSpec(t *testing.T) {
 	authorizer := NewIAMAuthorizer(nil)
 
-	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
+	ctx, err := contextx.WithTenantID(context.Background(), "erp-demo")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     "1",
 		Permissions:   []string{"user:api:*"},
 		ActiveScopeID: 7,
@@ -186,10 +190,6 @@ func TestIAMAuthorizerManagedTargetUsesDataScopeSpec(t *testing.T) {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(tenant.WithPolicy(ctx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "erp-demo"}), 7, "tenant")
-	ctx, err = contextx.WithTenantID(ctx, "erp-demo")
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
-	}
 	ctx, err = scoped.WithDataScope(ctx, scoped.Filtered(7))
 	if err != nil {
 		t.Fatalf("WithDataScope: %v", err)
@@ -216,7 +216,11 @@ func TestIAMAuthorizerManagedTargetUsesDataScopeSpec(t *testing.T) {
 func TestIAMAuthorizerAllowsPlatformOwnedUserInPlatformScope(t *testing.T) {
 	authorizer := NewIAMAuthorizer(nil)
 
-	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
+	ctx, err := contextx.WithTenantID(context.Background(), "erp-demo")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     "1",
 		Permissions:   []string{"user:api:*"},
 		ActiveScopeID: 1,
@@ -225,10 +229,6 @@ func TestIAMAuthorizerAllowsPlatformOwnedUserInPlatformScope(t *testing.T) {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(tenant.WithPolicy(ctx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "erp-demo"}), 1, "platform")
-	ctx, err = contextx.WithTenantID(ctx, "erp-demo")
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
-	}
 
 	user := &iamentity.User{
 		TenantID:       "erp-demo",
@@ -298,6 +298,10 @@ func TestWithSystemPrincipal_ReplaysAuthorizationRuntime(t *testing.T) {
 	if got := contextx.TenantID(ctx); got != "tenant-b" {
 		t.Fatalf("expected tenant-b, got %q", got)
 	}
+	identity, ok := coreauth.PrincipalFromContext(ctx)
+	if !ok || !identity.System || identity.TenantID != "tenant-b" {
+		t.Fatalf("expected root system identity in tenant-b, got %+v", identity)
+	}
 }
 
 func TestAuthorizer_MultiTenantFailsClosedWithoutActiveScopeID(t *testing.T) {
@@ -305,17 +309,17 @@ func TestAuthorizer_MultiTenantFailsClosedWithoutActiveScopeID(t *testing.T) {
 	authorizer := NewIAMAuthorizer(&ScopeAuthorizer{})
 
 	// Principal 没有 ActiveScopeID (ActiveScopeID <= 0)
-	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
+	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     "1",
 		Permissions:   []string{"user:api:*"},
 		ActiveScopeID: 0,
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
-	}
-	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
 	}
 
 	targetUser := &iamentity.User{TenantID: "tenant-a"}
@@ -332,17 +336,17 @@ func TestIAMAuthorizerRejectsNilScopeAuthorizerInMultiTenant(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
 	authorizer := NewIAMAuthorizer(nil)
 
-	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
+	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     "1",
 		Permissions:   []string{"user:api:*"},
 		ActiveScopeID: 10,
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
-	}
-	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
 	}
 
 	targetUser := &iamentity.User{TenantID: "tenant-a"}

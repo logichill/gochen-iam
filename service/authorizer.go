@@ -166,19 +166,14 @@ func WithSystemPrincipal(ctx context.Context, tenantID string) (context.Context,
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx, err := auth.WithPrincipal(ctx, auth.Principal{
-		IsSystem: true,
-	})
-	if err != nil {
-		return nil, err
-	}
 	if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
+		var err error
 		ctx, err = BindTenantContext(ctx, tenantID)
 		if err != nil {
 			return nil, err
 		}
 	}
-	return ctx, nil
+	return auth.WithPrincipal(ctx, auth.Principal{IsSystem: true})
 }
 
 // authorizationTarget 是判定所需的最小资源事实。

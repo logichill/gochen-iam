@@ -54,6 +54,7 @@ func TestScopeAuthorizerRequirePermissionInTenant_FixedModeStillRequiresPermissi
 
 func TestScopeAuthorizerRequirePermissionInTenant_UsesPrincipalOutsideHTTP(t *testing.T) {
 	ctx, err := auth.WithPrincipal(tenant.WithPolicy(context.Background(), tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "single-tenant"}), auth.Principal{
+		SubjectID:   "7",
 		Permissions: []string{"role:api:read"},
 	})
 	if err != nil {
@@ -90,7 +91,10 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 		t.Fatalf("NewTenantRepository: %v", err)
 	}
 
-	ctx := context.Background()
+	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     "7",
 		Permissions:   []string{"role:api:read"},
@@ -98,10 +102,6 @@ func TestScopeAuthorizerRequirePermissionInTenant_AllowsPlatformCrossTenant(t *t
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
-	}
-	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iamentity.ScopeTypePlatform))
 	ctx, err = scoped.WithDataScope(ctx, scoped.Filtered(1, 2, 3))
@@ -194,7 +194,10 @@ func TestScopeAuthorizerRequirePermissionInTenant_DoesNotHealMissingTenantRootSc
 		t.Fatalf("create tenant: %v", err)
 	}
 
-	ctx := context.Background()
+	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
+	if err != nil {
+		t.Fatalf("WithTenantID: %v", err)
+	}
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
 		SubjectID:     "7",
 		Permissions:   []string{"role:api:read"},
@@ -202,10 +205,6 @@ func TestScopeAuthorizerRequirePermissionInTenant_DoesNotHealMissingTenantRootSc
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
-	}
-	ctx, err = contextx.WithTenantID(ctx, "tenant-a")
-	if err != nil {
-		t.Fatalf("WithTenantID: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iamentity.ScopeTypePlatform))
 

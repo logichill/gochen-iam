@@ -7,9 +7,11 @@ import (
 	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
 	auth "gochen-runtime/host/authz"
+	coreauth "gochen/auth"
 	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/domain/spec"
+	"gochen/errors"
 )
 
 type tenantBoundUserRepoStub struct {
@@ -170,5 +172,49 @@ func TestBindTenantContext_DefaultsToGlobalScopeWhenTenantIsUnscoped(t *testing.
 	}
 	if scope.Kind != scoped.ScopeGlobal || len(scope.ScopeIDs) != 0 {
 		t.Fatalf("expected global data scope, got %+v", scope)
+	}
+}
+
+func TestBindVisibleScopeContextDiscardsPreviousPermissions(t *testing.T) {
+	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
+		SubjectID: "1", ActiveScopeID: 7, ActiveBindingID: 12,
+		Permissions: []string{"user:api:write"}, PermissionScopes: []string{"tenant"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := BindVisibleScopeContext(ctx, 7, []int64{7, 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.NewActionChecker().RequireAction(unchanged, "user:api:write"); err != nil {
+		t.Fatalf("same identity lost permission: %v", err)
+	}
+	changed, err := BindVisibleScopeContext(ctx, 8, []int64{8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _ := coreauth.PrincipalFromContext(changed)
+	principal, _ := auth.PrincipalFromContext(changed)
+	if identity.ScopeID != 8 || principal.ActiveScopeID != 8 || len(principal.Permissions) != 0 ||
+		len(principal.PermissionScopes) != 0 || principal.ActiveBindingID != 0 {
+		t.Fatalf("scope change retained stale permission details: %+v / %+v", identity, principal)
+	}
+	if err := auth.NewActionChecker().RequireAction(changed, "user:api:write"); !errors.Is(err, errors.Forbidden) {
+		t.Fatalf("scope change authorization = %v, want Forbidden", err)
+	}
+	returned, err := BindVisibleScopeContext(changed, 7, []int64{7, 8})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.NewActionChecker().RequireAction(returned, "user:api:write"); !errors.Is(err, errors.Forbidden) {
+		t.Fatalf("scope round trip authorization = %v, want Forbidden", err)
+	}
+	if err := auth.NewActionChecker().RequireAction(ctx, "user:api:write"); err != nil {
+		t.Fatalf("original context changed: %v", err)
 	}
 }

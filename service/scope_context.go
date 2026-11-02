@@ -4,9 +4,8 @@ import (
 	"context"
 
 	iamauth "gochen-iam/auth"
-	auth "gochen-runtime/host/authz"
+	coreauth "gochen/auth"
 	"gochen/auth/scoped"
-	"gochen/contextx"
 )
 
 // BindManagedScopeContext 将单一 managed scope 绑定回上下文，供 repo 查询/写入统一消费。
@@ -34,20 +33,12 @@ func BindVisibleScopeContext(ctx context.Context, activeScopeID int64, visibleSc
 }
 
 func rebindPrincipalActiveScope(ctx context.Context, activeScopeID int64) (context.Context, error) {
-	principal, ok := auth.PrincipalFromContext(ctx)
-	if !ok || principal.ActiveScopeID == activeScopeID {
+	principal, ok := coreauth.PrincipalFromContext(ctx)
+	if !ok || principal.ScopeID == activeScopeID {
 		return ctx, nil
 	}
 
-	tenantID := contextx.TenantID(ctx)
-	principal.ActiveScopeID = activeScopeID
-
-	boundCtx, err := auth.WithPrincipal(ctx, principal)
-	if err != nil {
-		return nil, err
-	}
-	if tenantID == "" || contextx.TenantID(boundCtx) == tenantID {
-		return boundCtx, nil
-	}
-	return contextx.WithTenantID(boundCtx, tenantID)
+	principal.ScopeID = activeScopeID
+	// 范围绑定只更新身份；新范围的权限资料由可信认证入口建立。
+	return coreauth.WithPrincipal(ctx, principal)
 }
