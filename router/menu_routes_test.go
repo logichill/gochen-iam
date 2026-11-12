@@ -3,11 +3,15 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	iamauth "gochen-iam/auth"
 	iamentity "gochen-iam/entity"
+	menurepo "gochen-iam/repo/menu"
 	svc "gochen-iam/service"
 	menusvc "gochen-iam/service/menu"
 	auth "gochen-runtime/host/authz"
@@ -15,6 +19,8 @@ import (
 	"gochen/app/query"
 	"gochen/domain"
 	"gochen/domain/spec"
+	"gochen/testkit"
+	"gorm.io/gorm"
 
 	"gochen-runtime/http/nethttp"
 	"gochen/httpx"
@@ -155,11 +161,33 @@ func (r routeScopedRepo[T]) WithinTx(ctx context.Context, fn func(context.Contex
 	return fn(ctx)
 }
 
+func menuRoutesFixture(t *testing.T) (*MenuRoutes, *gorm.DB) {
+	t.Helper()
+	svc.RegisterIAMPermissionCatalog()
+	_, storage, scopes := scopeRoutesFixture(t)
+	if err := storage.AutoMigrate(&iamentity.MenuItem{}); err != nil {
+		t.Fatal(err)
+	}
+	repo, err := menurepo.NewMenuItemRepository(scopes.Orm(), testkit.NewInt64Sequence(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := menusvc.NewMenuService(repo, svc.NewIAMAccess(nil), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes, err := NewMenuRoutes(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return routes, storage
+}
+
 func TestMenuRoutes_RegisterRoutes(t *testing.T) {
 	routes := map[string]struct{}{}
 	root := newRecordingGroup("", routes)
 
-	mr := NewMenuRoutes(&menusvc.MenuService{}, menuRouteTestRepo{}, svc.NewIAMAuthorizer(nil))
+	mr, _ := menuRoutesFixture(t)
 	if err := mr.RegisterRoutes(root); err != nil {
 		t.Fatalf("RegisterRoutes failed: %v", err)
 	}
@@ -190,14 +218,16 @@ func TestMenuRoutes_RegisterRoutes(t *testing.T) {
 }
 
 func TestMenuRoutes_ListIgnoresPagination(t *testing.T) {
-	repo := menuRouteTestRepo{}
+	mr, storage := menuRoutesFixture(t)
 	for id := int64(1); id <= 15; id++ {
-		item := &iamentity.MenuItem{}
+		item := &iamentity.MenuItem{Code: fmt.Sprintf("item-%d", id), Title: fmt.Sprintf("Item %d", id), Type: iamentity.MenuTypePage}
 		item.SetID(id)
-		repo.items = append(repo.items, item)
+		if err := storage.Create(item).Error; err != nil {
+			t.Fatal(err)
+		}
 	}
 	root := newRecordingGroup("", nil)
-	if err := NewMenuRoutes(&menusvc.MenuService{}, repo, svc.NewIAMAuthorizer(nil)).RegisterRoutes(root); err != nil {
+	if err := mr.RegisterRoutes(root); err != nil {
 		t.Fatal(err)
 	}
 	handler := root.handlers["GET /menus"]
@@ -207,10 +237,11 @@ func TestMenuRoutes_ListIgnoresPagination(t *testing.T) {
 	for _, url := range []string{"/menus", "/menus?page=2&size=1", "/menus?page_size=1", "/menus?page=bad&size=0"} {
 		t.Run(url, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			base, err := auth.WithPrincipal(context.Background(), auth.Principal{IsSystem: true})
+			base, err := auth.WithPrincipal(context.Background(), auth.Principal{SubjectID: "1", IsSystem: true, ActiveScopeID: 1})
 			if err != nil {
 				t.Fatal(err)
 			}
+			base = iamauth.BindActiveScopeContext(base, 1, iamentity.ScopeTypePlatform)
 			ctx, err := nethttp.NewBaseContext(rec, httptest.NewRequest(http.MethodGet, url, nil).WithContext(base))
 			if err != nil {
 				t.Fatal(err)
@@ -227,8 +258,8 @@ func TestMenuRoutes_ListIgnoresPagination(t *testing.T) {
 			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 				t.Fatal(err)
 			}
-			if len(response.Data) != len(repo.items) {
-				t.Fatalf("returned %d menus, want %d", len(response.Data), len(repo.items))
+			if len(response.Data) != 15 {
+				t.Fatalf("returned %d menus, want 15", len(response.Data))
 			}
 			for i, item := range response.Data {
 				if item.GetID() != int64(i+1) {
@@ -248,8 +279,8 @@ func TestManagementCRUDRoutesUseManageMiddlewareGroup(t *testing.T) {
 		{
 			name: "user",
 			routes: func(root *recordingRouteGroup) error {
-				repo := routeScopedRepo[*iamentity.User]{entity: &iamentity.User{}}
-				return NewUserRoutes(nil, repo, svc.NewIAMAuthorizer(nil)).RegisterRoutes(root)
+				routes, _ := userAssociationRoutesFixture(t)
+				return routes.RegisterRoutes(root)
 			},
 			want: []string{
 				"GET /users",
@@ -262,8 +293,8 @@ func TestManagementCRUDRoutesUseManageMiddlewareGroup(t *testing.T) {
 		{
 			name: "group",
 			routes: func(root *recordingRouteGroup) error {
-				repo := routeScopedRepo[*iamentity.Group]{entity: &iamentity.Group{}}
-				return NewGroupRoutes(nil, repo, svc.NewIAMAuthorizer(nil)).RegisterRoutes(root)
+				routes := groupAssociationRoutesFixture(t)
+				return routes.RegisterRoutes(root)
 			},
 			want: []string{
 				"GET /groups",
@@ -276,8 +307,8 @@ func TestManagementCRUDRoutesUseManageMiddlewareGroup(t *testing.T) {
 		{
 			name: "role",
 			routes: func(root *recordingRouteGroup) error {
-				repo := routeScopedRepo[*iamentity.Role]{entity: &iamentity.Role{}}
-				return NewRoleRoutes(nil, repo, nil, svc.NewIAMAuthorizer(nil)).RegisterRoutes(root)
+				routes, _ := roleRoutesFixture(t)
+				return routes.RegisterRoutes(root)
 			},
 			want: []string{
 				"GET /roles",
@@ -308,10 +339,13 @@ func TestManagementCRUDRoutesUseManageMiddlewareGroup(t *testing.T) {
 }
 
 func TestTenantRoutesListUsesScopedQueryRepository(t *testing.T) {
-	repo := routeScopedRepo[*iamentity.Tenant]{entity: &iamentity.Tenant{}}
+	routes, storage := tenantRoutesFixture(t)
+	if err := storage.Create(&iamentity.Tenant{Key: "listed", Name: "Listed", Status: "inactive"}).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	root := newRecordingGroup("", nil)
-	if err := NewTenantRoutes(nil, repo, nil, svc.NewIAMAuthorizer(nil), nil, nil, nil, nil).RegisterRoutes(root); err != nil {
+	if err := routes.RegisterRoutes(root); err != nil {
 		t.Fatalf("RegisterRoutes failed: %v", err)
 	}
 	handler := root.handlers["GET /tenants"]
@@ -319,10 +353,11 @@ func TestTenantRoutesListUsesScopedQueryRepository(t *testing.T) {
 		t.Fatalf("missing tenant list handler")
 	}
 
-	baseCtx, err := auth.WithPrincipal(context.Background(), auth.Principal{SubjectID: "1", IsSystem: true})
+	baseCtx, err := auth.WithPrincipal(context.Background(), auth.Principal{SubjectID: "1", ActiveScopeID: 1, IsSystem: true})
 	if err != nil {
 		t.Fatalf("WithPrincipal failed: %v", err)
 	}
+	baseCtx = iamauth.BindActiveScopeContext(baseCtx, 1, iamentity.ScopeTypePlatform)
 	req := httptest.NewRequest(http.MethodGet, "/tenants?page=1&size=10", nil).WithContext(baseCtx)
 	rec := httptest.NewRecorder()
 	ctx, err := nethttp.NewBaseContext(rec, req)
@@ -335,6 +370,9 @@ func TestTenantRoutesListUsesScopedQueryRepository(t *testing.T) {
 	}
 	if rec.Code != http.StatusOK {
 		t.Fatalf("tenant list status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"key":"listed"`) {
+		t.Fatalf("tenant list omitted persisted row: %s", rec.Body.String())
 	}
 }
 

@@ -2,10 +2,8 @@ package role
 
 import (
 	"context"
-	"gochen/domain/meta"
 
 	stdErrors "errors"
-	"strings"
 	"time"
 
 	iamauth "gochen-iam/auth"
@@ -13,8 +11,6 @@ import (
 	iamentity "gochen-iam/entity"
 
 	iamevent "gochen-iam/event"
-
-	iamperm "gochen-iam/permissions"
 
 	grouprepo "gochen-iam/repo/group"
 
@@ -24,10 +20,8 @@ import (
 
 	svc "gochen-iam/service"
 
-	auth "gochen-runtime/host/authz"
-
 	appcrud "gochen/app/crud"
-	"gochen/app/query"
+	dbquery "gochen/app/query"
 	"gochen/auth/scoped"
 	"gochen/domain/spec"
 	"gochen/errors"
@@ -41,15 +35,27 @@ var errBulkAssignRoleRollback = stdErrors.New("rollback bulk assign role")
 
 // RoleService 角色服务
 type RoleService struct {
-	roleRepo         *rolerepo.RoleRepo
-	userRepo         *userrepo.UserRepo
-	groupRepo        *grouprepo.GroupRepo
-	scopeAuthorizer  *svc.ScopeAuthorizer
-	authorizer       *svc.IAMAuthorizer
-	eventBus         bus.IEventBus
-	eventIDGenerator gen.IGenerator[string]
-	logger           logging.ILogger
-	governance       *Governance
+	roleRepo                             *rolerepo.RoleRepo
+	userRepo                             *userrepo.UserRepo
+	groupRepo                            *grouprepo.GroupRepo
+	scopeAuthorizer                      *svc.ScopeAuthorizer
+	authorizer                           *svc.IAMAccess
+	eventBus                             bus.IEventBus
+	eventIDGenerator                     gen.IGenerator[string]
+	logger                               logging.ILogger
+	governance                           *Governance
+	statisticsCommands                   map[string]*roleStatisticsCommand
+	writeCommands                        map[string]*roleWriteCommand
+	systemCommands                       map[string]*roleSystemCommand
+	crudApplication, httpCRUDApplication *roleCRUDApplication
+	directoryCommands                    map[string]*roleDirectoryCommand
+	groupCommands                        map[string]*roleGroupCommand
+	permissionCommand                    *rolePermissionCommand
+	permissionsCommand                   *rolePermissionsCommand
+	userCommands                         map[string]*roleUserCommand
+	initializeCommand                    *roleInitializeCommand
+	usersCommand                         *roleUsersCommand
+	groupsCommand                        *roleGroupsCommand
 }
 
 // NewRoleService 创建角色服务实例
@@ -58,13 +64,13 @@ func NewRoleService(
 	userRepo *userrepo.UserRepo,
 	groupRepo *grouprepo.GroupRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer *svc.IAMAuthorizer,
+	authorizer *svc.IAMAccess,
 	eventBus bus.IEventBus,
 	eventIDGenerator gen.IGenerator[string],
 	logger logging.ILogger,
-) *RoleService {
+) (*RoleService, error) {
 
-	return &RoleService{
+	s := &RoleService{
 		roleRepo:         roleRepo,
 		userRepo:         userRepo,
 		groupRepo:        groupRepo,
@@ -75,6 +81,60 @@ func NewRoleService(
 		logger:           logging.ComponentLogger("iam.service.role", logger),
 		governance:       NewGovernance(roleRepo, userRepo, scopeAuthorizer),
 	}
+	if roleRepo == nil || roleRepo.Repo == nil || userRepo == nil || userRepo.Repo == nil || groupRepo == nil || groupRepo.Repo == nil || authorizer == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "role service requires its actual role/user/group repositories and IAM declarations")
+	}
+	// Commands retain their construction-time providers for their entire lifetime.
+	bound := *s
+	if err := bound.compileStatisticsCommands(); err != nil {
+		return nil, err
+	}
+	s.statisticsCommands = bound.statisticsCommands
+	if err := bound.compileWriteCommands(); err != nil {
+		return nil, err
+	}
+	s.writeCommands = bound.writeCommands
+	if err := bound.compileSystemCommands(); err != nil {
+		return nil, err
+	}
+	s.systemCommands = bound.systemCommands
+	if err := bound.compileCRUDApplications(); err != nil {
+		return nil, err
+	}
+	s.crudApplication, s.httpCRUDApplication = bound.crudApplication, bound.httpCRUDApplication
+	if err := bound.compileDirectoryCommands(); err != nil {
+		return nil, err
+	}
+	s.directoryCommands = bound.directoryCommands
+	if err := bound.compileGroupCommands(); err != nil {
+		return nil, err
+	}
+	s.groupCommands = bound.groupCommands
+	if err := bound.compilePermissionCommand(); err != nil {
+		return nil, err
+	}
+	s.permissionCommand = bound.permissionCommand
+	if err := bound.compileUserCommands(); err != nil {
+		return nil, err
+	}
+	s.userCommands = bound.userCommands
+	if err := bound.compilePermissionsCommand(); err != nil {
+		return nil, err
+	}
+	s.permissionsCommand = bound.permissionsCommand
+	if err := bound.compileInitializeCommand(); err != nil {
+		return nil, err
+	}
+	s.initializeCommand = bound.initializeCommand
+	if err := bound.compileRoleUsersCommand(); err != nil {
+		return nil, err
+	}
+	s.usersCommand = bound.usersCommand
+	if err := bound.compileRoleGroupsCommand(); err != nil {
+		return nil, err
+	}
+	s.groupsCommand = bound.groupsCommand
+	return s, nil
 }
 
 // Governance 返回角色治理规则聚合器。
@@ -87,7 +147,9 @@ func (s *RoleService) Governance() *Governance {
 
 // CreateRole 创建角色。
 func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest) (*iamentity.Role, error) {
-	// 1. 验证请求数据
+	if req == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "role request is required")
+	}
 	if err := s.validateCreateRoleRequest(req); err != nil {
 		return nil, err
 	}
@@ -95,463 +157,129 @@ func (s *RoleService) CreateRole(ctx context.Context, req *svc.CreateRoleRequest
 	if err != nil {
 		return nil, err
 	}
-	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
+	ctx, err = svc.BindTenantContext(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	namespaceScope, err := s.resolveTenantScope(tenantCtx, tenantID)
+	item := &iamentity.Role{TenantID: tenantID, OwnerID: svc.TenantOwnerID(tenantID), Name: req.Name, Description: req.Description, Permissions: iamentity.PermissionArray(req.Permissions)}
+	err = s.crudApplication.Create(ctx, item)
 	if err != nil {
 		return nil, err
 	}
-	namespaceScopeID := int64(0)
-	if namespaceScope != nil {
-		if namespaceScope.ID <= 0 || strings.TrimSpace(namespaceScope.Type) == "" {
-			return nil, errors.NewCode(errors.InvalidInput, "namespace scope boundary is required")
-		}
-		namespaceScopeID = namespaceScope.ID
-		tenantCtx, err = svc.BindManagedScopeContext(tenantCtx, namespaceScopeID)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		// 只有未解析出真实作用域时才使用上下文事实；与 Governance 共用校验。
-		fallback := &iamentity.Role{TenantID: tenantID}
-		namespaceScope, err = s.governance.resolveNamespaceScopeForCreate(tenantCtx, fallback)
-		if err != nil {
-			return nil, err
-		}
-		namespaceScopeID = namespaceScope.ID
-		tenantCtx, err = svc.BindManagedScopeContext(tenantCtx, namespaceScopeID)
-		if err != nil {
-			return nil, err
-		}
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), &iamentity.Role{TenantID: tenantID})
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. 创建角色实体
-	role := &iamentity.Role{
-		TenantID:         tenantID,
-		OwnerID:          svc.TenantOwnerID(tenantID),
-		NamespaceScopeID: namespaceScopeID,
-		Code:             req.Name, // 当前阶段默认使用名称作为稳定编码
-		Name:             req.Name,
-		Description:      req.Description,
-		Permissions:      iamentity.PermissionArray(req.Permissions),
-		IsSystem:         false,
-		Status:           svc.RoleStatusActive,
-	}
-
-	if err := s.governance.PrepareCreate(tenantCtx, role); err != nil {
-		return nil, err
-	}
-
-	// 3. 保存角色
-	if err := s.roleRepo.Create(tenantCtx, role, guard); err != nil {
-		return nil, errors.Wrap(err, errors.Database, "保存角色失败")
-	}
-
-	return role, nil
+	return item, nil
 }
 
 // UpdateRole 更新角色。
 func (s *RoleService) UpdateRole(ctx context.Context, roleID int64, req *svc.UpdateRoleRequest) (*iamentity.Role, error) {
-	// 1. 获取角色
-	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
-	if err != nil {
-		return nil, err
+	if req == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "role update is required")
 	}
-	current := currentRoleSnapshot(role)
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. 更新字段
-	if req.Name != "" && req.Name != role.Name {
-		role.Name = req.Name
-	}
-
-	if req.Description != "" {
-		role.Description = req.Description
-	}
-
-	if len(req.Permissions) > 0 {
-		role.SetPermissions(req.Permissions)
-	}
-
-	if err := s.governance.PrepareUpdateWithCurrent(tenantCtx, current, role); err != nil {
-		return nil, err
-	}
-
-	// 3. 保存更新
-	if err := s.roleRepo.Update(tenantCtx, role, guard); err != nil {
-		return nil, err
-	}
-
-	return role, nil
+	return s.crudApplication.Execute(ctx, "update", roleID, func(_ context.Context, item *iamentity.Role) error {
+		if req.Name != "" {
+			item.Name = req.Name
+		}
+		if req.Description != "" {
+			item.Description = req.Description
+		}
+		if len(req.Permissions) > 0 {
+			item.SetPermissions(req.Permissions)
+		}
+		return nil
+	})
 }
 
 // DeleteRole 删除角色。
 func (s *RoleService) DeleteRole(ctx context.Context, roleID int64) error {
-	// 1. 获取角色
-	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionDelete), role)
-	if err != nil {
-		return err
-	}
-
-	if err := s.governance.ValidateDeleteWithRole(tenantCtx, role); err != nil {
-		return err
-	}
-
-	// 3. 删除角色
-	return s.roleRepo.Delete(tenantCtx, role, guard)
+	return s.crudApplication.Delete(ctx, roleID)
 }
 
 // AssignRoleToUser 将角色分配给用户
 func (s *RoleService) AssignRoleToUser(ctx context.Context, roleID, userID int64) error {
-	// 1. 检查角色是否存在
-	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
-	if err != nil {
-		return err
-	}
-	user, err := s.userRepo.Get(tenantCtx, userID, spec.All())
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role, user)
-	if err != nil {
-		return err
-	}
-
-	// 2. 检查角色是否激活
-	if role.Status != svc.RoleStatusActive {
-		return errors.NewCode(errors.Validation, "只能分配激活状态的角色")
-	}
-
-	// 4. 分配角色
-	if err := s.roleRepo.AssignToUser(tenantCtx, roleID, userID, guard); err != nil {
-		return err
-	}
-
-	// 5. 发布用户角色分配事件（最佳努力，不影响主流程）
-	s.publishUserRoleAssignedEvent(ctx, userID, role)
-	return nil
+	_, err := s.userCommands["assign_user"].Execute(ctx, roleUserInput{roleID, userID})
+	return err
 }
 
 // RemoveRoleFromUser 从用户移除角色
 func (s *RoleService) RemoveRoleFromUser(ctx context.Context, roleID, userID int64) error {
-	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
-	if err != nil {
-		return err
-	}
-	user, err := s.userRepo.Get(tenantCtx, userID, spec.All())
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role, user)
-	if err != nil {
-		return err
-	}
-	if err := s.roleRepo.RemoveFromUser(tenantCtx, roleID, userID, guard); err != nil {
-		return err
-	}
-
-	// 发布用户角色移除事件（最佳努力）
-	s.publishUserRoleRemovedEvent(ctx, userID, roleID)
-	return nil
+	_, err := s.userCommands["remove_user"].Execute(ctx, roleUserInput{roleID, userID})
+	return err
 }
 
 // AssignRoleToGroup 将角色分配给组织作为默认角色
 func (s *RoleService) AssignRoleToGroup(ctx context.Context, roleID, groupID int64) error {
-	// 1. 检查角色是否存在
-	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
-	if err != nil {
-		return err
-	}
-	group, err := s.groupRepo.Get(tenantCtx, groupID, spec.All())
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role, group)
-	if err != nil {
-		return err
-	}
-
-	// 2. 检查角色是否激活
-	if role.Status != svc.RoleStatusActive {
-		return errors.NewCode(errors.Validation, "只能分配激活状态的角色")
-	}
-
-	// 4. 分配角色给组织
-	return s.roleRepo.AssignToGroup(tenantCtx, roleID, groupID, guard)
+	_, err := s.groupCommands["assign_group"].Execute(ctx, roleGroupInput{roleID, groupID})
+	return err
 }
 
 // RemoveRoleFromGroup 从组织移除默认角色
 func (s *RoleService) RemoveRoleFromGroup(ctx context.Context, roleID, groupID int64) error {
-	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
-	if err != nil {
-		return err
-	}
-	group, err := s.groupRepo.Get(tenantCtx, groupID, spec.All())
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role, group)
-	if err != nil {
-		return err
-	}
-	return s.roleRepo.RemoveFromGroup(tenantCtx, roleID, groupID, guard)
+	_, err := s.groupCommands["remove_group"].Execute(ctx, roleGroupInput{roleID, groupID})
+	return err
 }
 
 // AddPermission 为角色添加权限
 func (s *RoleService) AddPermission(ctx context.Context, roleID int64, permission string) error {
-	// 1. 获取角色
-	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
-	if err != nil {
-		return err
-	}
-
-	// 2. 检查是否为系统角色
-	if role.IsSystem {
-		return errors.NewCode(errors.Validation, "系统角色权限不能被修改")
-	}
-
-	// 3. 验证权限
-	namespaceScope, err := s.governance.resolveNamespaceScopeForRole(tenantCtx, role)
-	if err != nil {
-		return err
-	}
-	if err := s.validatePermissionsForScope([]string{permission}, namespaceScope); err != nil {
-		return err
-	}
-	// 4. 添加权限
-	role.AddPermission(permission)
-	return s.roleRepo.Update(tenantCtx, role, guard)
+	_, err := s.crudApplication.Execute(ctx, "update", roleID, func(_ context.Context, item *iamentity.Role) error { item.AddPermission(permission); return nil })
+	return err
 }
 
 // RemovePermission 从角色移除权限
 func (s *RoleService) RemovePermission(ctx context.Context, roleID int64, permission string) error {
-	// 1. 获取角色
-	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
-	if err != nil {
-		return err
-	}
-
-	// 2. 检查是否为系统角色
-	if role.IsSystem {
-		return errors.NewCode(errors.Validation, "系统角色权限不能被修改")
-	}
-
-	// 3. 移除权限
-	role.RemovePermission(permission)
-	return s.roleRepo.Update(tenantCtx, role, guard)
+	return s.executeWrite(ctx, "remove_permission", RoleWriteInput{ID: roleID, Permission: permission})
 }
 
 // ActivateRole 激活角色
 func (s *RoleService) ActivateRole(ctx context.Context, roleID int64) error {
-	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
-	if err != nil {
-		return err
-	}
-
-	role.Activate()
-	return s.roleRepo.Update(tenantCtx, role, guard)
+	return s.executeWrite(ctx, "activate", RoleWriteInput{ID: roleID})
 }
 
 // DeactivateRole 停用角色
 func (s *RoleService) DeactivateRole(ctx context.Context, roleID int64) error {
-	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
-	if err != nil {
-		return err
-	}
-
-	if role.IsSystem {
-		return errors.NewCode(errors.Validation, "系统角色不能被停用")
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), role)
-	if err != nil {
-		return err
-	}
-
-	role.Deactivate()
-	return s.roleRepo.Update(tenantCtx, role, guard)
+	return s.executeWrite(ctx, "deactivate", RoleWriteInput{ID: roleID})
 }
 
 // CloneRole 克隆角色
 func (s *RoleService) CloneRole(ctx context.Context, roleID int64, newName string) (*iamentity.Role, error) {
-	// 1. 获取原角色
-	originalRole, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
+	command, err := s.crudApplication.cloneCommand()
 	if err != nil {
 		return nil, err
 	}
-
-	// 2. 检查新名称是否重复
-	existingRole, err := s.roleRepo.FindByName(tenantCtx, newName)
-	if err != nil && !errors.Is(err, errors.NotFound) {
-		return nil, errors.Wrap(err, errors.Database, "检查角色名称失败")
-	}
-	if existingRole != nil {
-		return nil, errors.NewCode(errors.Validation, "角色名称已存在")
-	}
-
-	// 3. 克隆角色
-	clonedRole := originalRole.Clone(newName)
-	clonedRole.TenantID = originalRole.TenantID
-	clonedRole.NamespaceScopeID = originalRole.NamespaceScopeID
-	if err := s.governance.PrepareCreate(tenantCtx, clonedRole); err != nil {
-		return nil, err
-	}
-
-	// 4. 保存克隆的角色
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), clonedRole)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.roleRepo.Create(tenantCtx, clonedRole, guard); err != nil {
-		return nil, errors.Wrap(err, errors.Database, "保存克隆角色失败")
-	}
-
-	return clonedRole, nil
+	return command.Execute(ctx, roleCRUDInput{IDs: []int64{roleID}, Name: newName})
 }
 
 // RoleUsers 获取拥有指定角色的用户
 func (s *RoleService) RoleUsers(ctx context.Context, roleID int64) ([]*iamentity.User, error) {
-	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
-	if err != nil {
-		return nil, err
-	}
-	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionRead), role); err != nil {
-		return nil, err
-	}
-	readSpec, err := roleReadSpec(tenantCtx)
-	if err != nil {
-		return nil, err
-	}
-	users, err := s.userRepo.FindByRoleID(tenantCtx, roleID)
-	if err != nil {
-		return nil, err
-	}
-	visible := users[:0]
-	interpreter := spec.NewInterpreter()
-	for _, user := range users {
-		matches, err := interpreter.Match(readSpec, user)
-		if err != nil {
-			return nil, err
-		}
-		if matches {
-			visible = append(visible, user)
-		}
-	}
-	return visible, nil
+	return s.usersCommand.Execute(ctx, roleID)
 }
 
 // RoleGroups 获取使用指定角色作为默认角色的组织
 func (s *RoleService) RoleGroups(ctx context.Context, roleID int64) ([]*iamentity.Group, error) {
-	role, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.roleRepo, roleID)
-	if err != nil {
-		return nil, err
-	}
-	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.RolePermissionSet.Code(iamperm.ActionRead), role); err != nil {
-		return nil, err
-	}
-	return s.groupRepo.FindByDefaultRoleID(tenantCtx, roleID)
+	return s.groupsCommand.Execute(ctx, roleID)
 }
 
 // CheckPermission 检查权限
 func (s *RoleService) CheckPermission(ctx context.Context, req *svc.PermissionCheckRequest) (*svc.PermissionCheckResponse, error) {
-	// 1. 获取用户
-	user, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.userRepo, req.UserID)
-	if err != nil {
-		return nil, err
+	if req == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "permission check is required")
 	}
-	if _, err := svc.PreflightTenant(ctx, s.scopeAuthorizer, user.TenantID, ""); err != nil {
-		return nil, err
-	}
-
-	// 2. 按有效角色求值，包含 group 默认角色链路
-	roles, permissions, err := svc.ResolveEffectiveRoleNamesAndPermissionsForUser(
-		tenantCtx,
-		req.UserID,
-		s.roleRepo,
-		s.groupRepo,
-	)
-	if err != nil {
-		return nil, err
-	}
-	hasPermission := (auth.Principal{Permissions: permissions}).AllowsPermission(req.Permission)
-
-	return &svc.PermissionCheckResponse{
-		HasPermission: hasPermission,
-		Roles:         roles,
-		Source:        "effective",
-	}, nil
+	return s.permissionCommand.Execute(ctx, *req)
 }
 
 // SearchRoles 搜索角色
 func (s *RoleService) SearchRoles(ctx context.Context, keyword string, limit int) ([]*iamentity.Role, error) {
-	tenantID, err := svc.TenantIDFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iamperm.ActionRead), tenantID); err != nil {
-		return nil, err
-	}
-	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	return s.roleRepo.SearchRoles(tenantCtx, keyword, limit)
+	result, err := s.directoryCommands["search"].Execute(ctx, roleDirectoryInput{Keyword: keyword, Query: dbquery.QueryOptions{Limit: limit}})
+	return result.Items, err
 }
 
 // ActiveRoles 获取激活状态的角色
 func (s *RoleService) ActiveRoles(ctx context.Context) ([]*iamentity.Role, error) {
-	tenantID, err := svc.TenantIDFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iamperm.ActionRead), tenantID); err != nil {
-		return nil, err
-	}
-	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	return s.roleRepo.FindByStatus(tenantCtx, svc.RoleStatusActive)
+	result, err := s.directoryCommands["active"].Execute(ctx, roleDirectoryInput{Query: dbquery.QueryOptions{Limit: 1000}})
+	return result.Items, err
 }
 
 // SystemRoles 获取系统角色
 func (s *RoleService) SystemRoles(ctx context.Context) ([]*iamentity.Role, error) {
-	tenantID, err := svc.TenantIDFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iamperm.ActionRead), tenantID); err != nil {
-		return nil, err
-	}
-	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	return s.roleRepo.FindSystemRoles(tenantCtx)
+	return s.systemCommands["system_roles"].Execute(ctx, struct{}{})
 }
 
 // InitializeSystemRoles 初始化系统角色（租户维度）
@@ -560,68 +288,17 @@ func (s *RoleService) InitializeSystemRoles(ctx context.Context, tenantID string
 	if err != nil {
 		return err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iamperm.ActionWrite), tenantID); err != nil {
-		return err
-	}
-	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
+	ctx, err = svc.BindTenantContext(ctx, tenantID)
 	if err != nil {
 		return err
 	}
-	namespaceScope, err := s.resolveTenantScope(tenantCtx, tenantID)
-	if err != nil {
-		return err
-	}
-	return s.initializeBuiltinRoles(tenantCtx, tenantID, namespaceScope)
+	_, err = s.initializeCommand.Execute(ctx, struct{}{})
+	return err
 }
 
 // RoleStatistics 返回角色统计信息。
 func (s *RoleService) RoleStatistics(ctx context.Context) (map[string]interface{}, error) {
-	tenantID, err := svc.TenantIDFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.RolePermissionSet.Code(iamperm.ActionRead), tenantID); err != nil {
-		return nil, err
-	}
-	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	readSpec, err := roleReadSpec(tenantCtx)
-	if err != nil {
-		return nil, err
-	}
-
-	// 1. 统计总角色数
-	totalRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{}, readSpec)
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. 统计激活角色数
-	activeRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{}, spec.And(readSpec, spec.Eq(meta.ByField("Status"), svc.RoleStatusActive)))
-	if err != nil {
-		return nil, err
-	}
-
-	// 3. 统计系统角色数
-	systemRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{}, spec.And(readSpec, spec.Eq(meta.ByField("IsSystem"), true)))
-	if err != nil {
-		return nil, err
-	}
-
-	// 4. 统计各状态角色数
-	statusCounts, err := s.roleRepo.CountByStatus(tenantCtx, readSpec)
-	if err != nil {
-		return nil, err
-	}
-
-	return map[string]interface{}{
-		"total_roles":     totalRoles,
-		"active_roles":    int(activeRoles),
-		"system_roles":    int(systemRoles),
-		"roles_by_status": statusCounts,
-	}, nil
+	return s.statisticsCommands["statistics"].Execute(ctx, struct{}{})
 }
 
 // roleReadSpec 使用 IAM 的统一事实源解析自定义读取的数据范围。
@@ -711,9 +388,13 @@ func (s *RoleService) resolveTenantScope(ctx context.Context, tenantID string) (
 	return s.scopeAuthorizer.ResolveTenantScope(ctx, tenantID)
 }
 
-func (s *RoleService) initializeBuiltinRoles(ctx context.Context, tenantID string, namespaceScope *iamentity.Scope) error {
+func (s *RoleService) initializeBuiltinRoles(ctx context.Context, tenantID string, namespaceScope *iamentity.Scope, conditions ...spec.Spec) error {
+	guard := spec.All()
+	if len(conditions) > 0 {
+		guard = spec.And(conditions...)
+	}
 	if namespaceScope == nil {
-		return s.roleRepo.InitializeSystemRoles(ctx)
+		return s.roleRepo.InitializeSystemRoles(ctx, guard)
 	}
 
 	var builtinRoles []*iamentity.Role
@@ -742,7 +423,7 @@ func (s *RoleService) initializeBuiltinRoles(ctx context.Context, tenantID strin
 		clone.TenantID = tenantID
 		clone.NamespaceScopeID = namespaceScope.ID
 		clone.Code = builtin.Name
-		if err := s.roleRepo.Create(ctx, &clone, spec.All()); err != nil {
+		if err := s.roleRepo.Create(ctx, &clone, guard); err != nil {
 			return errors.Wrap(err, errors.Database, "初始化内置角色失败: "+builtin.Name)
 		}
 	}

@@ -96,7 +96,15 @@ func setupScopeServiceTest(t *testing.T) *scopeServiceTestEnv {
 	if err != nil {
 		t.Fatalf("EnsurePlatformScope: %v", err)
 	}
-	ctx := iamauth.BindActiveScopeContext(baseCtx, platformScope.ID, string(iamentity.ScopeTypePlatform))
+	ctx, err := auth.WithPrincipal(baseCtx, auth.Principal{SubjectID: "1", Permissions: []string{"*:*:*"}, IsSystem: true, ActiveScopeID: platformScope.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx = iamauth.BindActiveScopeContext(ctx, platformScope.ID, string(iamentity.ScopeTypePlatform))
+	scopeService, err := NewScopeService(scopeRepo, tenantRepo, roleRepo, userRepo, groupRepo)
+	if err != nil {
+		t.Fatalf("NewScopeService: %v", err)
+	}
 
 	return &scopeServiceTestEnv{
 		db:              db,
@@ -106,7 +114,7 @@ func setupScopeServiceTest(t *testing.T) *scopeServiceTestEnv {
 		userRepo:        userRepo,
 		groupRepo:       groupRepo,
 		scopeAuthorizer: scopeAuthorizer,
-		scopeService:    NewScopeService(scopeRepo, tenantRepo, roleRepo, userRepo, groupRepo, scopeAuthorizer),
+		scopeService:    scopeService,
 		backgroundCtx:   ctx,
 		cancelFunc:      cancel,
 	}
@@ -281,9 +289,10 @@ func TestScopeService_CreateScope_DeniesNonPlatformScope(t *testing.T) {
 
 	_, tenantRoot := env.createTenant(t, "tenant-a", "Tenant A")
 	tenantCtx, err := auth.WithPrincipal(context.Background(), auth.Principal{
-		SubjectID:   "2",
-		Permissions: []string{"*:*:*"},
-		IsSystem:    true,
+		SubjectID:     "2",
+		Permissions:   []string{"*:*:*"},
+		IsSystem:      true,
+		ActiveScopeID: tenantRoot.ID,
 	})
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)

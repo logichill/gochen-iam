@@ -69,11 +69,6 @@ func InjectClaimsRequestContext(
 		if runtime == nil {
 			return nil, errors.NewCode(errors.InvalidInput, "resolved auth context is required")
 		}
-		baseCtx = iamauth.BindActiveScopeContext(baseCtx, runtime.ActiveScopeID, runtime.ActiveScopeKind)
-		baseCtx, err = scoped.WithDataScope(baseCtx, scoped.Filtered(runtime.VisibleScopeIDs...))
-		if err != nil {
-			return nil, err
-		}
 	}
 	principal := PrincipalFromClaims(claims, tenantID)
 	if runtime != nil {
@@ -87,6 +82,15 @@ func InjectClaimsRequestContext(
 	baseCtx, err = auth.WithPrincipal(baseCtx, principal)
 	if err != nil {
 		return nil, err
+	}
+	if runtime != nil {
+		baseCtx = iamauth.BindActiveScopeContext(baseCtx, runtime.ActiveScopeID, runtime.ActiveScopeKind)
+		baseCtx, err = scoped.WithDataScope(baseCtx, scoped.Filtered(runtime.VisibleScopeIDs...))
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		baseCtx = iamauth.BindActiveScopeContext(baseCtx, principal.ActiveScopeID, "")
 	}
 	bound := reqCtx.WithContext(baseCtx)
 	bound = iamauth.WithPermissions(bound, claims.Permissions)

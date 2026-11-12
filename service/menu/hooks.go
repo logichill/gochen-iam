@@ -9,11 +9,12 @@ import (
 	"gochen/errors"
 )
 
-// CRUDHooks 返回菜单标准 CRUD 路径的领域校验钩子。
+// crudHooks 仅绑定到构造期编译的全局菜单 Application。
 //
 // 授权、事务与软删由 Application/仓储统一处理；这里只保留菜单自身的
-// 不可变字段、父子环与权限码校验。
-func (s *MenuService) CRUDHooks() appcrud.Hooks[*iamentity.MenuItem] {
+// 不可变字段、父子环与权限码校验。IAM 菜单计划固定授权整个全局目录，
+// 父链读取及跨软删除 code 唯一性检查在该已授权目录内执行。
+func (s *MenuService) crudHooks() appcrud.Hooks[*iamentity.MenuItem] {
 	return appcrud.Hooks[*iamentity.MenuItem]{
 		appcrud.ActionCreate: {
 			Before: func(ctx context.Context, item *iamentity.MenuItem) error {
@@ -36,7 +37,7 @@ func (s *MenuService) CRUDHooks() appcrud.Hooks[*iamentity.MenuItem] {
 					return err
 				}
 				normalizeDirectMenuUpdate(current, item)
-				return s.validateMenuForUpdate(ctx, item)
+				return s.validateMenuForUpdate(ctx, item, spec.All())
 			},
 		},
 	}

@@ -14,6 +14,7 @@ import (
 	"gochen/contextx"
 	"gochen/db"
 	"gochen/db/orm"
+	"gochen/domain/meta"
 	"gochen/domain/spec"
 )
 
@@ -188,6 +189,18 @@ func TestGroupRepo_AddUserToGroup_UsesTxSessionAssociation(t *testing.T) {
 		baseModel:    &capturingModel{},
 		sessionModel: &capturingModel{},
 	}
+	o.sessionModel.firstFn = func(dest any) error {
+		switch target := dest.(type) {
+		case **iamentity.Group:
+			*target = &iamentity.Group{TenantID: "tenant-a", ManagedScopeID: 1}
+			(*target).SetID(1)
+		case *iamentity.User:
+			target.SetID(2)
+			target.TenantID = "tenant-a"
+			target.ManagedScopeID = 2
+		}
+		return nil
+	}
 	r, err := NewGroupRepository(o, testkit.NewInt64Sequence(1))
 	if err != nil {
 		t.Fatalf("NewGroupRepository: %v", err)
@@ -203,8 +216,11 @@ func TestGroupRepo_AddUserToGroup_UsesTxSessionAssociation(t *testing.T) {
 		t.Fatalf("WithTxLifecycle: %v", err)
 	}
 	txCtx = withTenantPrincipal(t, txCtx, "tenant-a")
-	if err := r.AddUserToGroup(txCtx, 1, 2, spec.All()); err != nil {
+	if err := r.AddUserToGroup(txCtx, 1, 2, spec.Eq(meta.ByDimension("scope"), 1), spec.Eq(meta.ByDimension("scope"), 2)); err != nil {
 		t.Fatalf("AddUserToGroup: %v", err)
+	}
+	if o.baseModel.firstCalls != 0 || o.sessionModel.firstCalls != 2 {
+		t.Fatalf("both resource checks must use transaction: base=%d session=%d", o.baseModel.firstCalls, o.sessionModel.firstCalls)
 	}
 
 	if o.baseModel.associationCalls != 0 {

@@ -69,19 +69,8 @@ func (r *MenuItemRepo) Get(ctx context.Context, id int64, s spec.Spec) (*iamenti
 }
 
 // GetWithDeleted 按 id 查询菜单（包含软删记录）。
-func (r *MenuItemRepo) GetWithDeleted(ctx context.Context, id int64) (*iamentity.MenuItem, error) {
-	model, err := r.ModelFor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var item iamentity.MenuItem
-	if err := model.First(ctx, &item, orm.WithWhere("id = ?", id)); err != nil {
-		if errors.Is(err, errors.NotFound) {
-			return nil, errors.NewCode(errors.NotFound, "菜单不存在")
-		}
-		return nil, errors.Wrap(err, errors.Database, "查询菜单失败")
-	}
-	return &item, nil
+func (r *MenuItemRepo) GetWithDeleted(ctx context.Context, id int64, s spec.Spec) (*iamentity.MenuItem, error) {
+	return r.Repo.GetWithDeleted(ctx, id, s)
 }
 
 // FindByCode 按编码查询。
@@ -146,7 +135,7 @@ func (r *MenuItemRepo) ListPublished(ctx context.Context) ([]*iamentity.MenuItem
 
 // RestoreByID 恢复软删菜单（deleted_at 置空），写入前校验规约。
 func (r *MenuItemRepo) RestoreByID(ctx context.Context, id int64, s spec.Spec) (*iamentity.MenuItem, error) {
-	item, err := r.GetWithDeleted(ctx, id)
+	item, err := r.GetWithDeleted(ctx, id, s)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +176,7 @@ func (r *MenuItemRepo) RestoreByID(ctx context.Context, id int64, s spec.Spec) (
 
 // PurgeByID 物理删除菜单（硬删），写入前由规约约束目标。
 func (r *MenuItemRepo) PurgeByID(ctx context.Context, id int64, s spec.Spec) error {
-	item, err := r.GetWithDeleted(ctx, id)
+	item, err := r.GetWithDeleted(ctx, id, s)
 	if err != nil {
 		return err
 	}

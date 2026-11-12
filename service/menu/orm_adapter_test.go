@@ -3,6 +3,8 @@ package menu
 import (
 	"context"
 	"database/sql"
+	"fmt"
+
 	coredialect "gochen/db/dialect"
 
 	"gochen-runtime/db/dialect"
@@ -20,7 +22,8 @@ func (r menuTestExecResult) RowsAffected() (int64, error) { return r.rows, nil }
 
 func newMenuTestOrm(db *gorm.DB) orm.IOrm {
 	return &menuTestGormOrm{
-		db: db,
+		db:           db,
+		datasourceID: fmt.Sprintf("iam-menu-test:%p", db.Statement.ConnPool),
 		capabilities: orm.NewCapabilities(
 			orm.CapabilityBasicCRUD,
 			orm.CapabilityQuery,
@@ -31,12 +34,14 @@ func newMenuTestOrm(db *gorm.DB) orm.IOrm {
 
 type menuTestGormOrm struct {
 	db           *gorm.DB
+	datasourceID string
 	capabilities orm.Capabilities
 }
 
 func (g *menuTestGormOrm) Capabilities() orm.Capabilities { return g.capabilities }
+func (g *menuTestGormOrm) DatasourceID() string           { return g.datasourceID }
 func (g *menuTestGormOrm) WithContext(ctx context.Context) orm.IOrm {
-	return &menuTestGormOrm{db: g.db.WithContext(ctx), capabilities: g.capabilities}
+	return &menuTestGormOrm{db: g.db.WithContext(ctx), datasourceID: g.datasourceID, capabilities: g.capabilities}
 }
 func (g *menuTestGormOrm) Model(meta *orm.ModelMeta) (orm.IModel, error) {
 	if meta == nil {
@@ -49,14 +54,14 @@ func (g *menuTestGormOrm) Begin(ctx context.Context) (orm.IOrmSession, error) {
 	if tx.Error != nil {
 		return nil, tx.Error
 	}
-	return &menuTestGormSession{menuTestGormOrm{db: tx, capabilities: g.capabilities}}, nil
+	return &menuTestGormSession{menuTestGormOrm{db: tx, datasourceID: g.datasourceID, capabilities: g.capabilities}}, nil
 }
 func (g *menuTestGormOrm) BeginTx(ctx context.Context, opts *sql.TxOptions) (orm.IOrmSession, error) {
 	tx := g.db.WithContext(ctx).Begin(opts)
 	if tx.Error != nil {
 		return nil, tx.Error
 	}
-	return &menuTestGormSession{menuTestGormOrm{db: tx, capabilities: g.capabilities}}, nil
+	return &menuTestGormSession{menuTestGormOrm{db: tx, datasourceID: g.datasourceID, capabilities: g.capabilities}}, nil
 }
 func (g *menuTestGormOrm) Database() db.IDatabase { return nil }
 func (g *menuTestGormOrm) Raw() any               { return g.db }

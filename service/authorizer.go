@@ -13,7 +13,7 @@ import (
 	auth "gochen-runtime/host/authz"
 
 	coreauth "gochen/auth"
-	"gochen/auth/action"
+
 	"gochen/contextx"
 	"gochen/domain/spec"
 	"gochen/errors"
@@ -35,48 +35,36 @@ const (
 	ReasonTenantScopeDenied   = "tenant_scope_denied"
 )
 
-// IAMAuthorizer 是 IAM 领域唯一授权器：
+// IAMAccess 是 IAM 领域唯一授权器：
 //   - 标准 CRUD 通过 Application 按 auth.Request 调用；
 //   - 自定义命令通过 AuthorizeTargets 复用同一套权限、租户与数据范围判定；
 //   - 判定结果统一投影为 spec.Spec，由仓储在执行期解释，不再携带写约束。
-type IAMAuthorizer struct {
-	checker         action.IActionChecker
+type IAMAccess struct {
+	checker         coreauth.IActionChecker
 	scopeAuthorizer *ScopeAuthorizer
-	resource        string
 }
 
-// NewIAMAuthorizer 创建 IAM 领域授权器。
-func NewIAMAuthorizer(scopeAuthorizer *ScopeAuthorizer) *IAMAuthorizer {
-	return &IAMAuthorizer{
+// NewIAMAccess 创建 IAM 领域授权器。
+func NewIAMAccess(scopeAuthorizer *ScopeAuthorizer) *IAMAccess {
+	return &IAMAccess{
 		checker:         auth.NewActionChecker(),
 		scopeAuthorizer: scopeAuthorizer,
 	}
 }
 
-// Vocabulary 声明判定结果可能引用的角色。
-func (a *IAMAuthorizer) Vocabulary() coreauth.Vocabulary {
-	if a.resource != "" && targetFromResourceKind(a.resource).platform {
-		return coreauth.Vocabulary{}
+// Compile 以资源动作和已有元数据编译 IAM 平台、租户与范围约束。
+func (a *IAMAccess) Compile(descriptor coreauth.Descriptor, metadata *meta.Metadata, entryConstraints ...coreauth.IPolicy) (*coreauth.Authorizer, error) {
+	if a == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "IAM access declarations are required")
 	}
-	return coreauth.Vocabulary{Refs: []meta.Ref{meta.ByDimension("scope")}}
-}
-
-// ForResource 固定 Application 使用的资源与授权词汇。
-func (a *IAMAuthorizer) ForResource(resource string) coreauth.IAuthorizer {
-	return &IAMAuthorizer{checker: a.checker, scopeAuthorizer: a.scopeAuthorizer, resource: resource}
-}
-
-// Authorize 按标准 CRUD 请求判定，返回调用方可直接传给仓储的规约。
-func (a *IAMAuthorizer) Authorize(ctx context.Context, req coreauth.Request) (coreauth.Decision, error) {
-	if a.resource != "" && a.resource != req.Resource {
-		return coreauth.Decision{}, errors.NewCode(errors.Internal, "authorizer resource does not match request")
-	}
-	targets := []authorizationTarget{targetFromResourceKind(req.Resource)}
-	return a.decide(ctx, req.Permission, targets)
+	constraint := &targetPolicy{scopeAuthorizer: a.scopeAuthorizer, targets: []authorizationTarget{targetFromResourceKind(descriptor.Resource)}}
+	// Entry guards run before tenant-scope policies that may load trusted facts.
+	constraints := append(append([]coreauth.IPolicy(nil), entryConstraints...), constraint)
+	return coreauth.Compile(coreauth.Declaration{Descriptor: descriptor, ResourceAccess: coreauth.ResourceAccessData, Rules: []coreauth.Rule{{ID: "iam." + descriptor.Resource + ".access", System: coreauth.SystemCheckConstraints, UnauthorizedAsDenial: true, Constraints: constraints}}}, coreauth.CompileOptions{Checker: a.checker, Metadata: metadata})
 }
 
 // AuthorizeTargets 对自定义命令的目标实体执行判定。
-func (a *IAMAuthorizer) AuthorizeTargets(ctx context.Context, permission string, targets ...any) (coreauth.Decision, error) {
+func (a *IAMAccess) AuthorizeTargets(ctx context.Context, permission string, targets ...any) (coreauth.Decision, error) {
 	resolved := make([]authorizationTarget, 0, len(targets))
 	for _, target := range targets {
 		entry, ok := authorizationTargetFrom(target)
@@ -87,27 +75,46 @@ func (a *IAMAuthorizer) AuthorizeTargets(ctx context.Context, permission string,
 	return a.decide(ctx, permission, resolved)
 }
 
-func (a *IAMAuthorizer) decide(ctx context.Context, permission string, targets []authorizationTarget) (coreauth.Decision, error) {
+func (a *IAMAccess) decide(ctx context.Context, permission string, targets []authorizationTarget) (coreauth.Decision, error) {
 	permission = strings.TrimSpace(permission)
 	if permission == "" {
 		return coreauth.Decision{}, errors.NewCode(errors.InvalidInput, "permission is required")
 	}
-	principal, _ := auth.PrincipalFromContext(ctx)
-	if !principal.IsSystem {
-		if err := action.RequireAction(ctx, a.checker, permission); err != nil {
-			if errors.Is(err, errors.Forbidden) || errors.Is(err, errors.Unauthorized) {
-				return coreauth.Decision{Allowed: false, Reason: "forbidden"}, nil
-			}
-			return coreauth.Decision{}, err
-		}
+	permissionPolicy, err := coreauth.NewPermissionPolicy(a.checker, coreauth.WithPermissionDenial("forbidden", true), coreauth.WithSystemConstraints())
+	if err != nil {
+		return coreauth.Decision{}, err
 	}
-	if requiresPlatformScope(targets) && !principalCanAccessPlatform(principal, ctx) {
-		return coreauth.Decision{Allowed: false, Reason: ReasonPlatformScopeDenied}, nil
+	policy, err := coreauth.AllPolicies(permissionPolicy, &targetPolicy{scopeAuthorizer: a.scopeAuthorizer, targets: targets})
+	if err != nil {
+		return coreauth.Decision{}, err
 	}
+	authorizer, err := coreauth.New(coreauth.Options{Policy: policy})
+	if err != nil {
+		return coreauth.Decision{}, err
+	}
+	return authorizer.Authorize(ctx, coreauth.Request{Permission: permission})
+}
 
-	targetTenantID, hasTenantBoundary, mixedTenantTargets := collectAuthorizedTenant(ctx, targets)
+// targetPolicy 是 IAM 平台与租户规则的特殊扩展，权限检查由通用内核执行。
+type targetPolicy struct {
+	scopeAuthorizer *ScopeAuthorizer
+	targets         []authorizationTarget
+}
+
+func (a *targetPolicy) Vocabulary() coreauth.Vocabulary {
+	if !hasManagedTarget(a.targets) {
+		return coreauth.Vocabulary{}
+	}
+	return coreauth.Vocabulary{Refs: []meta.Ref{meta.ByDimension("scope")}}
+}
+func (a *targetPolicy) Evaluate(ctx context.Context, _ coreauth.Request) (coreauth.Decision, error) {
+	principal, _ := auth.PrincipalFromContext(ctx)
+	if requiresPlatformScope(a.targets) && !principalCanAccessPlatform(principal, ctx) {
+		return coreauth.Decision{Reason: ReasonPlatformScopeDenied}, nil
+	}
+	targetTenantID, hasTenantBoundary, mixedTenantTargets := collectAuthorizedTenant(ctx, a.targets)
 	if mixedTenantTargets {
-		return coreauth.Decision{Allowed: false, Reason: ReasonCrossTenantDenied}, nil
+		return coreauth.Decision{Reason: ReasonCrossTenantDenied}, nil
 	}
 	if hasTenantBoundary {
 		allowed, err := allowTenantAccess(ctx, a.scopeAuthorizer, principal, targetTenantID)
@@ -115,24 +122,18 @@ func (a *IAMAuthorizer) decide(ctx context.Context, permission string, targets [
 			return coreauth.Decision{}, err
 		}
 		if !allowed {
-			return coreauth.Decision{Allowed: false, Reason: ReasonTenantScopeDenied}, nil
+			return coreauth.Decision{Reason: ReasonTenantScopeDenied}, nil
 		}
 	}
-	return coreauth.Decision{Allowed: true, Spec: a.specFor(ctx, targets, principal)}, nil
-}
-
-func (a *IAMAuthorizer) specFor(ctx context.Context, targets []authorizationTarget, principal auth.Principal) spec.Spec {
-	if principal.IsSystem {
-		return spec.All()
+	condition := spec.All()
+	if !principal.IsSystem && hasManagedTarget(a.targets) {
+		condition = DataScopeSpec(ctx)
 	}
-	if len(targets) == 0 || !hasManagedTarget(targets) {
-		return spec.All()
-	}
-	return DataScopeSpec(ctx)
+	return coreauth.Decision{Allowed: true, Spec: condition}, nil
 }
 
 // RequireAuthorization 对目标资源执行统一授权，适用于不需要写规约的读取路径。
-func RequireAuthorization(ctx context.Context, authorizer *IAMAuthorizer, permission string, targets ...any) error {
+func RequireAuthorization(ctx context.Context, authorizer *IAMAccess, permission string, targets ...any) error {
 	if authorizer == nil {
 		return errors.NewCode(errors.InvalidInput, "authorizer is required")
 	}
@@ -147,7 +148,7 @@ func RequireAuthorization(ctx context.Context, authorizer *IAMAuthorizer, permis
 }
 
 // AuthorizeWriteSpec 执行统一授权，并返回仓储写路径使用的行级规约。
-func AuthorizeWriteSpec(ctx context.Context, authorizer *IAMAuthorizer, permission string, targets ...any) (spec.Spec, error) {
+func AuthorizeWriteSpec(ctx context.Context, authorizer *IAMAccess, permission string, targets ...any) (spec.Spec, error) {
 	if authorizer == nil {
 		return spec.Spec{}, errors.NewCode(errors.InvalidInput, "authorizer is required")
 	}
@@ -194,17 +195,17 @@ func platformTarget(kind string) authorizationTarget {
 func targetFromResourceKind(resource string) authorizationTarget {
 	resource = strings.ToLower(strings.TrimSpace(resource))
 	switch resource {
-	case "tenant":
+	case "tenant", TenantResourceKind:
 		return platformTarget(TenantResourceKind)
-	case "menu":
+	case "menu", MenuResourceKind:
 		return platformTarget(MenuResourceKind)
-	case "scope":
+	case "scope", ScopeResourceKind:
 		return platformTarget(ScopeResourceKind)
-	case "user":
+	case "user", UserResourceKind:
 		return managedTarget(UserResourceKind, "")
-	case "group":
+	case "group", GroupResourceKind:
 		return managedTarget(GroupResourceKind, "")
-	case "role":
+	case "role", RoleResourceKind:
 		return managedTarget(RoleResourceKind, "")
 	default:
 		return authorizationTarget{kind: resource}

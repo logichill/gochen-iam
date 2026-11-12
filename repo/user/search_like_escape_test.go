@@ -2,6 +2,7 @@ package user
 
 import (
 	"context"
+	"gochen/domain/spec"
 	"testing"
 
 	"gochen/testkit"
@@ -16,7 +17,7 @@ func TestSearchUsersLikeEscapesWildcards(t *testing.T) {
 		t.Fatalf("NewUserRepository: %v", err)
 	}
 	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
-	if _, err := r.SearchUsers(ctx, "a%c_!", 10); err != nil {
+	if _, err := r.SearchUsers(ctx, "a%c_!", 10, spec.All()); err != nil {
 		t.Fatalf("SearchUsers: %v", err)
 	}
 

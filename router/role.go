@@ -8,6 +8,7 @@ import (
 	svc "gochen-iam/service"
 	rolesvc "gochen-iam/service/role"
 	"gochen-runtime/api/rest"
+	runtimehttp "gochen-runtime/http"
 	appcrud "gochen/app/crud"
 	"gochen/app/query"
 	"gochen/errors"
@@ -31,7 +32,7 @@ type RoleRoutes struct {
 	roleService     IRoleService
 	roleRepo        appcrud.Repository[*iamentity.Role, int64]
 	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      *svc.IAMAuthorizer
+	authorizer      *svc.IAMAccess
 	governance      *rolesvc.Governance
 }
 
@@ -40,7 +41,7 @@ func NewRoleRoutes(
 	roleService IRoleService,
 	roleRepo appcrud.Repository[*iamentity.Role, int64],
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer *svc.IAMAuthorizer,
+	authorizer *svc.IAMAccess,
 ) *RoleRoutes {
 	var governance *rolesvc.Governance
 	if provider, ok := roleService.(interface{ Governance() *rolesvc.Governance }); ok {
@@ -60,6 +61,20 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	if group == nil {
 		return errors.NewCode(errors.InvalidInput, "route group cannot be nil")
 	}
+	if rr.roleService == nil {
+		return errors.NewCode(errors.InvalidInput, "role routes require the declared role service")
+	}
+	if _, err := rr.roleService.StatisticsAuthorizationBinding(); err != nil {
+		return err
+	}
+	if _, err := rr.roleService.SystemAuthorizationBinding(); err != nil {
+		return err
+	}
+	for _, action := range []string{"activate", "deactivate", "remove_permission"} {
+		if _, err := rr.roleService.WriteAuthorizationBinding(action); err != nil {
+			return err
+		}
+	}
 	// 角色基础CRUD - 使用 shared/httpx/api 构建器
 	roleGroup := group.Group("/roles")
 
@@ -69,26 +84,13 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		iammw.ApiPermission(iammw.ResourceRole, iammw.ActionManage).Scope(iammw.ScopePlatform, iammw.ScopeTenant),
 	))
 
-	app, err := appcrud.NewApplication[*iamentity.Role, int64](rr.roleRepo, appcrud.Options[*iamentity.Role, int64]{
-		Resource:   "role",
-		Authorizer: rr.authorizer.ForResource("role"),
-		ActionPermissions: map[string]string{
-			appcrud.ActionRead:   svc.RolePermissionSet.Code(iammw.ActionRead),
-			appcrud.ActionList:   svc.RolePermissionSet.Code(iammw.ActionRead),
-			appcrud.ActionCreate: svc.RolePermissionSet.Code(iammw.ActionWrite),
-			appcrud.ActionUpdate: svc.RolePermissionSet.Code(iammw.ActionWrite),
-			appcrud.ActionDelete: svc.RolePermissionSet.Code(iammw.ActionDelete),
-		},
-		Hooks: newScopeBackedRoleCRUDHooks(rr.roleRepo, rr.scopeAuthorizer, rr.governance),
-	})
-	if err != nil {
-		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
-			return appErr.Wrap("create role crud application").WithContext("route", "iam.role")
-		}
-		return errors.Wrap(err, errors.Internal, "failed to create role crud application").WithContext("route", "iam.role")
+	app := rr.roleService.HTTPApplication()
+	if app == nil {
+		return errors.NewCode(errors.InvalidInput, "role routes require their constructed multi-resource application")
 	}
 
 	if err := rest.Mount(adminGroup, app,
+		rest.WithFastDeny[*iamentity.Role, int64](),
 		rest.WithQuerySchema[*iamentity.Role, int64](roleQuerySchema),
 		rest.WithPagination[*iamentity.Role, int64](10, 1000),
 	); err != nil {
@@ -99,8 +101,7 @@ func (rr *RoleRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 
 	// 角色扩展功能
-	rr.setupRoleCustomRoutes(adminGroup)
-	return nil
+	return rr.setupRoleCustomRoutes(adminGroup)
 }
 
 // Name 获取注册器名称
@@ -114,28 +115,96 @@ func (rr *RoleRoutes) Priority() int {
 }
 
 // setupRoleCustomRoutes 设置角色自定义路由
-func (rr *RoleRoutes) setupRoleCustomRoutes(roleGroup httpx.IRouteGroup) {
-	// 角色权限管理
-	roleGroup.GET("/:id/permissions", rr.getRolePermissions)
-	roleGroup.POST("/:id/permissions", rr.addRolePermission)
-	roleGroup.DELETE("/:id/permissions/:permission", rr.removeRolePermission)
-
-	// 角色用户管理
-	roleGroup.GET("/:id/users", rr.getRoleUsers)
-	roleGroup.POST("/:id/users", rr.assignRoleToUsers)
-	roleGroup.DELETE("/:id/users/:user", rr.removeRoleFromUser)
+func (rr *RoleRoutes) setupRoleCustomRoutes(roleGroup httpx.IRouteGroup) error {
+	for _, entry := range []struct {
+		method, path, action string
+		handler              httpx.Handler
+	}{
+		{"GET", "/:id/permissions", "permissions", rr.getRolePermissions},
+		{"POST", "/:id/permissions", "add_permission", rr.addRolePermission},
+		{"GET", "/:id/users", "users", rr.getRoleUsers},
+		{"POST", "/:id/users", "assign_user", rr.assignRoleToUsers},
+		{"DELETE", "/:id/users/:user", "remove_user", rr.removeRoleFromUser},
+		{"POST", "/:id/clone", "clone", rr.cloneRole},
+		{"POST", "/system/init", "initialize", rr.initSystemRoles},
+	} {
+		if err := rr.registerCustomExecutionRoute(roleGroup, entry.method, entry.path, entry.action, entry.handler); err != nil {
+			return err
+		}
+	}
 
 	// 角色操作
-	roleGroup.POST("/:id/activate", rr.activateRole)
-	roleGroup.POST("/:id/deactivate", rr.deactivateRole)
-	roleGroup.POST("/:id/clone", rr.cloneRole)
+	if err := rr.registerRoleWriteRoutes(roleGroup); err != nil {
+		return err
+	}
 
 	// 系统角色
-	roleGroup.GET("/system", rr.getSystemRoles)
-	roleGroup.POST("/system/init", rr.initSystemRoles)
+	if err := rr.registerSystemRolesRoute(roleGroup); err != nil {
+		return err
+	}
 
 	// 角色统计
-	roleGroup.GET("/statistics", rr.getRoleStatistics)
+	return rr.registerRoleStatisticsRoute(roleGroup)
+}
+
+func (rr *RoleRoutes) registerRoleWriteRoutes(group httpx.IRouteGroup) error {
+	registry, _, err := runtimehttp.EntryRegistryFrom(group)
+	if err != nil {
+		return err
+	}
+	for _, entry := range []struct {
+		method, path, action string
+		handler              httpx.Handler
+	}{{"POST", "/:id/activate", "activate", rr.activateRole}, {"POST", "/:id/deactivate", "deactivate", rr.deactivateRole},
+		{"DELETE", "/:id/permissions/:permission", "remove_permission", rr.removeRolePermission}} {
+		binding, err := rr.roleService.WriteAuthorizationBinding(entry.action)
+		if err != nil {
+			return err
+		}
+		if registry != nil {
+			if err := runtimehttp.BindEntry(group, entry.method, entry.path, binding); err != nil {
+				return err
+			}
+		}
+		if err := runtimehttp.RegisterRoute(group, entry.method, entry.path, entry.handler); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (rr *RoleRoutes) registerSystemRolesRoute(group httpx.IRouteGroup) error {
+	binding, err := rr.roleService.SystemAuthorizationBinding()
+	if err != nil {
+		return err
+	}
+	registry, _, err := runtimehttp.EntryRegistryFrom(group)
+	if err != nil {
+		return err
+	}
+	if registry != nil {
+		if err := runtimehttp.BindEntry(group, "GET", "/system", binding); err != nil {
+			return err
+		}
+	}
+	return runtimehttp.RegisterRoute(group, "GET", "/system", rr.getSystemRoles)
+}
+
+func (rr *RoleRoutes) registerRoleStatisticsRoute(roleGroup httpx.IRouteGroup) error {
+	binding, err := rr.roleService.StatisticsAuthorizationBinding()
+	if err != nil {
+		return err
+	}
+	registry, _, err := runtimehttp.EntryRegistryFrom(roleGroup)
+	if err != nil {
+		return err
+	}
+	if registry != nil {
+		if err := runtimehttp.BindEntry(roleGroup, "GET", "/statistics", binding); err != nil {
+			return err
+		}
+	}
+	return runtimehttp.RegisterRoute(roleGroup, "GET", "/statistics", rr.getRoleStatistics)
 }
 
 // 角色处理器方法
@@ -150,17 +219,14 @@ func (rr *RoleRoutes) getRolePermissions(ctx httpx.IContext) error {
 		return err
 	}
 
-	role, _, err := loadTenantBoundEntity(reqCtx, rr.roleRepo, roleID)
+	permissions, err := rr.roleService.RolePermissions(reqCtx, roleID)
 	if err != nil {
-		return err
-	}
-	if err := svc.RequireAuthorization(reqCtx, rr.authorizer, svc.RolePermissionSet.Code(iammw.ActionRead), role); err != nil {
 		return err
 	}
 
 	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"role_id":     roleID,
-		"permissions": role.Permissions,
+		"permissions": permissions,
 	})
 }
 
@@ -207,7 +273,7 @@ func (rr *RoleRoutes) removeRolePermission(ctx httpx.IContext) error {
 		return err
 	}
 
-	if err := rr.roleService.RemovePermission(reqCtx, roleID, permission); err != nil {
+	if err := rr.roleService.ExecuteWriteHTTP(reqCtx, "remove_permission", rolesvc.RoleWriteInput{ID: roleID, Permission: permission}); err != nil {
 		return err
 	}
 
@@ -305,7 +371,7 @@ func (rr *RoleRoutes) activateRole(ctx httpx.IContext) error {
 		return err
 	}
 
-	if err := rr.roleService.ActivateRole(reqCtx, roleID); err != nil {
+	if err := rr.roleService.ExecuteWriteHTTP(reqCtx, "activate", rolesvc.RoleWriteInput{ID: roleID}); err != nil {
 		return err
 	}
 
@@ -323,7 +389,7 @@ func (rr *RoleRoutes) deactivateRole(ctx httpx.IContext) error {
 		return err
 	}
 
-	if err := rr.roleService.DeactivateRole(reqCtx, roleID); err != nil {
+	if err := rr.roleService.ExecuteWriteHTTP(reqCtx, "deactivate", rolesvc.RoleWriteInput{ID: roleID}); err != nil {
 		return err
 	}
 
@@ -359,7 +425,7 @@ func (rr *RoleRoutes) cloneRole(ctx httpx.IContext) error {
 // 系统角色处理器
 func (rr *RoleRoutes) getSystemRoles(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	roles, err := rr.roleService.SystemRoles(reqCtx)
+	roles, err := rr.roleService.SystemRolesHTTP(reqCtx)
 	if err != nil {
 		return err
 	}
@@ -386,10 +452,27 @@ func (rr *RoleRoutes) initSystemRoles(ctx httpx.IContext) error {
 // 角色统计处理器
 func (rr *RoleRoutes) getRoleStatistics(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	stats, err := rr.roleService.RoleStatistics(reqCtx)
+	stats, err := rr.roleService.RoleStatisticsHTTP(reqCtx)
 	if err != nil {
 		return err
 	}
 
 	return httpx.WriteSuccess(ctx, stats)
+}
+
+func (rr *RoleRoutes) registerCustomExecutionRoute(group httpx.IRouteGroup, method, path, action string, handler httpx.Handler) error {
+	binding, err := rr.roleService.CustomAuthorizationBinding(action)
+	if err != nil {
+		return err
+	}
+	registry, _, err := runtimehttp.EntryRegistryFrom(group)
+	if err != nil {
+		return err
+	}
+	if registry != nil {
+		if err := runtimehttp.BindEntry(group, method, path, binding); err != nil {
+			return err
+		}
+	}
+	return runtimehttp.RegisterRoute(group, method, path, handler)
 }

@@ -250,7 +250,9 @@ func (m *roleTestGormModel) apply(ctx context.Context, opts ...orm.QueryOption) 
 		}
 		db = db.Order(order.Column + " " + dir)
 	}
-	if len(qo.Select) > 0 {
+	if len(qo.SelectRaw) > 0 {
+		db = db.Select(strings.Join(qo.SelectRaw, ", "))
+	} else if len(qo.Select) > 0 {
 		db = db.Select(qo.Select)
 	}
 	for _, group := range qo.GroupBy {

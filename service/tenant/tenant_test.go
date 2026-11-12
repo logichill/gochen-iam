@@ -10,6 +10,7 @@ import (
 
 	iamauth "gochen-iam/auth"
 	iammw "gochen-iam/middleware"
+	scoperepo "gochen-iam/repo/scope"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
 	"gochen-runtime/db/dialect"
@@ -21,28 +22,40 @@ import (
 type capturingTenantModel struct {
 	meta     *orm.ModelMeta
 	lastOpts orm.QueryOptions
+	reads    int
+	writes   int
 }
 
 func (m *capturingTenantModel) Meta() *orm.ModelMeta           { return m.meta }
 func (m *capturingTenantModel) Capabilities() orm.Capabilities { return nil }
 func (m *capturingTenantModel) Dialect() coredialect.IDialect  { return dialect.New("") }
 func (m *capturingTenantModel) First(context.Context, any, ...orm.QueryOption) error {
+	m.reads++
 	return nil
 }
 func (m *capturingTenantModel) Find(_ context.Context, _ any, opts ...orm.QueryOption) error {
+	m.reads++
 	m.lastOpts = orm.CollectQueryOptions(opts...)
 	return nil
 }
 func (m *capturingTenantModel) Count(context.Context, ...orm.QueryOption) (int64, error) {
+	m.reads++
 	return 0, nil
 }
-func (m *capturingTenantModel) Create(context.Context, ...any) error                { return nil }
-func (m *capturingTenantModel) Save(context.Context, any, ...orm.QueryOption) error { return nil }
-func (m *capturingTenantModel) UpdateValues(context.Context, map[string]any, ...orm.QueryOption) error {
+func (m *capturingTenantModel) Create(context.Context, ...any) error { m.writes++; return nil }
+func (m *capturingTenantModel) Save(context.Context, any, ...orm.QueryOption) error {
+	m.writes++
 	return nil
 }
-func (m *capturingTenantModel) Delete(context.Context, ...orm.QueryOption) error { return nil }
-func (m *capturingTenantModel) Association(any, string) orm.IAssociation         { return nil }
+func (m *capturingTenantModel) UpdateValues(context.Context, map[string]any, ...orm.QueryOption) error {
+	m.writes++
+	return nil
+}
+func (m *capturingTenantModel) Delete(context.Context, ...orm.QueryOption) error {
+	m.writes++
+	return nil
+}
+func (m *capturingTenantModel) Association(any, string) orm.IAssociation { return nil }
 
 type tenantResult struct{ rows int64 }
 
@@ -50,12 +63,15 @@ func (r tenantResult) LastInsertId() (int64, error) { return 0, nil }
 func (r tenantResult) RowsAffected() (int64, error) { return r.rows, nil }
 
 func (m *capturingTenantModel) SaveWithResult(context.Context, any, ...orm.QueryOption) (sql.Result, error) {
+	m.writes++
 	return tenantResult{rows: 1}, nil
 }
 func (m *capturingTenantModel) UpdateValuesWithResult(context.Context, map[string]any, ...orm.QueryOption) (sql.Result, error) {
+	m.writes++
 	return tenantResult{rows: 1}, nil
 }
 func (m *capturingTenantModel) DeleteWithResult(context.Context, ...orm.QueryOption) (sql.Result, error) {
+	m.writes++
 	return tenantResult{rows: 1}, nil
 }
 
@@ -86,7 +102,7 @@ func TestTenantService_ListTenants_FiltersSoftDeletedRows(t *testing.T) {
 	}
 
 	iammw.RegisterRequiredPermissionDefinitions(svc.AllPermissionDefinitions...)
-	authorizer := svc.NewIAMAuthorizer(nil)
+	authorizer := svc.NewIAMAccess(nil)
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:   "1",
 		Permissions: []string{"tenant:api:*"},
@@ -98,7 +114,14 @@ func TestTenantService_ListTenants_FiltersSoftDeletedRows(t *testing.T) {
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iammw.ScopePlatform))
 
-	service := NewTenantService(repo, nil, authorizer)
+	scopes, err := scoperepo.NewScopeRepository(repo.Orm(), testkit.NewInt64Sequence(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewTenantService(repo, svc.NewScopeAuthorizer(scopes, repo), authorizer)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := service.ListTenants(ctx); err != nil {
 		t.Fatalf("ListTenants: %v", err)
 	}

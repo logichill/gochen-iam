@@ -125,9 +125,9 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 		t.Fatalf("create role: %v", err)
 	}
 	scopeAuthorizer := svc.NewScopeAuthorizer(scopeRepo, tenantRepo)
-	authorizer := svc.NewIAMAuthorizer(scopeAuthorizer)
+	authorizer := svc.NewIAMAccess(scopeAuthorizer)
 
-	roleService := NewRoleService(
+	roleService, err := NewRoleService(
 		roleRepo,
 		userRepo,
 		groupRepo,
@@ -137,6 +137,9 @@ func TestRoleServiceAddPermission_RejectsScopeMismatch(t *testing.T) {
 		gen.NewUUIDGenerator(),
 		logging.NewNoopLogger(),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// 上下文不含 ActiveScopeKind，真实目录已经提供完整作用域事实，创建应成功。
 	if _, err := roleService.CreateRole(ctx, &svc.CreateRoleRequest{TenantID: "tenant-a", Name: "resolved-tenant-role", Permissions: []string{svc.RolePermissionSet.Code(iammw.ActionWrite)}}); err != nil {
@@ -253,9 +256,9 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 	}
 
 	scopeAuthorizer := svc.NewScopeAuthorizer(scopeRepo, tenantRepo)
-	authorizer := svc.NewIAMAuthorizer(scopeAuthorizer)
+	authorizer := svc.NewIAMAccess(scopeAuthorizer)
 
-	roleService := NewRoleService(
+	roleService, err := NewRoleService(
 		roleRepo,
 		userRepo,
 		groupRepo,
@@ -265,6 +268,9 @@ func TestRoleServiceCloneRole_RejectsBuiltinOnlyPermissionsFromSystemRole(t *tes
 		gen.NewUUIDGenerator(),
 		logging.NewNoopLogger(),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if _, err := roleService.CloneRole(ctx, systemRole.ID, "tenant-admin-clone"); err == nil {
 		t.Fatalf("expected cloning system role with builtin-only permissions to fail")

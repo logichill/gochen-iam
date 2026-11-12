@@ -6,7 +6,10 @@ import (
 	iamentity "gochen-iam/entity"
 	svc "gochen-iam/service"
 	menusvc "gochen-iam/service/menu"
-	"gochen/httpx"
+	rolesvc "gochen-iam/service/role"
+	tenantsvc "gochen-iam/service/tenant"
+	appcrud "gochen/app/crud"
+	"gochen/auth"
 )
 
 // IUserService 定义用户服务能力接口。
@@ -53,6 +56,9 @@ type IGroupService interface {
 
 // IRoleService 定义角色服务能力接口。
 type IRoleService interface {
+	HTTPApplication() appcrud.IApplication[*iamentity.Role, int64]
+	RolePermissions(context.Context, int64) (iamentity.PermissionArray, error)
+	CustomAuthorizationBinding(string) (auth.EntryBinding, error)
 	AddPermission(ctx context.Context, roleID int64, permission string) error
 	RemovePermission(ctx context.Context, roleID int64, permission string) error
 	RoleUsers(ctx context.Context, roleID int64) ([]*iamentity.User, error)
@@ -62,12 +68,20 @@ type IRoleService interface {
 	DeactivateRole(ctx context.Context, roleID int64) error
 	CloneRole(ctx context.Context, roleID int64, newName string) (*iamentity.Role, error)
 	SystemRoles(ctx context.Context) ([]*iamentity.Role, error)
+	SystemRolesHTTP(ctx context.Context) ([]*iamentity.Role, error)
+	SystemAuthorizationBinding() (auth.EntryBinding, error)
 	InitializeSystemRoles(ctx context.Context, tenantID string) error
 	RoleStatistics(ctx context.Context) (map[string]interface{}, error)
+	RoleStatisticsHTTP(ctx context.Context) (map[string]interface{}, error)
+	StatisticsAuthorizationBinding() (auth.EntryBinding, error)
+	ExecuteWriteHTTP(context.Context, string, rolesvc.RoleWriteInput) error
+	WriteAuthorizationBinding(string) (auth.EntryBinding, error)
 }
 
 // ITenantService 定义租户服务能力接口。
 type ITenantService interface {
+	ExecuteHTTP(context.Context, string, tenantsvc.TenantCommandInput) (tenantsvc.TenantCommandResult, error)
+	AuthorizationBinding(string) (auth.EntryBinding, error)
 	ActivateTenant(ctx context.Context, tenantID int64) error
 	DeactivateTenant(ctx context.Context, tenantID int64) error
 	RepairTenantRootScope(ctx context.Context, tenantID int64) (*iamentity.Scope, error)
@@ -93,5 +107,5 @@ type IMenuService interface {
 	PurgeMenuItem(ctx context.Context, id int64) error
 	PublishMenuItem(ctx context.Context, id int64, published bool) (*iamentity.MenuItem, error)
 	ListMenuItems(ctx context.Context) ([]*iamentity.MenuItem, error)
-	MyMenuTree(ctx context.Context, reqCtx httpx.IRequestContext) ([]*menusvc.MenuNode, error)
+	MyMenuTree(ctx context.Context) ([]*menusvc.MenuNode, error)
 }

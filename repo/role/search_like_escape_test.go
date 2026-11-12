@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"gochen/domain/spec"
 	"gochen/testkit"
 )
 
@@ -16,7 +17,7 @@ func TestSearchRolesLikeEscapesWildcards(t *testing.T) {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
 	ctx := withTenantPrincipal(t, context.Background(), "tenant-a")
-	if _, err := r.SearchRoles(ctx, "a%c_!", 10); err != nil {
+	if _, err := r.SearchRoles(ctx, "a%c_!", 10, spec.All()); err != nil {
 		t.Fatalf("SearchRoles: %v", err)
 	}
 

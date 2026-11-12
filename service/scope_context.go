@@ -23,12 +23,12 @@ func BindVisibleScopeContext(ctx context.Context, activeScopeID int64, visibleSc
 		scopeKind = iamauth.ActiveScopeKindFromContext(ctx)
 	}
 	boundCtx := iamauth.ClearActiveScopeContext(ctx)
-	boundCtx = iamauth.BindActiveScopeContext(boundCtx, activeScopeID, scopeKind)
 	var err error
 	boundCtx, err = rebindPrincipalActiveScope(boundCtx, activeScopeID)
 	if err != nil {
 		return nil, err
 	}
+	boundCtx = iamauth.BindActiveScopeContext(boundCtx, activeScopeID, scopeKind)
 	return scoped.WithDataScope(boundCtx, scoped.Filtered(visibleScopeIDs...))
 }
 

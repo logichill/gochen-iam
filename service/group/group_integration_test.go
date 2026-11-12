@@ -87,11 +87,17 @@ func setupGroupServiceTest(t *testing.T) *groupServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
-	authorizer := svc.NewIAMAuthorizer(nil)
+	authorizer := svc.NewIAMAccess(nil)
 
 	// 创建服务
-	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, nil, authorizer, logging.NewNoopLogger())
-	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, nil, authorizer, logging.NewNoopLogger())
+	groupService, err := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, nil, authorizer, logging.NewNoopLogger())
+	if err != nil {
+		t.Fatalf("NewGroupService: %v", err)
+	}
+	userService, err := usersvc.NewUserService(userRepo, groupRepo, roleRepo, nil, authorizer, logging.NewNoopLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// 创建背景上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

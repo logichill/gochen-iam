@@ -62,9 +62,12 @@ func TestTenantCRUDRequiresActionPermission(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tenant := &iamentity.Tenant{Key: "example", Name: "Example", Status: "inactive"}
 			tenant.ID = 42
-			repo := &tenantAuthorizationRepo{routeScopedRepo: routeScopedRepo[*iamentity.Tenant]{entity: tenant}}
+			routes, storage := tenantRoutesFixture(t)
+			if err := storage.Create(tenant).Error; err != nil {
+				t.Fatal(err)
+			}
 			root := newRecordingGroup("", nil)
-			if err := NewTenantRoutes(nil, repo, nil, svc.NewIAMAuthorizer(nil), nil, nil, nil, nil).RegisterRoutes(root); err != nil {
+			if err := routes.RegisterRoutes(root); err != nil {
 				t.Fatal(err)
 			}
 			base, err := authz.WithPrincipal(iamtenant.WithPolicy(context.Background(), iamtenant.Policy{Mode: iamtenant.ModeSingle}), authz.Principal{SubjectID: "7", Permissions: tt.permissions, ActiveScopeID: 1})
@@ -76,7 +79,7 @@ func TestTenantCRUDRequiresActionPermission(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"key":"example","name":"Example"}`)).WithContext(base)
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(`{"key":"created","name":"Created","version":0}`)).WithContext(base)
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
 			ctx, err := nethttp.NewBaseContext(rec, req)
@@ -96,8 +99,12 @@ func TestTenantCRUDRequiresActionPermission(t *testing.T) {
 			} else if !errors.Is(err, errors.Forbidden) && rec.Code != http.StatusForbidden {
 				t.Fatalf("unauthorized request: status=%d err=%v body=%s", rec.Code, err, rec.Body.String())
 			}
-			if repo.writes != tt.writes {
-				t.Fatalf("repository writes = %d, want %d", repo.writes, tt.writes)
+			var count int64
+			if err := storage.Model(&iamentity.Tenant{}).Count(&count).Error; err != nil {
+				t.Fatal(err)
+			}
+			if count-1 != int64(tt.writes) {
+				t.Fatalf("created tenant rows = %d, want %d", count-1, tt.writes)
 			}
 		})
 	}

@@ -4,8 +4,6 @@ import (
 	"context"
 	"reflect"
 	"strings"
-	"sync"
-	"time"
 
 	iammw "gochen-iam/middleware"
 	grouprepo "gochen-iam/repo/group"
@@ -66,7 +64,11 @@ func NewModule(
 	if err := iammw.InstallDefaultRevokedTokenStore(store); err != nil {
 		return nil, err
 	}
-	m := &iamModule{revokedTokenStore: store, logger: logger}
+	m := &iamModule{revokedTokenStore: store}
+	m.cleanup, err = newRevocationCleanup(store, logger)
+	if err != nil {
+		return nil, err
+	}
 	base, err := host.Module("iam").
 		Name("IAM").
 		Extension(auth.Catalog{
@@ -83,7 +85,7 @@ func NewModule(
 			// Services
 			iamservice.NewScopeAuthorizer,
 			newAuthContextResolver,
-			iamservice.NewIAMAuthorizer,
+			iamservice.NewIAMAccess,
 			tenantsvc.NewTenantService,
 			scopesvc.NewScopeService,
 			usersvc.NewUserService,
@@ -158,10 +160,10 @@ func newAuthContextResolver(scopeAuthorizer *iamservice.ScopeAuthorizer, userSer
 
 type iamModule struct {
 	module.IModule
-	logger            logging.ILogger
 	authConfig        *iammw.AuthConfig
 	revokedTokenStore iammw.RevokedTokenStore
 	authMiddleware    httpx.Middleware
+	cleanup           *revocationCleanup
 }
 
 func (m *iamModule) Init(opts module.ModuleInitOptions) error {
@@ -206,57 +208,17 @@ func (m *iamModule) Start(ctx context.Context) (module.ModuleStopFunc, error) {
 		}
 	}
 
-	cleaner, ok := m.revokedTokenStore.(interface {
-		CleanupExpired(context.Context) (int64, error)
-	})
-	if !ok || cleaner == nil {
-		return baseStop, nil
-	}
-
-	moduleCtx, moduleCancel := context.WithCancel(context.Background())
-	var wg sync.WaitGroup
-	ticker := time.NewTicker(10 * time.Minute)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer ticker.Stop()
-		for {
-			select {
-			case <-moduleCtx.Done():
-				return
-			case <-ticker.C:
-				cleanupCtx, cancel := context.WithTimeout(moduleCtx, 2*time.Minute)
-				deleted, cleanupErr := cleaner.CleanupExpired(cleanupCtx)
-				if cleanupErr != nil && m.logger != nil {
-					// 清理失败只影响吊销表膨胀速度，不影响认证正确性；记录以便运维追踪，不打断循环。
-					m.logger.Warn(cleanupCtx, "iam revoked token cleanup failed",
-						logging.Error(cleanupErr),
-						logging.Int64("deleted", deleted),
-					)
-				}
-				cancel()
-			}
-		}
-	}()
-
-	var once sync.Once
 	stop := func(stopCtx context.Context) error {
-		once.Do(func() {
-			moduleCancel()
-		})
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-		select {
-		case <-done:
-		case <-stopCtx.Done():
+		if err := m.cleanup.Stop(stopCtx); err != nil {
+			return err
 		}
 		if baseStop != nil {
 			return baseStop(stopCtx)
 		}
 		return nil
+	}
+	if err := m.cleanup.Start(ctx); err != nil {
+		return stop, err
 	}
 	return stop, nil
 }

@@ -3,17 +3,14 @@ package group
 import (
 	"context"
 	stdErrors "errors"
-	"time"
 
 	iamentity "gochen-iam/entity"
-	iamperm "gochen-iam/permissions"
 	grouprepo "gochen-iam/repo/group"
 	rolerepo "gochen-iam/repo/role"
 	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
+	ormrepo "gochen-runtime/db/orm/repo"
 	appcrud "gochen/app/crud"
-	"gochen/app/query"
-	"gochen/domain/spec"
 	"gochen/errors"
 	"gochen/observe/logging"
 )
@@ -22,12 +19,19 @@ var errBulkAddUsersRollback = stdErrors.New("rollback bulk add users to group")
 
 // GroupService 组织服务
 type GroupService struct {
-	groupRepo       *grouprepo.GroupRepo
-	userRepo        *userrepo.UserRepo
-	roleRepo        *rolerepo.RoleRepo
-	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      *svc.IAMAuthorizer
-	logger          logging.ILogger
+	groupRepo                              *grouprepo.GroupRepo
+	userRepo                               *userrepo.UserRepo
+	roleRepo                               *rolerepo.RoleRepo
+	scopeAuthorizer                        *svc.ScopeAuthorizer
+	authorizer                             *svc.IAMAccess
+	logger                                 logging.ILogger
+	associationCommands                    map[string]*groupAssociationCommand
+	statisticsCommands                     map[string]*groupStatisticsCommand
+	treeCommands                           map[string]*groupTreeCommand
+	readCommands                           map[string]*groupReadCommand
+	roleNamespaces                         *ormrepo.Repo[*iamentity.Scope, int64]
+	deleteCommands                         map[string]*groupDeleteCommand
+	writeApplication, httpWriteApplication *groupWriteApplication
 }
 
 // NewGroupService 创建组织服务实例
@@ -36,10 +40,10 @@ func NewGroupService(
 	userRepo *userrepo.UserRepo,
 	roleRepo *rolerepo.RoleRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer *svc.IAMAuthorizer,
+	authorizer *svc.IAMAccess,
 	logger logging.ILogger,
-) *GroupService {
-	return &GroupService{
+) (*GroupService, error) {
+	service := &GroupService{
 		groupRepo:       groupRepo,
 		userRepo:        userRepo,
 		roleRepo:        roleRepo,
@@ -47,11 +51,29 @@ func NewGroupService(
 		authorizer:      authorizer,
 		logger:          logging.ComponentLogger("iam.service.group", logger),
 	}
+	if err := service.compileAssociationCommands(); err != nil {
+		return nil, err
+	}
+	if err := service.compileStatisticsCommands(); err != nil {
+		return nil, err
+	}
+	if err := service.compileTreeCommands(); err != nil {
+		return nil, err
+	}
+	if err := service.compileReadCommands(); err != nil {
+		return nil, err
+	}
+	if err := service.compileDeleteCommands(); err != nil {
+		return nil, err
+	}
+	if err := service.compileWriteApplications(); err != nil {
+		return nil, err
+	}
+	return service, nil
 }
 
 // CreateGroup 创建组织
 func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequest) (*iamentity.Group, error) {
-	// 1. 验证请求数据
 	if err := s.validateCreateGroupRequest(req); err != nil {
 		return nil, err
 	}
@@ -63,73 +85,9 @@ func (s *GroupService) CreateGroup(ctx context.Context, req *svc.CreateGroupRequ
 	if err != nil {
 		return nil, err
 	}
-	managedScopeID := svc.ManagedScopeIDFromContext(tenantCtx)
-	if managedScopeID == 0 && s.scopeAuthorizer != nil {
-		scope, scopeErr := s.scopeAuthorizer.ResolveTenantScope(tenantCtx, tenantID)
-		if scopeErr != nil {
-			return nil, scopeErr
-		}
-		managedScopeID = scope.ID
-		tenantCtx, err = svc.BindManagedScopeContext(tenantCtx, managedScopeID)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if managedScopeID == 0 {
-		return nil, errors.NewCode(errors.InvalidInput, "managed scope is required")
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionWrite), &iamentity.Group{TenantID: tenantID})
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. 检查父组织是否存在（如果指定了父组织）
-	var parentGroup *iamentity.Group
-	if req.ParentID != nil {
-		parent, err := s.groupRepo.Get(tenantCtx, *req.ParentID, spec.All())
-		if err != nil {
-			return nil, errors.Wrap(err, errors.NotFound, "父组织不存在")
-		}
-		if _, err := svc.PreflightSameTenant(tenantCtx, s.scopeAuthorizer, "", tenantID, parent.TenantID); err != nil {
-			return nil, err
-		}
-		parentGroup = parent
-
-		// 检查层级限制
-		if parentGroup.Level >= svc.MaxGroupLevel {
-			return nil, errors.NewCode(errors.Validation, "组织层级不能超过10级")
-		}
-	}
-
-	// 3. 检查组织名称是否重复（同一层级下，租户内）
-	if err := s.checkGroupNameDuplicate(ctx, tenantID, req.Name, req.ParentID); err != nil {
-		return nil, err
-	}
-
-	// 4. 创建组织实体
-	group := &iamentity.Group{
-		TenantID:       tenantID,
-		ManagedScopeID: managedScopeID,
-		OwnerID:        svc.TenantOwnerID(tenantID),
-		Name:           req.Name,
-		Description:    req.Description,
-		ParentID:       req.ParentID,
-	}
-	group.SetUpdatedAt(time.Now())
-
-	// 5. 设置层级和路径
-	if parentGroup != nil {
-		group.SetParent(parentGroup)
-	} else {
-		group.Level = 1
-	}
-
-	// 6. 保存组织
-	if err := s.groupRepo.Create(tenantCtx, group, guard); err != nil {
-		return nil, errors.Wrap(err, errors.Database, "保存组织失败")
-	}
-
-	return group, nil
+	return s.writeApplication.ExecuteNew(tenantCtx, appcrud.ActionCreate, func(context.Context) (*iamentity.Group, error) {
+		return &iamentity.Group{Name: req.Name, Description: req.Description, ParentID: req.ParentID}, nil
+	})
 }
 
 // UpdateGroup 更新组织。
@@ -142,94 +100,15 @@ func (s *GroupService) UpdateGroup(
 	if req == nil {
 		return nil, errors.NewCode(errors.Validation, "update group request is required")
 	}
-
-	// 1. 获取组织
-	group, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.groupRepo, groupID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 2. 先在候选对象上应用 request + patches，集中做冲突校验。
-	candidate := *group
-	if req.Name != "" {
-		candidate.Name = req.Name
-	}
-	if req.Description != "" {
-		candidate.Description = req.Description
-	}
-	if err := svc.ApplyFieldPatches(&candidate, patches...); err != nil {
-		return nil, err
-	}
-
-	parentChanged := !sameParentID((*group).ParentID, candidate.ParentID)
-	if parentChanged || candidate.Name != (*group).Name {
-		if err := s.checkGroupNameDuplicate(ctx, group.TenantID, candidate.Name, candidate.ParentID); err != nil {
-			return nil, err
+	return s.writeApplication.Execute(ctx, appcrud.ActionUpdate, groupID, func(_ context.Context, group *iamentity.Group) error {
+		if req.Name != "" {
+			group.Name = req.Name
 		}
-	}
-
-	var descendants []*iamentity.Group
-	if parentChanged {
-		var err error
-		descendants, err = s.groupRepo.FindDescendants(tenantCtx, groupID)
-		if err != nil {
-			return nil, err
+		if req.Description != "" {
+			group.Description = req.Description
 		}
-	}
-
-	if parentChanged && candidate.ParentID != nil {
-		if *candidate.ParentID == (*group).GetID() {
-			return nil, errors.NewCode(errors.Validation, "不能将组织设置为自己的父组织")
-		}
-		parent, err := s.groupRepo.Get(tenantCtx, *candidate.ParentID, spec.All())
-		if err != nil {
-			return nil, errors.Wrap(err, errors.NotFound, "父组织不存在")
-		}
-		if _, err := svc.PreflightSameTenant(tenantCtx, s.scopeAuthorizer, "", group.TenantID, parent.TenantID); err != nil {
-			return nil, err
-		}
-		maxDepth := 0
-		for _, d := range descendants {
-			rel := d.Level - group.Level
-			if rel > maxDepth {
-				maxDepth = rel
-			}
-		}
-		if parent.Level+1+maxDepth > svc.MaxGroupLevel {
-			return nil, errors.NewCode(errors.Validation, "组织层级不能超过10级")
-		}
-		if (*group).IsAncestorOf(parent) {
-			return nil, errors.NewCode(errors.Validation, "不能将组织移动到其子组织下")
-		}
-		(*group).SetParent(parent)
-	} else if parentChanged && candidate.ParentID == nil {
-		(*group).SetParent(nil)
-	}
-	(*group).Name = candidate.Name
-	(*group).Description = candidate.Description
-	if err := (*group).Validate(); err != nil {
-		return nil, err
-	}
-
-	if !parentChanged {
-		(*group).SetUpdatedAt(time.Now())
-	}
-	targets := make([]any, 0, 1)
-	targets = append(targets, group)
-	if parentChanged {
-		targets = appendGroupTargets(targets, descendants)
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionWrite), targets...)
-	if err != nil {
-		return nil, err
-	}
-
-	// 3. 保存更新
-	if err := s.groupRepo.Update(tenantCtx, group, guard); err != nil {
-		return nil, err
-	}
-
-	return group, nil
+		return svc.ApplyFieldPatches(group, patches...)
+	})
 }
 
 func sameParentID(current, next *int64) bool {
@@ -259,78 +138,18 @@ func (s *GroupService) DeleteGroup(ctx context.Context, tenantID string, groupID
 	if err != nil {
 		return err
 	}
-	group, err := s.groupRepo.Get(tenantCtx, groupID, spec.All())
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionDelete), group)
-	if err != nil {
-		return err
-	}
-
-	if err := s.ValidateDelete(tenantCtx, groupID); err != nil {
-		return err
-	}
-
-	// 3. 删除组织
-	return s.groupRepo.Delete(tenantCtx, group, guard)
+	return s.writeApplication.Delete(tenantCtx, groupID)
 }
 
 // ValidateDelete 检查组织是否允许删除（检查是否有子组织和用户）。
 func (s *GroupService) ValidateDelete(ctx context.Context, groupID int64) error {
-	tenantID, err := svc.TenantIDFromContext(ctx)
-	if err != nil {
-		return err
-	}
-	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
-	if err != nil {
-		return err
-	}
-
-	// 1. 检查是否有子组织
-	children, err := s.groupRepo.FindChildren(tenantCtx, groupID)
-	if err != nil {
-		return err
-	}
-	if len(children) > 0 {
-		return errors.NewCode(errors.Validation, "不能删除有子组织的组织，请先处理子组织")
-	}
-
-	// 2. 检查是否有用户
-	users, err := s.userRepo.FindByGroupID(tenantCtx, groupID)
-	if err != nil {
-		return err
-	}
-	if len(users) > 0 {
-		return errors.NewCode(errors.Validation, "不能删除有用户的组织，请先移除用户")
-	}
-
-	return nil
+	_, err := s.deleteCommands["validate_delete"].Execute(ctx, groupID)
+	return err
 }
 
 // GroupTree 获取组织树
 func (s *GroupService) GroupTree(ctx context.Context) ([]*svc.GroupTreeNode, error) {
-	tenantID, err := svc.TenantIDFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iamperm.ActionRead), tenantID); err != nil {
-		return nil, err
-	}
-	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	groups, err := s.groupRepo.GroupTree(tenantCtx)
-	if err != nil {
-		return nil, err
-	}
-
-	var nodes []*svc.GroupTreeNode
-	for _, group := range groups {
-		nodes = append(nodes, s.buildGroupTreeNode(group))
-	}
-	return nodes, nil
+	return s.treeCommands["tree"].Execute(ctx, struct{}{})
 }
 
 // RootGroups 获取根组织
@@ -339,204 +158,64 @@ func (s *GroupService) RootGroups(ctx context.Context, tenantID string) ([]*iame
 	if err != nil {
 		return nil, err
 	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iamperm.ActionRead), tenantID); err != nil {
-		return nil, err
-	}
 	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	return s.groupRepo.FindRootGroups(tenantCtx)
+	out, err := s.executeRead(tenantCtx, "roots", GroupReadInput{})
+	return out.Groups, err
 }
 
 // GroupsByLevel 根据层级获取组织
 func (s *GroupService) GroupsByLevel(ctx context.Context, level int) ([]*iamentity.Group, error) {
-	tenantID, err := svc.TenantIDFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iamperm.ActionRead), tenantID); err != nil {
-		return nil, err
-	}
-	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	return s.groupRepo.FindByLevel(tenantCtx, level)
+	out, err := s.executeRead(ctx, "by_level", GroupReadInput{Level: level})
+	return out.Groups, err
 }
 
 // GroupUsers 获取组织用户列表
 func (s *GroupService) GroupUsers(ctx context.Context, groupID int64) ([]*iamentity.User, error) {
-	group, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.groupRepo, groupID)
-	if err != nil {
-		return nil, err
-	}
-	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionRead), group); err != nil {
-		return nil, err
-	}
-	return s.userRepo.FindByGroupID(tenantCtx, groupID)
+	out, err := s.executeRead(ctx, "users", GroupReadInput{ID: groupID})
+	return out.Users, err
 }
 
 // AddUserToGroup 添加用户到组织
 func (s *GroupService) AddUserToGroup(ctx context.Context, groupID, userID int64) error {
-	group, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.groupRepo, groupID)
-	if err != nil {
-		return err
-	}
-	user, err := s.userRepo.Get(tenantCtx, userID, spec.All())
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionWrite), group, user)
-	if err != nil {
-		return err
-	}
-	return s.groupRepo.AddUserToGroup(tenantCtx, groupID, userID, guard)
+	_, err := s.executeAssociation(ctx, "add_user", GroupAssociationInput{ID: groupID, RelatedIDs: []int64{userID}})
+	return err
 }
 
 // RemoveUserFromGroup 从组织移除用户
 func (s *GroupService) RemoveUserFromGroup(ctx context.Context, groupID, userID int64) error {
-	group, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.groupRepo, groupID)
-	if err != nil {
-		return err
-	}
-	user, err := s.userRepo.Get(tenantCtx, userID, spec.All())
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionWrite), group, user)
-	if err != nil {
-		return err
-	}
-	return s.groupRepo.RemoveUserFromGroup(tenantCtx, groupID, userID, guard)
+	_, err := s.executeAssociation(ctx, "remove_user", GroupAssociationInput{ID: groupID, RelatedIDs: []int64{userID}})
+	return err
 }
 
 // BulkAddUsersToGroup 批量添加用户到组织（事务包裹）
 func (s *GroupService) BulkAddUsersToGroup(ctx context.Context, groupID int64, userIDs []int64) (*svc.BulkOperationResponse, error) {
-	response := &svc.BulkOperationResponse{}
-	err := appcrud.WithTx(ctx, s.groupRepo, func(txCtx context.Context) error {
-		for _, userID := range userIDs {
-			if err := s.AddUserToGroup(txCtx, groupID, userID); err != nil {
-				response.FailureCount++
-				response.Errors = append(response.Errors, err)
-			} else {
-				response.SuccessCount++
-			}
-		}
-		if response.FailureCount > 0 {
-			response.SuccessCount = 0
-			return errBulkAddUsersRollback
-		}
-		return nil
-	})
-	if err != nil && !stdErrors.Is(err, errBulkAddUsersRollback) {
-		return nil, err
-	}
-
-	// 如果有任何失败，整个事务回滚，SuccessCount 置零以反映真实状态
-	if response.FailureCount > 0 {
-		return response, nil
-	}
-	return response, nil
+	return s.executeAssociation(ctx, "bulk_add_users", GroupAssociationInput{ID: groupID, RelatedIDs: userIDs})
 }
 
 // GroupRoles 获取组织默认角色
 func (s *GroupService) GroupRoles(ctx context.Context, groupID int64) ([]*iamentity.Role, error) {
-	group, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.groupRepo, groupID)
-	if err != nil {
-		return nil, err
-	}
-	if err := svc.RequireAuthorization(ctx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionRead), group); err != nil {
-		return nil, err
-	}
-	return s.roleRepo.FindByGroupID(tenantCtx, groupID)
+	out, err := s.executeRead(ctx, "roles", GroupReadInput{ID: groupID})
+	return out.Roles, err
 }
 
 // AddGroupRole 为组织添加默认角色
 func (s *GroupService) AddGroupRole(ctx context.Context, groupID, roleID int64) error {
-	group, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.groupRepo, groupID)
-	if err != nil {
-		return err
-	}
-	role, err := s.roleRepo.Get(tenantCtx, roleID, spec.All())
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionWrite), group, role)
-	if err != nil {
-		return err
-	}
-	return s.groupRepo.AddDefaultRole(tenantCtx, groupID, roleID, guard)
+	_, err := s.executeAssociation(ctx, "add_role", GroupAssociationInput{ID: groupID, RelatedIDs: []int64{roleID}})
+	return err
 }
 
 // RemoveGroupRole 移除组织默认角色
 func (s *GroupService) RemoveGroupRole(ctx context.Context, groupID, roleID int64) error {
-	group, tenantCtx, err := svc.LoadTenantBoundResource(ctx, s.groupRepo, groupID)
-	if err != nil {
-		return err
-	}
-	role, err := s.roleRepo.Get(tenantCtx, roleID, spec.All())
-	if err != nil {
-		return err
-	}
-	guard, err := svc.AuthorizeWriteSpec(tenantCtx, s.authorizer, svc.GroupPermissionSet.Code(iamperm.ActionWrite), group, role)
-	if err != nil {
-		return err
-	}
-	return s.groupRepo.RemoveDefaultRole(tenantCtx, groupID, roleID, guard)
+	_, err := s.executeAssociation(ctx, "remove_role", GroupAssociationInput{ID: groupID, RelatedIDs: []int64{roleID}})
+	return err
 }
 
 // GroupStatistics 获取组织统计信息
 func (s *GroupService) GroupStatistics(ctx context.Context) (*svc.StatisticsResponse, error) {
-	tenantID, err := svc.TenantIDFromContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := svc.RequirePermissionInTenant(ctx, s.scopeAuthorizer, svc.GroupPermissionSet.Code(iamperm.ActionRead), tenantID); err != nil {
-		return nil, err
-	}
-	tenantCtx, err := svc.BindTenantContext(ctx, tenantID)
-	if err != nil {
-		return nil, err
-	}
-
-	totalGroups, err := s.groupRepo.QueryCount(tenantCtx, query.QueryOptions{}, spec.All())
-	if err != nil {
-		return nil, err
-	}
-
-	totalRoles, err := s.roleRepo.QueryCount(tenantCtx, query.QueryOptions{}, spec.All())
-	if err != nil {
-		return nil, err
-	}
-
-	totalUsers, err := s.userRepo.QueryCount(tenantCtx, query.QueryOptions{}, spec.All())
-	if err != nil {
-		return nil, err
-	}
-
-	// 计算激活用户数（改为基于 CountByStatus）
-	usersByStatus, err := s.userRepo.CountByStatus(tenantCtx, svc.DataScopeSpec(tenantCtx))
-	if err != nil {
-		return nil, err
-	}
-	activeUsers := usersByStatus[svc.UserStatusActive]
-
-	groupsByLevel, err := s.groupRepo.CountByLevel(tenantCtx, svc.DataScopeSpec(tenantCtx))
-	if err != nil {
-		return nil, err
-	}
-
-	// usersByStatus 已获取
-
-	return &svc.StatisticsResponse{
-		TotalUsers:    totalUsers,
-		ActiveUsers:   activeUsers,
-		TotalGroups:   totalGroups,
-		TotalRoles:    totalRoles,
-		GroupsByLevel: groupsByLevel,
-		UsersByStatus: usersByStatus,
-	}, nil
+	return s.statisticsCommands["statistics"].Execute(ctx, struct{}{})
 }
 
 // 私有辅助方法

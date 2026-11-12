@@ -47,7 +47,7 @@ func setupMenuServiceTest(t *testing.T) *menuServiceTestEnv {
 	if err != nil {
 		t.Fatalf("NewMenuItemRepository: %v", err)
 	}
-	authorizer := svc.NewIAMAuthorizer(nil)
+	authorizer := svc.NewIAMAccess(nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
@@ -60,10 +60,14 @@ func setupMenuServiceTest(t *testing.T) *menuServiceTestEnv {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
 	ctx = iamauth.BindActiveScopeContext(ctx, 1, string(iammw.ScopePlatform))
+	menuService, err := NewMenuService(menuRepo, authorizer, logging.NewNoopLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
 	return &menuServiceTestEnv{
 		db:            db,
 		menuRepo:      menuRepo,
-		menuService:   NewMenuService(menuRepo, authorizer, logging.NewNoopLogger()),
+		menuService:   menuService,
 		backgroundCtx: ctx,
 		cancelFunc:    cancel,
 	}
@@ -90,13 +94,7 @@ func TestMenuServiceCreateMenuItem_FailsClosedWithoutAuthorizer(t *testing.T) {
 	env := setupMenuServiceTest(t)
 	defer env.teardown(t)
 
-	menuService := NewMenuService(env.menuRepo, nil, logging.NewNoopLogger())
-	_, err := menuService.CreateMenuItem(context.Background(), &CreateMenuItemRequest{
-		Code:      "root",
-		Title:     "Root",
-		Type:      iamentity.MenuTypeGroup,
-		Published: true,
-	})
+	_, err := NewMenuService(env.menuRepo, nil, logging.NewNoopLogger())
 	if !errors.Is(err, errors.InvalidInput) {
 		t.Fatalf("expected invalid input error, got %v", err)
 	}

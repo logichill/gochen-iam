@@ -97,8 +97,7 @@ func TestRoleServiceRoleUsersRequiresPlatformScopeForPlatformOwnedRole(t *testin
 		t.Fatalf("create role binding: %v", err)
 	}
 
-	tenantCtx := iamauth.BindActiveScopeContext(env.backgroundCtx, 1, string(iammw.ScopeTenant))
-	tenantCtx, err := auth.WithPrincipal(tenantCtx, auth.Principal{
+	tenantCtx, err := auth.WithPrincipal(env.backgroundCtx, auth.Principal{
 		SubjectID:     "42",
 		Permissions:   []string{svc.RolePermissionSet.Code(iammw.ActionRead)},
 		ActiveScopeID: 1,
@@ -106,14 +105,14 @@ func TestRoleServiceRoleUsersRequiresPlatformScopeForPlatformOwnedRole(t *testin
 	if err != nil {
 		t.Fatalf("bind tenant principal: %v", err)
 	}
+	tenantCtx = iamauth.BindActiveScopeContext(tenantCtx, 1, string(iammw.ScopeTenant))
 	if _, err := env.roleService.RoleUsers(tenantCtx, role.GetID()); err == nil {
 		t.Fatal("expected tenant-scope principal to be rejected")
 	} else if !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("RoleUsers error = %v, want Forbidden", err)
 	}
 
-	platformCtx := iamauth.BindActiveScopeContext(env.backgroundCtx, platformScopeID, string(iammw.ScopePlatform))
-	platformCtx, err = auth.WithPrincipal(platformCtx, auth.Principal{
+	platformCtx, err := auth.WithPrincipal(env.backgroundCtx, auth.Principal{
 		SubjectID:     "7",
 		Permissions:   []string{svc.RolePermissionSet.Code(iammw.ActionRead)},
 		ActiveScopeID: platformScopeID,
@@ -121,6 +120,7 @@ func TestRoleServiceRoleUsersRequiresPlatformScopeForPlatformOwnedRole(t *testin
 	if err != nil {
 		t.Fatalf("bind platform principal: %v", err)
 	}
+	platformCtx = iamauth.BindActiveScopeContext(platformCtx, platformScopeID, string(iammw.ScopePlatform))
 	users, err := env.roleService.RoleUsers(platformCtx, role.GetID())
 	if err != nil {
 		t.Fatalf("RoleUsers with platform scope: %v", err)

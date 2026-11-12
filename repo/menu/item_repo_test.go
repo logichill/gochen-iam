@@ -161,7 +161,7 @@ func TestMenuItemRepo_GetWithDeleted_UsesTxSessionModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WithTxSession: %v", err)
 	}
-	if _, err := r.GetWithDeleted(txCtx, 1); err != nil {
+	if _, err := r.GetWithDeleted(txCtx, 1, spec.All()); err != nil {
 		t.Fatalf("GetWithDeleted: %v", err)
 	}
 
@@ -178,13 +178,16 @@ func TestMenuItemRepo_RestoreByID_UsesTxSessionModel(t *testing.T) {
 		baseModel: &capturingModel{},
 		sessionModel: &capturingModel{
 			firstFn: func(dest any) error {
-				item, ok := dest.(*iamentity.MenuItem)
+				target, ok := dest.(**iamentity.MenuItem)
 				if !ok {
-					return nil
+					return fmt.Errorf("unexpected menu query destination %T", dest)
 				}
+				item := &iamentity.MenuItem{}
+				item.SetID(1)
 				at := time.Now().Add(-time.Hour)
 				item.DeletedAt = &at
 				item.UpdatedAt = at
+				*target = item
 				return nil
 			},
 		},

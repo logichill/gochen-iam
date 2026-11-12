@@ -1,18 +1,85 @@
 package router
 
 import (
+	"path/filepath"
 	"testing"
 
 	iamentity "gochen-iam/entity"
+	grouprepo "gochen-iam/repo/group"
+	rolerepo "gochen-iam/repo/role"
+	scoperepo "gochen-iam/repo/scope"
+	tenantrepo "gochen-iam/repo/tenant"
+	userrepo "gochen-iam/repo/user"
 	svc "gochen-iam/service"
 	scopesvc "gochen-iam/service/scope"
+	"gochen-runtime/db/orm/lite"
+	"gochen-runtime/db/sql/stdsql"
+	"gochen/db"
+	"gochen/testkit"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
 )
+
+func scopeRoutesFixture(t *testing.T) (*ScopeRoutes, *gorm.DB, *scoperepo.ScopeRepo) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "scope-routes.db")
+	storage, err := gorm.Open(sqlite.Open(path), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.AutoMigrate(&iamentity.Scope{}, &iamentity.ScopeVisibility{}, &iamentity.Tenant{}, &iamentity.Role{}, &iamentity.User{}, &iamentity.Group{}, &iamentity.UserRoleBinding{}); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := storage.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	database, err := stdsql.NewWithContext(t.Context(), db.DBConfig{Driver: "sqlite3", Database: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	engine, err := lite.New(database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopes, err := scoperepo.NewScopeRepository(engine, testkit.NewInt64Sequence(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenants, err := tenantrepo.NewTenantRepository(engine, testkit.NewInt64Sequence(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles, err := rolerepo.NewRoleRepository(engine, testkit.NewInt64Sequence(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	users, err := userrepo.NewUserRepository(engine, testkit.NewInt64Sequence(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, err := grouprepo.NewGroupRepository(engine, testkit.NewInt64Sequence(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := scopesvc.NewScopeService(scopes, tenants, roles, users, groups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes, err := NewScopeRoutes(service)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return routes, storage, scopes
+}
 
 func TestScopeRoutes_RegisterRoutes(t *testing.T) {
 	routes := map[string]struct{}{}
 	root := newRecordingGroup("", routes)
 
-	sr := NewScopeRoutes(nil, &scopesvc.ScopeService{})
+	sr, _, _ := scopeRoutesFixture(t)
 	if err := sr.RegisterRoutes(root); err != nil {
 		t.Fatalf("RegisterRoutes failed: %v", err)
 	}

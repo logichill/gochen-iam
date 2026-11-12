@@ -1,6 +1,7 @@
 package entity
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -14,6 +15,8 @@ import (
 
 // PermissionArray 权限数组类型
 type PermissionArray []string
+
+var _ driver.Valuer = PermissionArray(nil)
 
 // Scan 把当前结果写入目标对象。
 func (p *PermissionArray) Scan(value any) error {
@@ -33,7 +36,7 @@ func (p *PermissionArray) Scan(value any) error {
 }
 
 // Value 处理值。
-func (p PermissionArray) Value() (any, error) {
+func (p PermissionArray) Value() (driver.Value, error) {
 	if len(p) == 0 {
 		return "[]", nil
 	}

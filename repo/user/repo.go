@@ -8,6 +8,7 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen-iam/repo/internal/likesafe"
 	scoperesolver "gochen-iam/repo/internal/scope"
+	"gochen-iam/repo/relations"
 	iamtenant "gochen-iam/tenant"
 	"gochen-runtime/db/orm/repo"
 	"gochen/app/query"
@@ -37,6 +38,42 @@ type BindingRecord struct {
 	RoleID       int64
 	GrantScopeID int64
 	Status       string
+}
+
+// DisplayRef contains the fields exposed by trusted cross-resource displays.
+type DisplayRef struct {
+	ID       int64
+	Username string
+	Email    string
+	Avatar   string
+}
+
+// FindActiveDisplay reads one same-tenant active user without loading associations.
+// Callers supply exactly one trusted ID or username and the resource condition.
+func (r *UserRepo) FindActiveDisplay(ctx context.Context, id int64, username string, condition spec.Spec) (*DisplayRef, error) {
+	if id < 0 || (id == 0) == (username == "") {
+		return nil, errors.NewCode(errors.InvalidInput, "user display requires one ID or username")
+	}
+	q, err := r.ScopedQueryWithSpec(ctx, condition)
+	if err != nil {
+		return nil, err
+	}
+	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	q.Select("id", "username", "email", "avatar").Where("tenant_id = ?", tenantID).
+		Where("(status = ? OR TRIM(status) = '')", "active")
+	if id > 0 {
+		q.Where("id = ?", id)
+	} else {
+		q.Where("username = ?", username)
+	}
+	var ref DisplayRef
+	if err := q.First(&ref); err != nil {
+		return nil, err
+	}
+	return &ref, nil
 }
 
 const (
@@ -348,15 +385,19 @@ func (r *UserRepo) UpdateLastLogin(ctx context.Context, userID int64) error {
 }
 
 // FindByStatus 根据状态查找用户。
-func (r *UserRepo) FindByStatus(ctx context.Context, status string) ([]*iamentity.User, error) {
+func (r *UserRepo) FindByStatus(ctx context.Context, status string, condition spec.Spec) ([]*iamentity.User, error) {
 	var users []*iamentity.User
-	query, err := r.tenantScopedQuery(ctx)
+	query, err := r.ScopedQueryWithSpec(ctx, condition)
+	if err != nil {
+		return nil, err
+	}
+	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	err = query.
+		Where("tenant_id = ?", tenantID).
 		Where("status = ?", status).
-		Preload("Groups", "Roles").
 		Find(&users)
 	if err != nil {
 		return nil, errors.Wrap(err, errors.Database, "查询用户失败")
@@ -554,16 +595,20 @@ func (r *UserRepo) RemoveRoleBinding(ctx context.Context, bindingID int64) error
 }
 
 // RemoveAuthorizedRoleBinding 仅删除已授权的绑定快照，并校验用户与角色的写入边界。
-func (r *UserRepo) RemoveAuthorizedRoleBinding(ctx context.Context, binding BindingRecord, s spec.Spec) error {
+func (r *UserRepo) RemoveAuthorizedRoleBinding(ctx context.Context, binding BindingRecord, userCondition, roleCondition spec.Spec) error {
 	return r.WithinTx(ctx, func(txCtx context.Context) error {
-		if _, err := r.Repo.Get(txCtx, binding.UserID, s); err != nil {
+		user, err := r.Repo.Get(txCtx, binding.UserID, userCondition)
+		if err != nil {
 			return err
 		}
 		role, err := r.roleByID(txCtx, binding.RoleID)
 		if err != nil {
 			return err
 		}
-		if err := requireSpecMatch(s, role); err != nil {
+		if user.TenantID != role.TenantID {
+			return errors.NewCode(errors.Forbidden, "user and role must belong to the same tenant")
+		}
+		if err := requireSpecMatch(roleCondition, role); err != nil {
 			return err
 		}
 		session, ok := orm.SessionFromContext(txCtx)
@@ -603,33 +648,29 @@ func (r *UserRepo) RemoveAuthorizedRoleBinding(ctx context.Context, binding Bind
 }
 
 // AssignToGroup 将用户分配到组织。
-func (r *UserRepo) AssignToGroup(ctx context.Context, userID, groupID int64, s spec.Spec) error {
+func (r *UserRepo) AssignToGroup(ctx context.Context, userID, groupID int64, userCondition, groupCondition spec.Spec) error {
 	return r.mutateUserAssociation(ctx, userID, "Groups", groupResourceKind, groupID,
-		&iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}}, false, "分配用户到组织失败", s)
+		&iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}}, false, "分配用户到组织失败", userCondition, groupCondition)
 }
 
 // RemoveFromGroup 从组织中移除用户。
-func (r *UserRepo) RemoveFromGroup(ctx context.Context, userID, groupID int64, s spec.Spec) error {
+func (r *UserRepo) RemoveFromGroup(ctx context.Context, userID, groupID int64, userCondition, groupCondition spec.Spec) error {
 	return r.mutateUserAssociation(ctx, userID, "Groups", groupResourceKind, groupID,
-		&iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}}, true, "从组织移除用户失败", s)
+		&iamentity.Group{Entity: domaincrud.Entity[int64]{ID: groupID}}, true, "从组织移除用户失败", userCondition, groupCondition)
 }
 
 // AssignRole 为用户分配角色。
-func (r *UserRepo) AssignRole(ctx context.Context, userID, roleID int64, s spec.Spec) error {
+func (r *UserRepo) AssignRole(ctx context.Context, userID, roleID, grantScopeID int64, userCondition, roleCondition spec.Spec) error {
 	return r.WithinTx(ctx, func(txCtx context.Context) error {
-		if _, err := r.Repo.Get(txCtx, userID, s); err != nil {
+		if _, err := r.Repo.Get(txCtx, userID, userCondition); err != nil {
 			return err
 		}
 		role, err := r.roleByID(txCtx, roleID)
 		if err != nil {
 			return err
 		}
-		if err := requireSpecMatch(s, role); err != nil {
+		if err := requireSpecMatch(roleCondition, role); err != nil {
 			return err
-		}
-		grantScopeID := role.NamespaceScopeID
-		if override := scoperesolver.ResolveManagedScopeID(txCtx); override > 0 {
-			grantScopeID = override
 		}
 		return r.assignRoleAtScope(txCtx, userID, roleID, grantScopeID, false)
 	})
@@ -643,16 +684,20 @@ func tenantOwnerID(tenantID string) string {
 }
 
 // RemoveRole 移除用户角色。
-func (r *UserRepo) RemoveRole(ctx context.Context, userID, roleID int64, s spec.Spec) error {
+func (r *UserRepo) RemoveRole(ctx context.Context, userID, roleID int64, userCondition, roleCondition spec.Spec) error {
 	return r.WithinTx(ctx, func(txCtx context.Context) error {
-		if _, err := r.Repo.Get(txCtx, userID, s); err != nil {
+		user, err := r.Repo.Get(txCtx, userID, userCondition)
+		if err != nil {
 			return err
 		}
 		role, err := r.roleByID(txCtx, roleID)
 		if err != nil {
 			return err
 		}
-		if err := requireSpecMatch(s, role); err != nil {
+		if user.TenantID != role.TenantID {
+			return errors.NewCode(errors.Forbidden, "user and role must belong to the same tenant")
+		}
+		if err := requireSpecMatch(roleCondition, role); err != nil {
 			return err
 		}
 		session, ok := orm.SessionFromContext(txCtx)
@@ -745,14 +790,14 @@ func (r *UserRepo) mutateUserAssociation(
 	related any,
 	remove bool,
 	message string,
-	s spec.Spec,
+	userCondition, relatedCondition spec.Spec,
 ) error {
-	if err := r.requireRelatedInSpec(ctx, relatedKind, relatedID, s); err != nil {
-		return err
-	}
 	return r.WithinTx(ctx, func(txCtx context.Context) error {
-		user, err := r.Repo.Get(txCtx, userID, s)
+		user, err := r.Repo.Get(txCtx, userID, userCondition)
 		if err != nil {
+			return err
+		}
+		if err := r.requireRelatedInSpec(txCtx, relatedKind, relatedID, relatedCondition); err != nil {
 			return err
 		}
 		model, err := r.ModelFor(txCtx)
@@ -806,6 +851,44 @@ func requireSpecMatch(s spec.Spec, entity any) error {
 	return nil
 }
 
+// MembersForGroups reads authorized users and their links without preloading relations.
+func (r *UserRepo) MembersForGroups(ctx context.Context, groupIDs []int64, condition spec.Spec) (relations.Catalog[*iamentity.User], error) {
+	return relations.Read(ctx, r.Repo, groupIDs, condition, orm.InnerJoin("user_groups", "", orm.On("users.id", "user_groups.user_id")), "user_groups.group_id", "users.id")
+}
+
+// GroupMemberCounts counts authorized users for the specified groups without preloading relations.
+func (r *UserRepo) GroupMemberCounts(ctx context.Context, groupIDs []int64, s spec.Spec) (map[int64]int64, error) {
+	counts := make(map[int64]int64)
+	for _, id := range groupIDs {
+		if id <= 0 {
+			return nil, errors.NewCode(errors.InvalidInput, "group ID must be positive")
+		}
+	}
+	const batchSize = 1000
+	for start := 0; start < len(groupIDs); start += batchSize {
+		end := min(start+batchSize, len(groupIDs))
+		q, err := r.ScopedQueryWithSpec(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		var rows []struct {
+			GroupID int64
+			Total   int64
+		}
+		err = q.Join(orm.InnerJoin("user_groups", "", orm.On("users.id", "user_groups.user_id"))).
+			Where("user_groups.group_id IN ?", groupIDs[start:end]).
+			SelectExprUnsafe(repo.AllowUnsafeSelectExpr(), "user_groups.group_id AS group_id", "COUNT(DISTINCT users.id) AS total").
+			GroupBy("user_groups.group_id").Find(&rows)
+		if err != nil {
+			return nil, errors.Wrap(err, errors.Database, "count group members")
+		}
+		for _, row := range rows {
+			counts[row.GroupID] = row.Total
+		}
+	}
+	return counts, nil
+}
+
 // CountByStatus 统计各状态用户数量。
 func (r *UserRepo) CountByStatus(ctx context.Context, s spec.Spec) (map[string]int64, error) {
 	statusMap := make(map[string]int64)
@@ -832,13 +915,17 @@ func (r *UserRepo) CountByStatus(ctx context.Context, s spec.Spec) (map[string]i
 }
 
 // SearchUsers 搜索用户（支持用户名、邮箱模糊搜索）。
-func (r *UserRepo) SearchUsers(ctx context.Context, keyword string, limit int) ([]*iamentity.User, error) {
+func (r *UserRepo) SearchUsers(ctx context.Context, keyword string, limit int, condition spec.Spec) ([]*iamentity.User, error) {
 	var users []*iamentity.User
-	query, err := r.tenantScopedQuery(ctx)
+	query, err := r.ScopedQueryWithSpec(ctx, condition)
 	if err != nil {
 		return nil, err
 	}
-	query.Preload("Groups", "Roles")
+	tenantID, err := (iamtenant.Resolver{}).ResolveTenantID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	query.Where("tenant_id = ?", tenantID)
 	if keyword != "" {
 		pattern := likesafe.ContainsPattern(keyword)
 		query.Where("(username LIKE ?"+likesafe.EscapeClause+" OR email LIKE ?"+likesafe.EscapeClause+")", pattern, pattern)
@@ -872,4 +959,9 @@ func (r *UserRepo) hydrateUsersRelations(ctx context.Context, users []*iamentity
 	}
 
 	return users, nil
+}
+
+// MembersForRoles projects same-tenant users under an independent user condition.
+func (r *UserRepo) MembersForRoles(ctx context.Context, roleIDs []int64, condition spec.Spec) (relations.Catalog[*iamentity.User], error) {
+	return relations.Read(ctx, r.Repo, roleIDs, condition, orm.InnerJoin("user_role_bindings", "", orm.On("users.id", "user_role_bindings.user_id")), "user_role_bindings.role_id", "users.id", orm.Condition{Expr: "user_role_bindings.status = ?", Args: []any{"active"}})
 }

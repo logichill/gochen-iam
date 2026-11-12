@@ -8,6 +8,8 @@ import (
 	iammw "gochen-iam/middleware"
 	iamsvc "gochen-iam/service"
 	"gochen-iam/tenant"
+	runtimehttp "gochen-runtime/http"
+	"gochen/auth"
 	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"
@@ -44,14 +46,33 @@ func (ar *AuthRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 	authGroup := group.Group("/auth")
 
-	authGroup.POST("/register", ar.register)
-	authGroup.POST("/login", ar.login)
-	authGroup.GET("/csrf", ar.csrfToken)
-	authGroup.POST("/activate-scope", ar.activateScope)
-	authGroup.POST("/logout", ar.logout)
-	authGroup.POST("/refresh", ar.refreshToken)
-	authGroup.POST("/forgot-password", ar.forgotPassword)
-	authGroup.POST("/reset-password", ar.resetPassword)
+	registry, _, err := runtimehttp.EntryRegistryFrom(authGroup)
+	if err != nil {
+		return err
+	}
+	for _, route := range []struct {
+		method, path, protocol string
+		handler                httpx.Handler
+	}{
+		{"POST", "/register", "tenant-bound public account enrollment with request validation, password hashing and default-role bootstrap", ar.register},
+		{"POST", "/login", "tenant-bound credential verification and short-lived activation-token issuance", ar.login},
+		{"GET", "/csrf", "CSRF double-submit cookie/token issuance under the cookie-authentication policy", ar.csrfToken},
+		{"POST", "/activate-scope", "activation-token signature, binding version and allowed-scope verification before session issuance", ar.activateScope},
+		{"POST", "/logout", "signed-session revocation and authentication cookie removal", ar.logout},
+		{"POST", "/refresh", "refresh-token verification, revocation checks and cookie CSRF validation", ar.refreshToken},
+		{"POST", "/forgot-password", "account-recovery protocol with non-disclosing response; no administrative resource access", ar.forgotPassword},
+		{"POST", "/reset-password", "reset-token verification protocol; no administrative resource access", ar.resetPassword},
+	} {
+		if registry != nil {
+			if err := runtimehttp.BindEntry(authGroup, route.method, route.path, auth.EntryBinding{ResourceAccess: auth.ResourceAccessNone,
+				Source: "iam.AuthRoutes" + route.path + " authentication credential protocol", AllowReason: route.protocol}); err != nil {
+				return err
+			}
+		}
+		if err := runtimehttp.RegisterRoute(authGroup, route.method, route.path, route.handler); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

@@ -65,6 +65,22 @@ func TestAllPermissionDefinitions_IncludeActionAndMenuVisibilityPatterns(t *test
 
 	assertContainsDefinition("mcp:action:invoke")
 	assertContainsDefinition("*:menu:view")
+	assertContainsDefinition("menu:api:manage")
+}
+
+func TestMenuManagementPermissionRemainsInTheModuleCatalog(t *testing.T) {
+	if MenuPermissionSet.Code(iammw.ActionManage) != "menu:api:manage" {
+		t.Fatal("menu management permission missing from the canonical catalog")
+	}
+	for _, definition := range IAMAuthzPermissionDefinitions() {
+		if definition.Code == "menu:api:manage" {
+			if len(definition.Scopes) != 1 || definition.Scopes[0] != string(iammw.ScopePlatform) {
+				t.Fatalf("menu management scopes=%v", definition.Scopes)
+			}
+			return
+		}
+	}
+	t.Fatal("menu management permission missing from module metadata")
 }
 
 func TestAllPermissionDefinitions_IncludeRiskLevelsForHighRiskPermissions(t *testing.T) {

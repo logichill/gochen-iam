@@ -223,7 +223,7 @@ func TestValidateUserDeletionRejectsLastAdminInheritedFromGroupDefaultRole(t *te
 	group := env.createGroup(t, "admin-group")
 	role := env.createRole(t, "group-admin", []string{AdminEntryPermission.Code})
 
-	if err := env.userRepo.AssignToGroup(env.backgroundCtx, user.GetID(), group.GetID(), spec.All()); err != nil {
+	if err := env.userRepo.AssignToGroup(env.backgroundCtx, user.GetID(), group.GetID(), spec.All(), spec.All()); err != nil {
 		t.Fatalf("AssignToGroup(user): %v", err)
 	}
 	if err := env.roleRepo.AssignToGroup(env.backgroundCtx, role.GetID(), group.GetID(), spec.All()); err != nil {
@@ -245,10 +245,10 @@ func TestValidateUserDeletionAllowsRemovalWhenAnotherGroupAdminRemains(t *testin
 	group := env.createGroup(t, "admin-group")
 	role := env.createRole(t, "group-admin", []string{AdminEntryPermission.Code})
 
-	if err := env.userRepo.AssignToGroup(env.backgroundCtx, deletingUser.GetID(), group.GetID(), spec.All()); err != nil {
+	if err := env.userRepo.AssignToGroup(env.backgroundCtx, deletingUser.GetID(), group.GetID(), spec.All(), spec.All()); err != nil {
 		t.Fatalf("AssignToGroup(deleting user): %v", err)
 	}
-	if err := env.userRepo.AssignToGroup(env.backgroundCtx, remainingUser.GetID(), group.GetID(), spec.All()); err != nil {
+	if err := env.userRepo.AssignToGroup(env.backgroundCtx, remainingUser.GetID(), group.GetID(), spec.All(), spec.All()); err != nil {
 		t.Fatalf("AssignToGroup(remaining user): %v", err)
 	}
 	if err := env.roleRepo.AssignToGroup(env.backgroundCtx, role.GetID(), group.GetID(), spec.All()); err != nil {

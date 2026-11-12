@@ -6,6 +6,7 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen-iam/repo/internal/likesafe"
 	scoperesolver "gochen-iam/repo/internal/scope"
+	"gochen-iam/repo/relations"
 	iamtenant "gochen-iam/tenant"
 	"gochen-runtime/db/orm/repo"
 	auth "gochen-runtime/host/authz"
@@ -165,11 +166,7 @@ func (r *RoleRepo) Get(ctx context.Context, id int64, s spec.Spec) (*iamentity.R
 		}
 		return nil, errors.Wrap(err, errors.Database, "查询角色失败")
 	}
-	roles, err := r.hydrateRoleScopes(ctx, []*iamentity.Role{role})
-	if err != nil {
-		return nil, err
-	}
-	return roles[0], nil
+	return role, nil
 }
 
 // FindByIDs 根据角色 ID 列表批量查找角色。
@@ -352,6 +349,21 @@ func (r *RoleRepo) FindByUserID(ctx context.Context, userID int64) ([]*iamentity
 // FindByGroupID 根据组织ID查找默认角色。
 func (r *RoleRepo) FindByGroupID(ctx context.Context, groupID int64) ([]*iamentity.Role, error) {
 	return r.FindByGroupIDs(ctx, []int64{groupID})
+}
+
+func (r *RoleRepo) RolesForGroups(ctx context.Context, groupIDs []int64, condition spec.Spec) (relations.Catalog[*iamentity.Role], error) {
+	return relations.Read(ctx, r.Repo, groupIDs, condition, orm.InnerJoin("group_roles", "", orm.On("roles.id", "group_roles.role_id")), "group_roles.group_id", "roles.id")
+}
+
+func (r *RoleRepo) RolesForUsers(ctx context.Context, userIDs []int64, condition spec.Spec) (relations.Catalog[*iamentity.Role], error) {
+	return relations.Read(ctx, r.Repo, userIDs, condition, orm.InnerJoin("user_role_bindings", "", orm.On("roles.id", "user_role_bindings.role_id")), "user_role_bindings.user_id", "roles.id")
+}
+
+// ActiveRolesForUser applies binding status before projecting role associations.
+func (r *RoleRepo) ActiveRolesForUser(ctx context.Context, userID int64, condition spec.Spec) (relations.Catalog[*iamentity.Role], error) {
+	return relations.Read(ctx, r.Repo, []int64{userID}, condition,
+		orm.InnerJoin("user_role_bindings", "", orm.On("roles.id", "user_role_bindings.role_id")),
+		"user_role_bindings.user_id", "roles.id", orm.Condition{Expr: "user_role_bindings.status = ?", Args: []any{"active"}})
 }
 
 // FindByGroupIDs 根据组织 ID 列表批量查找默认角色。
@@ -711,13 +723,12 @@ func (r *RoleRepo) RoleUsageStats(ctx context.Context) ([]map[string]interface{}
 }
 
 // SearchRoles 搜索角色（支持名称、描述模糊搜索）。
-func (r *RoleRepo) SearchRoles(ctx context.Context, keyword string, limit int) ([]*iamentity.Role, error) {
+func (r *RoleRepo) SearchRoles(ctx context.Context, keyword string, limit int, condition spec.Spec) ([]*iamentity.Role, error) {
 	var roles []*iamentity.Role
-	query, err := r.tenantScopedQuery(ctx)
+	query, err := r.ScopedQueryWithSpec(ctx, condition)
 	if err != nil {
 		return nil, err
 	}
-	query.Preload("Users", "Groups")
 	if keyword != "" {
 		pattern := likesafe.ContainsPattern(keyword)
 		query.Where("(name LIKE ?"+likesafe.EscapeClause+" OR description LIKE ?"+likesafe.EscapeClause+")", pattern, pattern)
@@ -757,7 +768,11 @@ func (r *RoleRepo) CountGroupsByRoleID(ctx context.Context, roleID int64) (int64
 }
 
 // InitializeSystemRoles 初始化系统角色。
-func (r *RoleRepo) InitializeSystemRoles(ctx context.Context) error {
+func (r *RoleRepo) InitializeSystemRoles(ctx context.Context, conditions ...spec.Spec) error {
+	guard := spec.All()
+	if len(conditions) > 0 {
+		guard = spec.And(conditions...)
+	}
 	systemRoles := []*iamentity.Role{
 		iamentity.SystemAdminRole,
 		iamentity.UserRole,
@@ -773,7 +788,7 @@ func (r *RoleRepo) InitializeSystemRoles(ctx context.Context) error {
 		if existing == nil {
 			// 角色不存在，创建它
 			clone := *role
-			if err := r.Repo.Create(ctx, &clone, spec.All()); err != nil {
+			if err := r.Create(ctx, &clone, guard); err != nil {
 				return errors.Wrap(err, errors.Database, "初始化系统角色失败: "+role.Name)
 			}
 		}

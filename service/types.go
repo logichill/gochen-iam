@@ -313,6 +313,7 @@ var (
 	)
 	MenuPermissionSet = iamperm.NewAPIPermissionSet(
 		iamperm.ResourceMenu,
+		iamperm.ActionManage,
 		iamperm.ActionRead,
 		iamperm.ActionWrite,
 		iamperm.ActionPublish,

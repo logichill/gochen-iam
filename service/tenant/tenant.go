@@ -5,11 +5,8 @@ import (
 	"time"
 
 	iamentity "gochen-iam/entity"
-	iamperm "gochen-iam/permissions"
 	tenantrepo "gochen-iam/repo/tenant"
 	svc "gochen-iam/service"
-	"gochen/db/orm"
-	"gochen/domain/spec"
 	"gochen/errors"
 )
 
@@ -17,35 +14,43 @@ import (
 type TenantService struct {
 	tenantRepo      *tenantrepo.TenantRepo
 	scopeAuthorizer *svc.ScopeAuthorizer
-	authorizer      *svc.IAMAuthorizer
+	authorizer      *svc.IAMAccess
+	commands        map[string]*tenantCommand
+	rootProvider    *tenantRootCatalog
 }
 
 // NewTenantService 创建租户服务实例
 func NewTenantService(
 	tenantRepo *tenantrepo.TenantRepo,
 	scopeAuthorizer *svc.ScopeAuthorizer,
-	authorizer *svc.IAMAuthorizer,
-) *TenantService {
-	return &TenantService{
+	authorizer *svc.IAMAccess,
+) (*TenantService, error) {
+	s := &TenantService{
 		tenantRepo:      tenantRepo,
 		scopeAuthorizer: scopeAuthorizer,
 		authorizer:      authorizer,
 	}
+	if err := s.compileCommands(); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 // CreateTenant 创建租户（默认状态为 inactive，由上层应用显式启用）
 func (s *TenantService) CreateTenant(ctx context.Context, req *svc.CreateTenantRequest) (*iamentity.Tenant, error) {
-	if err := s.authorizePlatform(ctx, svc.TenantPermissionSet.Code(iamperm.ActionWrite), &iamentity.Tenant{}); err != nil {
-		return nil, err
-	}
+	out, err := s.execute(ctx, "create", TenantCommandInput{Create: req})
+	return out.Tenant, err
+}
+
+func (s *TenantService) createTenant(ctx context.Context, req *svc.CreateTenantRequest, access *tenantAccess) (*iamentity.Tenant, error) {
 	if err := s.validateCreateTenantRequest(req); err != nil {
 		return nil, err
 	}
 
 	// 校验编码唯一
-	if _, err := s.tenantRepo.FindByKey(ctx, req.Key); err == nil {
+	if exists, err := access.names.Read(ctx, req.Key); err == nil && exists {
 		return nil, errors.NewCode(errors.Validation, "租户编码已存在")
-	} else if !errors.Is(err, errors.NotFound) {
+	} else if err != nil {
 		return nil, errors.Wrap(err, errors.Database, "检查租户编码失败")
 	}
 	tenant := &iamentity.Tenant{
@@ -60,33 +65,39 @@ func (s *TenantService) CreateTenant(ctx context.Context, req *svc.CreateTenantR
 		return nil, err
 	}
 
-	guard, err := svc.AuthorizeWriteSpec(ctx, s.authorizer, svc.TenantPermissionSet.Code(iamperm.ActionWrite), tenant)
-	if err != nil {
-		return nil, err
-	}
-	if s.scopeAuthorizer == nil {
-		return nil, errors.NewCode(errors.InvalidInput, "scope authorizer is required")
-	}
+	var result *iamentity.Tenant
 	if err := s.tenantRepo.WithinTx(ctx, func(txCtx context.Context) error {
-		if err := s.tenantRepo.Create(txCtx, tenant, guard); err != nil {
+		if err := access.tenant.Create(txCtx, tenant); err != nil {
 			return errors.Wrap(err, errors.Database, "保存租户失败")
 		}
-		_, err := s.scopeAuthorizer.EnsureTenantRootScope(txCtx, tenant)
+		if err := access.remember(tenant); err != nil {
+			return err
+		}
+		root, err := access.root.Write(txCtx, tenant)
+		if err == nil {
+			tenant.RootScopeID = &root.ID
+			result, err = access.tenant.Get(txCtx, tenant.ID)
+		}
 		return err
 	}); err != nil {
 		return nil, err
 	}
 
-	return tenant, nil
+	return result, nil
 }
 
 // UpdateTenant 更新租户信息
 func (s *TenantService) UpdateTenant(ctx context.Context, tenantID int64, req *svc.UpdateTenantRequest) (*iamentity.Tenant, error) {
-	tenant, err := s.tenantRepo.Get(ctx, tenantID, spec.All())
-	if err != nil {
-		return nil, err
+	out, err := s.execute(ctx, "update", TenantCommandInput{ID: tenantID, Update: req})
+	return out.Tenant, err
+}
+
+func (s *TenantService) updateTenant(ctx context.Context, tenantID int64, req *svc.UpdateTenantRequest, access *tenantAccess) (*iamentity.Tenant, error) {
+	if req == nil {
+		return nil, errors.NewCode(errors.Validation, "请求不能为空")
 	}
-	if err := s.authorizePlatform(ctx, svc.TenantPermissionSet.Code(iamperm.ActionWrite), tenant); err != nil {
+	tenant, err := access.tenant.Get(ctx, tenantID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -102,11 +113,7 @@ func (s *TenantService) UpdateTenant(ctx context.Context, tenantID int64, req *s
 		return nil, err
 	}
 
-	guard, err := svc.AuthorizeWriteSpec(ctx, s.authorizer, svc.TenantPermissionSet.Code(iamperm.ActionWrite), tenant)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.tenantRepo.Update(ctx, tenant, guard); err != nil {
+	if err := access.tenant.Update(ctx, tenant); err != nil {
 		return nil, errors.Wrap(err, errors.Database, "更新租户失败")
 	}
 
@@ -115,88 +122,32 @@ func (s *TenantService) UpdateTenant(ctx context.Context, tenantID int64, req *s
 
 // ActivateTenant 启用租户
 func (s *TenantService) ActivateTenant(ctx context.Context, tenantID int64) error {
-	tenant, err := s.tenantRepo.Get(ctx, tenantID, spec.All())
-	if err != nil {
-		return err
-	}
-	if err := s.authorizePlatform(ctx, svc.TenantPermissionSet.Code(iamperm.ActionActivate), tenant); err != nil {
-		return err
-	}
-
-	tenant.Activate()
-	guard, err := svc.AuthorizeWriteSpec(ctx, s.authorizer, svc.TenantPermissionSet.Code(iamperm.ActionActivate), tenant)
-	if err != nil {
-		return err
-	}
-	if err := s.tenantRepo.Update(ctx, tenant, guard); err != nil {
-		return errors.Wrap(err, errors.Database, "启用租户失败")
-	}
-	return nil
+	_, err := s.execute(ctx, "activate", TenantCommandInput{ID: tenantID})
+	return err
 }
 
 // DeactivateTenant 禁用租户
 func (s *TenantService) DeactivateTenant(ctx context.Context, tenantID int64) error {
-	tenant, err := s.tenantRepo.Get(ctx, tenantID, spec.All())
-	if err != nil {
-		return err
-	}
-	if err := s.authorizePlatform(ctx, svc.TenantPermissionSet.Code(iamperm.ActionActivate), tenant); err != nil {
-		return err
-	}
-
-	tenant.Deactivate()
-	guard, err := svc.AuthorizeWriteSpec(ctx, s.authorizer, svc.TenantPermissionSet.Code(iamperm.ActionActivate), tenant)
-	if err != nil {
-		return err
-	}
-	if err := s.tenantRepo.Update(ctx, tenant, guard); err != nil {
-		return errors.Wrap(err, errors.Database, "禁用租户失败")
-	}
-	return nil
+	_, err := s.execute(ctx, "deactivate", TenantCommandInput{ID: tenantID})
+	return err
 }
 
 // RepairTenantRootScope 修复或重建租户 root scope。
 func (s *TenantService) RepairTenantRootScope(ctx context.Context, tenantID int64) (*iamentity.Scope, error) {
-	tenant, err := s.tenantRepo.Get(ctx, tenantID, spec.All())
-	if err != nil {
-		return nil, err
-	}
-	if err := s.authorizePlatform(ctx, svc.TenantPermissionSet.Code(iamperm.ActionWrite), tenant); err != nil {
-		return nil, err
-	}
-	if s.scopeAuthorizer == nil {
-		return nil, errors.NewCode(errors.InvalidInput, "scope authorizer is required")
-	}
-	return s.scopeAuthorizer.EnsureTenantRootScope(ctx, tenant)
+	out, err := s.execute(ctx, "repair", TenantCommandInput{ID: tenantID})
+	return out.Scope, err
 }
 
 // Tenant 获取单个租户
 func (s *TenantService) Tenant(ctx context.Context, tenantID int64) (*iamentity.Tenant, error) {
-	tenant, err := s.tenantRepo.Get(ctx, tenantID, spec.All())
-	if err != nil {
-		return nil, err
-	}
-	if err := s.authorizePlatform(ctx, svc.TenantPermissionSet.Code(iamperm.ActionRead), tenant); err != nil {
-		return nil, err
-	}
-	return tenant, nil
+	out, err := s.execute(ctx, "read", TenantCommandInput{ID: tenantID})
+	return out.Tenant, err
 }
 
 // ListTenants 获取租户列表
 func (s *TenantService) ListTenants(ctx context.Context) ([]*iamentity.Tenant, error) {
-	if err := s.authorizePlatform(ctx, svc.TenantPermissionSet.Code(iamperm.ActionRead), &iamentity.Tenant{}); err != nil {
-		return nil, err
-	}
-	model, err := s.tenantRepo.ModelFor(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var tenants []*iamentity.Tenant
-	err = model.Find(ctx, &tenants, orm.WithWhere("deleted_at IS NULL"))
-	if err != nil {
-		return nil, errors.Wrap(err, errors.Database, "查询租户列表失败")
-	}
-	return tenants, nil
+	out, err := s.execute(ctx, "list", TenantCommandInput{})
+	return out.Tenants, err
 }
 
 // ----------------- 校验辅助 -----------------
@@ -213,11 +164,4 @@ func (s *TenantService) validateCreateTenantRequest(req *svc.CreateTenantRequest
 		return errors.NewCode(errors.Validation, "租户名称不能为空")
 	}
 	return nil
-}
-
-func (s *TenantService) authorizePlatform(ctx context.Context, permission string, targets ...any) error {
-	if s.authorizer == nil {
-		return errors.NewCode(errors.InvalidInput, "authorizer is required")
-	}
-	return svc.RequireAuthorization(ctx, s.authorizer, permission, targets...)
 }

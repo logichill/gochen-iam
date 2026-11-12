@@ -8,10 +8,13 @@ import (
 	iamentity "gochen-iam/entity"
 	iammw "gochen-iam/middleware"
 	svc "gochen-iam/service"
+	groupsvc "gochen-iam/service/group"
 	iamtenant "gochen-iam/tenant"
 	"gochen-runtime/api/rest"
+	runtimehttp "gochen-runtime/http"
 	appcrud "gochen/app/crud"
 	"gochen/app/query"
+	"gochen/auth"
 	"gochen/errors"
 	"gochen/httpx"
 )
@@ -30,22 +33,46 @@ var groupQuerySchema = query.MustInferQuerySchema[groupQueryFields](nil)
 
 // GroupRoutes 组织路由注册器
 type GroupRoutes struct {
-	groupService IGroupService
-	groupRepo    appcrud.Repository[*iamentity.Group, int64]
-	authorizer   *svc.IAMAuthorizer
+	groupService *groupsvc.GroupService
 }
 
 // NewGroupRoutes 创建组织路由注册器
 func NewGroupRoutes(
-	groupService IGroupService,
-	groupRepo appcrud.Repository[*iamentity.Group, int64],
-	authorizer *svc.IAMAuthorizer,
-) *GroupRoutes {
+	groupService *groupsvc.GroupService,
+) (*GroupRoutes, error) {
+	if groupService == nil || groupService.HTTPApplication() == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "group routes require the declared group service and its actual HTTP application")
+	}
+	application, ok := groupService.HTTPApplication().(interface {
+		AuthorizationBinding(string) (auth.EntryBinding, error)
+	})
+	if !ok {
+		return nil, errors.NewCode(errors.InvalidInput, "group HTTP application must expose its actual resource bindings")
+	}
+	for _, action := range []string{appcrud.ActionRead, appcrud.ActionList, appcrud.ActionCreate, appcrud.ActionUpdate, appcrud.ActionDelete} {
+		if _, err := application.AuthorizationBinding(action); err != nil {
+			return nil, err
+		}
+	}
+	for _, action := range []string{"add_user", "remove_user", "bulk_add_users", "add_role", "remove_role"} {
+		if _, err := groupService.AssociationAuthorizationBinding(action); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := groupService.StatisticsAuthorizationBinding(); err != nil {
+		return nil, err
+	}
+	if _, err := groupService.TreeAuthorizationBinding(); err != nil {
+		return nil, err
+	}
+	for _, action := range []string{"roots", "by_level", "users", "roles"} {
+		if _, err := groupService.ReadAuthorizationBinding(action); err != nil {
+			return nil, err
+		}
+	}
 	return &GroupRoutes{
 		groupService: groupService,
-		groupRepo:    groupRepo,
-		authorizer:   authorizer,
-	}
+	}, nil
 }
 
 // RegisterRoutes 注册路由。
@@ -61,24 +88,7 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 		iammw.ApiPermission(iammw.ResourceGroup, iammw.ActionManage).Scope(iammw.ScopePlatform, iammw.ScopeTenant),
 	))
 
-	app, err := appcrud.NewApplication[*iamentity.Group, int64](gr.groupRepo, appcrud.Options[*iamentity.Group, int64]{
-		Resource:   "group",
-		Authorizer: gr.authorizer.ForResource("group"),
-		ActionPermissions: map[string]string{
-			appcrud.ActionRead:   svc.GroupPermissionSet.Code(iammw.ActionRead),
-			appcrud.ActionList:   svc.GroupPermissionSet.Code(iammw.ActionRead),
-			appcrud.ActionCreate: svc.GroupPermissionSet.Code(iammw.ActionWrite),
-			appcrud.ActionUpdate: svc.GroupPermissionSet.Code(iammw.ActionWrite),
-			appcrud.ActionDelete: svc.GroupPermissionSet.Code(iammw.ActionDelete),
-		},
-		Hooks: newGroupCRUDHooks(gr.groupRepo, gr.groupService),
-	})
-	if err != nil {
-		if appErr, ok := err.(*errors.AppError); ok && appErr != nil {
-			return appErr.Wrap("create group crud application").WithContext("route", "iam.group")
-		}
-		return errors.Wrap(err, errors.Internal, "failed to create group crud application").WithContext("route", "iam.group")
-	}
+	app := gr.groupService.HTTPApplication()
 
 	if err := rest.Mount(adminGroup, app,
 		rest.WithQuerySchema[*iamentity.Group, int64](groupQuerySchema),
@@ -91,8 +101,7 @@ func (gr *GroupRoutes) RegisterRoutes(group httpx.IRouteGroup) error {
 	}
 
 	// 组织扩展功能
-	gr.setupGroupCustomRoutes(adminGroup)
-	return nil
+	return gr.setupGroupCustomRoutes(adminGroup)
 }
 
 // Name 获取注册器名称
@@ -106,25 +115,93 @@ func (gr *GroupRoutes) Priority() int {
 }
 
 // setupGroupCustomRoutes 设置组织自定义路由
-func (gr *GroupRoutes) setupGroupCustomRoutes(groupGroup httpx.IRouteGroup) {
+func (gr *GroupRoutes) setupGroupCustomRoutes(groupGroup httpx.IRouteGroup) error {
 	// 组织查询操作（放在参数路由之前，避免冲突）
-	groupGroup.GET("/tree", gr.getGroupTree)
-	groupGroup.GET("/roots", gr.getRootGroups)
-	groupGroup.GET("/statistics", gr.getGroupStatistics)
+	registry, _, err := runtimehttp.EntryRegistryFrom(groupGroup)
+	if err != nil {
+		return err
+	}
+	statistics, err := gr.groupService.StatisticsAuthorizationBinding()
+	if err != nil {
+		return err
+	}
+	if registry != nil {
+		if err := runtimehttp.BindEntry(groupGroup, "GET", "/statistics", statistics); err != nil {
+			return err
+		}
+	}
+	if err := runtimehttp.RegisterRoute(groupGroup, "GET", "/statistics", gr.getGroupStatistics); err != nil {
+		return err
+	}
+	tree, err := gr.groupService.TreeAuthorizationBinding()
+	if err != nil {
+		return err
+	}
+	if registry != nil {
+		if err := runtimehttp.BindEntry(groupGroup, "GET", "/tree", tree); err != nil {
+			return err
+		}
+	}
+	if err := runtimehttp.RegisterRoute(groupGroup, "GET", "/tree", gr.getGroupTree); err != nil {
+		return err
+	}
 
 	// 按层级查询（使用查询参数而不是路径参数）
-	groupGroup.GET("/search/by-level", gr.getGroupsByLevel)
 
 	// 组织成员管理（使用ID参数的路由）
-	groupGroup.GET("/:id/users", gr.getGroupUsers)
-	groupGroup.POST("/:id/users", gr.addUserToGroup)
-	groupGroup.DELETE("/:id/users/:user", gr.removeUserFromGroup)
-	groupGroup.POST("/:id/users/bulk", gr.bulkAddUsersToGroup)
 
 	// 组织角色管理
-	groupGroup.GET("/:id/roles", gr.getGroupRoles)
-	groupGroup.POST("/:id/roles", gr.addGroupRole)
-	groupGroup.DELETE("/:id/roles/:role", gr.removeGroupRole)
+	for _, entry := range []struct {
+		path, action string
+		handler      httpx.Handler
+	}{
+		{"/roots", "roots", gr.getRootGroups}, {"/search/by-level", "by_level", gr.getGroupsByLevel}, {"/:id/users", "users", gr.getGroupUsers}, {"/:id/roles", "roles", gr.getGroupRoles},
+	} {
+		binding, err := gr.groupService.ReadAuthorizationBinding(entry.action)
+		if err != nil {
+			return err
+		}
+		if registry != nil {
+			if err := runtimehttp.BindEntry(groupGroup, "GET", entry.path, binding); err != nil {
+				return err
+			}
+		}
+		if err := runtimehttp.RegisterRoute(groupGroup, "GET", entry.path, entry.handler); err != nil {
+			return err
+		}
+	}
+	return gr.registerAssociationRoutes(groupGroup)
+}
+
+func (gr *GroupRoutes) registerAssociationRoutes(group httpx.IRouteGroup) error {
+	registry, _, err := runtimehttp.EntryRegistryFrom(group)
+	if err != nil {
+		return err
+	}
+	for _, entry := range []struct {
+		method, path, action string
+		handler              httpx.Handler
+	}{
+		{"POST", "/:id/users", "add_user", gr.addUserToGroup},
+		{"DELETE", "/:id/users/:user", "remove_user", gr.removeUserFromGroup},
+		{"POST", "/:id/users/bulk", "bulk_add_users", gr.bulkAddUsersToGroup},
+		{"POST", "/:id/roles", "add_role", gr.addGroupRole},
+		{"DELETE", "/:id/roles/:role", "remove_role", gr.removeGroupRole},
+	} {
+		binding, err := gr.groupService.AssociationAuthorizationBinding(entry.action)
+		if err != nil {
+			return err
+		}
+		if registry != nil {
+			if err := runtimehttp.BindEntry(group, entry.method, entry.path, binding); err != nil {
+				return err
+			}
+		}
+		if err := runtimehttp.RegisterRoute(group, entry.method, entry.path, entry.handler); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // 组织处理器方法
@@ -135,7 +212,7 @@ func (gr *GroupRoutes) setupGroupCustomRoutes(groupGroup httpx.IRouteGroup) {
 func (gr *GroupRoutes) getGroupTree(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
 
-	tree, err := gr.groupService.GroupTree(reqCtx)
+	tree, err := gr.groupService.GroupTreeHTTP(reqCtx)
 	if err != nil {
 		return err
 	}
@@ -146,17 +223,12 @@ func (gr *GroupRoutes) getGroupTree(ctx httpx.IContext) error {
 // getRootGroups 返回RootGroups。
 func (gr *GroupRoutes) getRootGroups(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
-	tenantID, err := svc.TenantIDFromContext(reqCtx)
+	out, err := gr.groupService.ExecuteReadHTTP(reqCtx, "roots", groupsvc.GroupReadInput{})
 	if err != nil {
 		return err
 	}
 
-	groups, err := gr.groupService.RootGroups(reqCtx, tenantID)
-	if err != nil {
-		return err
-	}
-
-	return httpx.WriteSuccess(ctx, groups)
+	return httpx.WriteSuccess(ctx, out.Groups)
 }
 
 // getGroupsByLevel 返回Groups按等级。
@@ -174,14 +246,14 @@ func (gr *GroupRoutes) getGroupsByLevel(ctx httpx.IContext) error {
 	}
 
 	reqCtx := ctx.RequestContext()
-	groups, err := gr.groupService.GroupsByLevel(reqCtx, level)
+	out, err := gr.groupService.ExecuteReadHTTP(reqCtx, "by_level", groupsvc.GroupReadInput{Level: level})
 	if err != nil {
 		return err
 	}
 
 	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"level":  level,
-		"groups": groups,
+		"groups": out.Groups,
 	})
 }
 
@@ -193,14 +265,14 @@ func (gr *GroupRoutes) getGroupUsers(ctx httpx.IContext) error {
 		return err
 	}
 
-	users, err := gr.groupService.GroupUsers(reqCtx, groupID)
+	out, err := gr.groupService.ExecuteReadHTTP(reqCtx, "users", groupsvc.GroupReadInput{ID: groupID})
 	if err != nil {
 		return err
 	}
 
 	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"group_id": groupID,
-		"users":    users,
+		"users":    out.Users,
 	})
 }
 
@@ -223,7 +295,7 @@ func (gr *GroupRoutes) addUserToGroup(ctx httpx.IContext) error {
 		return err
 	}
 
-	if err := gr.groupService.AddUserToGroup(reqCtx, groupID, req.UserID); err != nil {
+	if _, err := gr.groupService.ExecuteAssociationHTTP(reqCtx, "add_user", groupsvc.GroupAssociationInput{ID: groupID, RelatedIDs: []int64{req.UserID}}); err != nil {
 		return err
 	}
 
@@ -246,7 +318,7 @@ func (gr *GroupRoutes) removeUserFromGroup(ctx httpx.IContext) error {
 		return err
 	}
 
-	if err := gr.groupService.RemoveUserFromGroup(reqCtx, groupID, userID); err != nil {
+	if _, err := gr.groupService.ExecuteAssociationHTTP(reqCtx, "remove_user", groupsvc.GroupAssociationInput{ID: groupID, RelatedIDs: []int64{userID}}); err != nil {
 		return err
 	}
 
@@ -275,7 +347,7 @@ func (gr *GroupRoutes) bulkAddUsersToGroup(ctx httpx.IContext) error {
 		return err
 	}
 
-	result, err := gr.groupService.BulkAddUsersToGroup(reqCtx, groupID, req.UserIDs)
+	result, err := gr.groupService.ExecuteAssociationHTTP(reqCtx, "bulk_add_users", groupsvc.GroupAssociationInput{ID: groupID, RelatedIDs: req.UserIDs})
 	if err != nil {
 		return err
 	}
@@ -303,14 +375,14 @@ func (gr *GroupRoutes) getGroupRoles(ctx httpx.IContext) error {
 		return err
 	}
 
-	roles, err := gr.groupService.GroupRoles(reqCtx, groupID)
+	out, err := gr.groupService.ExecuteReadHTTP(reqCtx, "roles", groupsvc.GroupReadInput{ID: groupID})
 	if err != nil {
 		return err
 	}
 
 	return httpx.WriteSuccess(ctx, map[string]interface{}{
 		"group_id": groupID,
-		"roles":    roles,
+		"roles":    out.Roles,
 	})
 }
 
@@ -333,7 +405,7 @@ func (gr *GroupRoutes) addGroupRole(ctx httpx.IContext) error {
 		return err
 	}
 
-	if err := gr.groupService.AddGroupRole(reqCtx, groupID, req.RoleID); err != nil {
+	if _, err := gr.groupService.ExecuteAssociationHTTP(reqCtx, "add_role", groupsvc.GroupAssociationInput{ID: groupID, RelatedIDs: []int64{req.RoleID}}); err != nil {
 		return err
 	}
 
@@ -356,7 +428,7 @@ func (gr *GroupRoutes) removeGroupRole(ctx httpx.IContext) error {
 		return err
 	}
 
-	if err := gr.groupService.RemoveGroupRole(reqCtx, groupID, roleID); err != nil {
+	if _, err := gr.groupService.ExecuteAssociationHTTP(reqCtx, "remove_role", groupsvc.GroupAssociationInput{ID: groupID, RelatedIDs: []int64{roleID}}); err != nil {
 		return err
 	}
 
@@ -370,7 +442,7 @@ func (gr *GroupRoutes) removeGroupRole(ctx httpx.IContext) error {
 func (gr *GroupRoutes) getGroupStatistics(ctx httpx.IContext) error {
 	reqCtx := ctx.RequestContext()
 
-	stats, err := gr.groupService.GroupStatistics(reqCtx)
+	stats, err := gr.groupService.GroupStatisticsHTTP(reqCtx)
 	if err != nil {
 		return err
 	}

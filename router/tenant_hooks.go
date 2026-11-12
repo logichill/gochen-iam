@@ -18,6 +18,7 @@ import (
 	appcrud "gochen/app/crud"
 	"gochen/db/orm"
 	"gochen/domain"
+	"gochen/domain/meta"
 	"gochen/domain/spec"
 	"gochen/errors"
 )
@@ -312,7 +313,7 @@ func newTenantDeleteGovernance(
 		governance.countScopeChild = scopeRepo.CountChildren
 		governance.getScope = scopeRepo.Get
 		governance.deleteScope = func(ctx context.Context, scope *iamentity.Scope) error {
-			guard := svc.PlatformWriteSpec(ctx)
+			guard := spec.And(svc.PlatformWriteSpec(ctx), spec.Eq(meta.ByField("Key"), scope.Key), spec.Eq(meta.ByField("Type"), iamentity.ScopeTypeTenant))
 			if err := scopeRepo.Delete(ctx, scope, guard); err != nil {
 				return errors.Wrap(err, errors.Database, "删除租户 root scope 失败")
 			}
@@ -340,11 +341,8 @@ func (g *tenantDeleteGovernance) PrepareDelete(ctx context.Context, tenant *iame
 	if g.getScope == nil || g.deleteScope == nil {
 		return errors.NewCode(errors.InvalidInput, "scope repository is required for tenant delete")
 	}
-	rootScope, err := g.getScope(ctx, *tenant.RootScopeID)
+	rootScope, err := g.tenantRoot(ctx, tenant)
 	if err != nil {
-		if errors.Is(err, errors.NotFound) {
-			return nil
-		}
 		return err
 	}
 	if err := g.deleteScope(ctx, rootScope); err != nil {
@@ -401,6 +399,13 @@ func (g *tenantDeleteGovernance) State(ctx context.Context, tenant *iamentity.Te
 	if g.countScopeChild == nil {
 		return nil, errors.NewCode(errors.InvalidInput, "scope governance is required for tenant delete")
 	}
+	if _, err := g.tenantRoot(ctx, tenant); err != nil {
+		if errors.Is(err, errors.Validation) {
+			state.DeleteBlockReason = "租户 root scope 归属已漂移，请先修复再删除"
+			return state, nil
+		}
+		return nil, err
+	}
 	childCount, err := g.countScopeChild(ctx, *tenant.RootScopeID)
 	if err != nil {
 		return nil, err
@@ -412,6 +417,21 @@ func (g *tenantDeleteGovernance) State(ctx context.Context, tenant *iamentity.Te
 
 	state.CanDelete = true
 	return state, nil
+}
+
+// 删除只接受当前持久化租户引用、编码和类型一致的实际根范围。
+func (g *tenantDeleteGovernance) tenantRoot(ctx context.Context, tenant *iamentity.Tenant) (*iamentity.Scope, error) {
+	if g.getScope == nil {
+		return nil, errors.NewCode(errors.InvalidInput, "scope repository is required for tenant delete")
+	}
+	root, err := g.getScope(ctx, *tenant.RootScopeID)
+	if err != nil && !errors.Is(err, errors.NotFound) {
+		return nil, err
+	}
+	if err != nil || root == nil || root.ID != *tenant.RootScopeID || root.Key != "tenant:"+strings.TrimSpace(tenant.Key) || root.Type != iamentity.ScopeTypeTenant {
+		return nil, errors.NewCode(errors.Validation, "租户 root scope 归属已漂移，请先修复再删除")
+	}
+	return root, nil
 }
 
 func (g *tenantDeleteGovernance) countTenantUsers(ctx context.Context, tenantID string) (int64, error) {

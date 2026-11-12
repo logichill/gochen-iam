@@ -9,6 +9,7 @@ import (
 	iamauth "gochen-iam/auth"
 	"gochen-iam/tenant"
 	auth "gochen-runtime/host/authz"
+	"gochen/auth/scoped"
 	"gochen/contextx"
 	"gochen/errors"
 	"gochen/httpx"
@@ -124,6 +125,9 @@ func TestInjectClaimsRequestContext_BindsPrincipalAndLegacyHelpers(t *testing.T)
 	require.Equal(t, []string{"platform"}, principal.PermissionScopes)
 	require.True(t, principal.HasPermission("user:api:manage"))
 	require.Equal(t, "tenant-b", contextx.TenantID(bound))
+	scope, ok := scoped.DataScopeFromContext(bound)
+	require.True(t, ok)
+	require.Equal(t, []int64{100}, scope.ScopeIDs)
 	require.Equal(t, "platform", iamauth.ActiveScopeKind(bound))
 	require.NotNil(t, iamauth.PermissionSet(bound))
 	require.True(t, HasPermission(bound, "user:api:manage"))

@@ -145,11 +145,6 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	if err != nil {
 		t.Fatalf("ensure tenant root scope: %v", err)
 	}
-	ctx = iamauth.BindActiveScopeContext(ctx, rootScope.ID, string(rootScope.Type))
-	ctx, err = scoped.WithDataScope(ctx, scoped.Filtered(rootScope.ID))
-	if err != nil {
-		t.Fatalf("bind tenant root scope: %v", err)
-	}
 	principal, ok := auth.PrincipalFromContext(ctx)
 	if !ok {
 		t.Fatalf("expected principal in background context")
@@ -163,12 +158,23 @@ func setupUserServiceTest(t *testing.T) *userServiceTestEnv {
 	if err != nil {
 		t.Fatalf("rebind tenant context: %v", err)
 	}
+	ctx = iamauth.BindActiveScopeContext(ctx, rootScope.ID, string(rootScope.Type))
+	ctx, err = scoped.WithDataScope(ctx, scoped.Filtered(rootScope.ID))
+	if err != nil {
+		t.Fatalf("bind tenant root scope: %v", err)
+	}
 
-	authorizer := iamservice.NewIAMAuthorizer(scopeAuthorizer)
+	authorizer := iamservice.NewIAMAccess(scopeAuthorizer)
 
 	// 创建服务
-	userService := usersvc.NewUserService(userRepo, groupRepo, roleRepo, scopeAuthorizer, authorizer, logging.NewNoopLogger())
-	groupService := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, scopeAuthorizer, authorizer, logging.NewNoopLogger())
+	userService, err := usersvc.NewUserService(userRepo, groupRepo, roleRepo, scopeAuthorizer, authorizer, logging.NewNoopLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupService, err := groupsvc.NewGroupService(groupRepo, userRepo, roleRepo, scopeAuthorizer, authorizer, logging.NewNoopLogger())
+	if err != nil {
+		t.Fatalf("NewGroupService: %v", err)
+	}
 
 	return &userServiceTestEnv{
 		db:            db,
@@ -370,7 +376,13 @@ func TestUserServiceAuthenticate_ListsPlatformScopeWhenUserHasPlatformBinding(t 
 	if err := env.roleRepo.Create(env.backgroundCtx, role, spec.All()); err != nil {
 		t.Fatalf("create platform admin role: %v", err)
 	}
-	assignCtx := iamauth.BindActiveScopeContext(env.backgroundCtx, platformScope.ID, string(platformScope.Type))
+	assignPrincipal, _ := auth.PrincipalFromContext(env.backgroundCtx)
+	assignPrincipal.ActiveScopeID = platformScope.ID
+	assignCtx, err := auth.WithPrincipal(env.backgroundCtx, assignPrincipal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assignCtx = iamauth.BindActiveScopeContext(assignCtx, platformScope.ID, string(platformScope.Type))
 	if err := env.roleRepo.AssignToUser(assignCtx, role.ID, user.ID, spec.All()); err != nil {
 		t.Fatalf("assign platform admin role: %v", err)
 	}
@@ -1167,19 +1179,19 @@ func TestUserServiceActivateUserRejectsPlatformOwnedUserFromTenantScopeInSingleT
 	if err != nil {
 		t.Fatalf("ensure platform scope: %v", err)
 	}
-	platformCtx := iamauth.BindActiveScopeContext(env.backgroundCtx, platformScope.ID, string(platformScope.Type))
-	platformCtx, err = scoped.WithDataScope(platformCtx, scoped.Filtered(platformScope.ID))
-	if err != nil {
-		t.Fatalf("bind platform data scope: %v", err)
-	}
-	platformPrincipal, ok := auth.PrincipalFromContext(platformCtx)
+	platformPrincipal, ok := auth.PrincipalFromContext(env.backgroundCtx)
 	if !ok {
 		t.Fatal("expected platform principal")
 	}
 	platformPrincipal.ActiveScopeID = platformScope.ID
-	platformCtx, err = auth.WithPrincipal(platformCtx, platformPrincipal)
+	platformCtx, err := auth.WithPrincipal(env.backgroundCtx, platformPrincipal)
 	if err != nil {
 		t.Fatalf("bind platform principal: %v", err)
+	}
+	platformCtx = iamauth.BindActiveScopeContext(platformCtx, platformScope.ID, string(platformScope.Type))
+	platformCtx, err = scoped.WithDataScope(platformCtx, scoped.Filtered(platformScope.ID))
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	placeholder := &iamentity.User{
@@ -1205,6 +1217,11 @@ func TestUserServiceActivateUserRejectsPlatformOwnedUserFromTenantScopeInSingleT
 	tenantCtx, err := auth.WithPrincipal(env.backgroundCtx, tenantPrincipal)
 	if err != nil {
 		t.Fatalf("bind tenant principal: %v", err)
+	}
+	tenantCtx = iamauth.BindActiveScopeContext(tenantCtx, env.rootScopeID, "tenant")
+	tenantCtx, err = scoped.WithDataScope(tenantCtx, scoped.Filtered(env.rootScopeID))
+	if err != nil {
+		t.Fatal(err)
 	}
 	if err := env.userService.ActivateUser(tenantCtx, placeholder.GetID()); err == nil {
 		t.Fatal("expected platform-owned placeholder activation to be rejected")
@@ -1352,7 +1369,7 @@ func TestUserRepoAssignRole_AllowsSameTenantDifferentManagedScopes(t *testing.T)
 	}
 
 	// 租户边界由授权器判定；通过后使用无范围限制的写规约，允许同租户、不同 scope 的关联。
-	if err := env.userRepo.AssignRole(env.backgroundCtx, user.GetID(), role.GetID(), spec.All()); err != nil {
+	if err := env.userRepo.AssignRole(env.backgroundCtx, user.GetID(), role.GetID(), role.NamespaceScopeID, spec.All(), spec.All()); err != nil {
 		t.Fatalf("AssignRole: %v", err)
 	}
 
@@ -1369,7 +1386,7 @@ func TestUserRepoAssignRole_AllowsSameTenantDifferentManagedScopes(t *testing.T)
 
 	// 仅覆盖用户所在 scope 的规约不能授权其它 scope 的角色。
 	userScopeSpec := spec.Eq(meta.ByDimension("scope"), user.ManagedScopeID)
-	if err := env.userRepo.AssignRole(env.backgroundCtx, user.GetID(), role.GetID(), userScopeSpec); !errors.Is(err, errors.Forbidden) {
+	if err := env.userRepo.AssignRole(env.backgroundCtx, user.GetID(), role.GetID(), role.NamespaceScopeID, userScopeSpec, userScopeSpec); !errors.Is(err, errors.Forbidden) {
 		t.Fatalf("expected out-of-scope role assignment to be forbidden, got %v", err)
 	}
 }

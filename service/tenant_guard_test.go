@@ -61,7 +61,7 @@ func withActiveScope(t *testing.T, reqCtx httpx.IRequestContext, scopeID int64, 
 	derived := iamauth.WithActiveScope(reqCtx, scopeID, scopeType)
 	principal, _ := auth.PrincipalFromContext(derived)
 	principal.ActiveScopeID = scopeID
-	updated, err := auth.WithPrincipal(iamauth.BindActiveScopeContext(derived, scopeID, scopeType), principal)
+	updated, err := auth.WithPrincipal(derived, principal)
 	if err != nil {
 		t.Fatalf("WithPrincipal: %v", err)
 	}
@@ -71,6 +71,7 @@ func withActiveScope(t *testing.T, reqCtx httpx.IRequestContext, scopeID int64, 
 			t.Fatalf("WithTenantID: %v", err)
 		}
 	}
+	updated = iamauth.BindActiveScopeContext(updated, scopeID, scopeType)
 	return derived.WithContext(updated)
 }
 

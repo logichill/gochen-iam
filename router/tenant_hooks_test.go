@@ -120,6 +120,11 @@ func TestTenantCRUDHooks_DeleteRejectsRootScopeChildren(t *testing.T) {
 		tenants: map[int64]*iamentity.Tenant{3: tenant},
 	}
 	hooks := TenantHooksForTenant(repo, nil, &tenantDeleteGovernance{
+		getScope: func(_ context.Context, scopeID int64) (*iamentity.Scope, error) {
+			scope := &iamentity.Scope{Key: "tenant:tenant-a", Type: iamentity.ScopeTypeTenant}
+			scope.SetID(scopeID)
+			return scope, nil
+		},
 		countScopeChild: func(_ context.Context, scopeID int64) (int64, error) {
 			if scopeID != rootScopeID {
 				t.Fatalf("expected root scope id %d, got %d", rootScopeID, scopeID)
@@ -155,7 +160,7 @@ func TestTenantCRUDHooks_DeleteRemovesRootScope(t *testing.T) {
 	hooks := TenantHooksForTenant(repo, nil, &tenantDeleteGovernance{
 		countScopeChild: func(context.Context, int64) (int64, error) { return 0, nil },
 		getScope: func(_ context.Context, scopeID int64) (*iamentity.Scope, error) {
-			scope := &iamentity.Scope{}
+			scope := &iamentity.Scope{Key: "tenant:tenant-a", Type: iamentity.ScopeTypeTenant}
 			scope.SetID(scopeID)
 			return scope, nil
 		},
@@ -177,6 +182,67 @@ func TestTenantCRUDHooks_DeleteRemovesRootScope(t *testing.T) {
 	}
 	if rebuildCalls != 1 {
 		t.Fatalf("expected visibility rebuild once, got %d", rebuildCalls)
+	}
+}
+
+func TestTenantDeleteGovernanceRejectsDriftAndRechecksBeforeWrite(t *testing.T) {
+	rootID := int64(42)
+	tenant := &iamentity.Tenant{Key: "tenant-a", Status: svc.TenantStatusInactive, RootScopeID: &rootID}
+	tenant.SetID(4)
+	for _, test := range []struct {
+		name string
+		root *iamentity.Scope
+		err  error
+	}{
+		{name: "missing", err: errors.NewCode(errors.NotFound, "missing")},
+		{name: "empty result"},
+		{name: "foreign tenant", root: &iamentity.Scope{Key: "tenant:tenant-b", Type: iamentity.ScopeTypeTenant}},
+		{name: "platform", root: &iamentity.Scope{Key: "platform", Type: iamentity.ScopeTypePlatform}},
+		{name: "wrong type", root: &iamentity.Scope{Key: "tenant:tenant-a", Type: "org"}},
+		{name: "wrong returned ID", root: &iamentity.Scope{Key: "tenant:tenant-a", Type: iamentity.ScopeTypeTenant}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.root != nil {
+				test.root.SetID(rootID)
+				if test.name == "wrong returned ID" {
+					test.root.SetID(rootID + 1)
+				}
+			}
+			children, deletes, rebuilds := 0, 0, 0
+			g := &tenantDeleteGovernance{
+				getScope:          func(context.Context, int64) (*iamentity.Scope, error) { return test.root, test.err },
+				countScopeChild:   func(context.Context, int64) (int64, error) { children++; return 0, nil },
+				deleteScope:       func(context.Context, *iamentity.Scope) error { deletes++; return nil },
+				rebuildScopeGraph: func(context.Context) error { rebuilds++; return nil },
+			}
+			state, err := g.State(t.Context(), tenant)
+			if err != nil || state.CanDelete || !strings.Contains(state.DeleteBlockReason, "先修复") {
+				t.Fatalf("drift state=%+v error=%v", state, err)
+			}
+			if err := g.PrepareDelete(t.Context(), tenant); !errors.Is(err, errors.Validation) || !strings.Contains(err.Error(), "先修复") {
+				t.Fatalf("drift delete=%v", err)
+			}
+			if children != 0 || deletes != 0 || rebuilds != 0 {
+				t.Fatal("drifted root was used for child lookup or mutation")
+			}
+		})
+	}
+	reads, writes := 0, 0
+	g := &tenantDeleteGovernance{
+		getScope: func(context.Context, int64) (*iamentity.Scope, error) {
+			reads++
+			root := &iamentity.Scope{Key: "tenant:tenant-a", Type: iamentity.ScopeTypeTenant}
+			root.SetID(rootID)
+			if reads > 1 {
+				root.Key = "tenant:tenant-b"
+			}
+			return root, nil
+		},
+		countScopeChild: func(context.Context, int64) (int64, error) { return 0, nil },
+		deleteScope:     func(context.Context, *iamentity.Scope) error { writes++; return nil },
+	}
+	if err := g.PrepareDelete(t.Context(), tenant); !errors.Is(err, errors.Validation) || reads != 2 || writes != 0 {
+		t.Fatalf("root changed after precheck: reads=%d writes=%d error=%v", reads, writes, err)
 	}
 }
 

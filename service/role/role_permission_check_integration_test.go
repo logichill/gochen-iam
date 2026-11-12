@@ -62,8 +62,11 @@ func TestRoleServiceCheckPermissionIncludesGroupDefaultRoles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRoleRepository: %v", err)
 	}
-	authorizer := svc.NewIAMAuthorizer(nil)
-	roleService := NewRoleService(roleRepo, userRepo, groupRepo, nil, authorizer, nil, gen.NewUUIDGenerator(), logging.NewNoopLogger())
+	authorizer := svc.NewIAMAccess(nil)
+	roleService, err := NewRoleService(roleRepo, userRepo, groupRepo, nil, authorizer, nil, gen.NewUUIDGenerator(), logging.NewNoopLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	ctx := context.Background()
 	ctx, err = auth.WithPrincipal(ctx, auth.Principal{
@@ -120,7 +123,7 @@ func TestRoleServiceCheckPermissionIncludesGroupDefaultRoles(t *testing.T) {
 		t.Fatalf("create role: %v", err)
 	}
 
-	if err := userRepo.AssignToGroup(ctx, user.GetID(), group.GetID(), spec.All()); err != nil {
+	if err := userRepo.AssignToGroup(ctx, user.GetID(), group.GetID(), spec.All(), spec.All()); err != nil {
 		t.Fatalf("assign user to group: %v", err)
 	}
 	if err := roleRepo.AssignToGroup(ctx, role.GetID(), group.GetID(), spec.All()); err != nil {

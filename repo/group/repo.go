@@ -6,6 +6,7 @@ import (
 	iamentity "gochen-iam/entity"
 	"gochen-iam/repo/internal/likesafe"
 	scoperesolver "gochen-iam/repo/internal/scope"
+	"gochen-iam/repo/relations"
 	iamtenant "gochen-iam/tenant"
 	"gochen-runtime/db/orm/repo"
 	"gochen/app/query"
@@ -397,28 +398,32 @@ func int64PtrValue(v *int64) int64 {
 	return *v
 }
 
+func (r *GroupRepo) GroupsForUsers(ctx context.Context, userIDs []int64, condition spec.Spec) (relations.Catalog[*iamentity.Group], error) {
+	return relations.Read(ctx, r.Repo, userIDs, condition, orm.InnerJoin("user_groups", "", orm.On("groups.id", "user_groups.group_id")), "user_groups.user_id", "groups.id")
+}
+
 // AddUserToGroup 将用户添加到组织
-func (r *GroupRepo) AddUserToGroup(ctx context.Context, groupID, userID int64, s spec.Spec) error {
+func (r *GroupRepo) AddUserToGroup(ctx context.Context, groupID, userID int64, groupSpec, userSpec spec.Spec) error {
 	return r.mutateGroupAssociation(ctx, groupID, "Users", userResourceKind, userID,
-		&iamentity.User{Entity: domaincrud.Entity[int64]{ID: userID}}, false, "添加用户到组织失败", s)
+		&iamentity.User{Entity: domaincrud.Entity[int64]{ID: userID}}, false, "添加用户到组织失败", groupSpec, userSpec)
 }
 
 // RemoveUserFromGroup 从组织中移除用户
-func (r *GroupRepo) RemoveUserFromGroup(ctx context.Context, groupID, userID int64, s spec.Spec) error {
+func (r *GroupRepo) RemoveUserFromGroup(ctx context.Context, groupID, userID int64, groupSpec, userSpec spec.Spec) error {
 	return r.mutateGroupAssociation(ctx, groupID, "Users", userResourceKind, userID,
-		&iamentity.User{Entity: domaincrud.Entity[int64]{ID: userID}}, true, "从组织移除用户失败", s)
+		&iamentity.User{Entity: domaincrud.Entity[int64]{ID: userID}}, true, "从组织移除用户失败", groupSpec, userSpec)
 }
 
 // AddDefaultRole 为组织添加默认角色
-func (r *GroupRepo) AddDefaultRole(ctx context.Context, groupID, roleID int64, s spec.Spec) error {
+func (r *GroupRepo) AddDefaultRole(ctx context.Context, groupID, roleID int64, groupSpec, roleSpec spec.Spec) error {
 	return r.mutateGroupAssociation(ctx, groupID, "DefaultRoles", roleResourceKind, roleID,
-		&iamentity.Role{Entity: domaincrud.Entity[int64]{ID: roleID}}, false, "添加默认角色失败", s)
+		&iamentity.Role{Entity: domaincrud.Entity[int64]{ID: roleID}}, false, "添加默认角色失败", groupSpec, roleSpec)
 }
 
 // RemoveDefaultRole 移除组织的默认角色
-func (r *GroupRepo) RemoveDefaultRole(ctx context.Context, groupID, roleID int64, s spec.Spec) error {
+func (r *GroupRepo) RemoveDefaultRole(ctx context.Context, groupID, roleID int64, groupSpec, roleSpec spec.Spec) error {
 	return r.mutateGroupAssociation(ctx, groupID, "DefaultRoles", roleResourceKind, roleID,
-		&iamentity.Role{Entity: domaincrud.Entity[int64]{ID: roleID}}, true, "移除默认角色失败", s)
+		&iamentity.Role{Entity: domaincrud.Entity[int64]{ID: roleID}}, true, "移除默认角色失败", groupSpec, roleSpec)
 }
 
 func (r *GroupRepo) mutateGroupAssociation(
@@ -430,14 +435,14 @@ func (r *GroupRepo) mutateGroupAssociation(
 	related any,
 	remove bool,
 	message string,
-	s spec.Spec,
+	groupSpec, relatedSpec spec.Spec,
 ) error {
-	if err := r.requireRelatedInSpec(ctx, relatedKind, relatedID, s); err != nil {
-		return err
-	}
 	return r.WithinTx(ctx, func(txCtx context.Context) error {
-		group, err := r.Repo.Get(txCtx, groupID, s)
+		group, err := r.Repo.Get(txCtx, groupID, groupSpec)
 		if err != nil {
+			return err
+		}
+		if err := r.requireRelatedInSpec(txCtx, relatedKind, relatedID, relatedSpec); err != nil {
 			return err
 		}
 		model, err := r.ModelFor(txCtx)
@@ -614,6 +619,11 @@ func (r *GroupRepo) SearchGroups(ctx context.Context, keyword string, limit int)
 	}
 
 	return groups, nil
+}
+
+// GroupsForRoles 以独立条件读取已授权角色关联的组织聚合。
+func (r *GroupRepo) GroupsForRoles(ctx context.Context, roleIDs []int64, condition spec.Spec) (relations.Catalog[*iamentity.Group], error) {
+	return relations.Read(ctx, r.Repo, roleIDs, condition, orm.InnerJoin("group_roles", "", orm.On("groups.id", "group_roles.group_id")), "group_roles.role_id", "groups.id")
 }
 
 // FindByDefaultRoleID 根据默认角色ID查找组织。

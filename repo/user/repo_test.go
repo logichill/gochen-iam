@@ -299,7 +299,7 @@ func TestUserRepo_AssignRole_UsesTxSessionBindingModel(t *testing.T) {
 		t.Fatalf("WithTxLifecycle: %v", err)
 	}
 	txCtx = withTenantPrincipal(t, txCtx, "tenant-a")
-	if err := r.AssignRole(txCtx, 1, 2, spec.All()); err != nil {
+	if err := r.AssignRole(txCtx, 1, 2, 3, spec.All(), spec.All()); err != nil {
 		t.Fatalf("AssignRole: %v", err)
 	}
 

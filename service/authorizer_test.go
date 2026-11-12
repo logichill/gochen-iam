@@ -11,11 +11,51 @@ import (
 	coreauth "gochen/auth"
 	"gochen/auth/scoped"
 	"gochen/contextx"
+	"gochen/domain/meta"
 )
 
-func TestIAMAuthorizerAuthorizeUsesContextTenant(t *testing.T) {
+func compiledIAMResource(t *testing.T, access *IAMAccess, resource, permission string) coreauth.IAuthorizer {
+	t.Helper()
+	var entity any
+	switch resource {
+	case "user":
+		entity = &iamentity.User{}
+	case "tenant":
+		entity = &iamentity.Tenant{}
+	case "menu":
+		entity = &iamentity.MenuItem{}
+	default:
+		t.Fatalf("unknown test resource: %s", resource)
+	}
+	metadata, err := meta.DescribeValue(entity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiled, err := access.Compile(coreauth.Descriptor{Resource: resource, Actions: []coreauth.Action{{Name: "write", Kind: coreauth.KindUpdate, Permission: permission}}}, metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return compiled
+}
+
+func TestIAMResourceNamesPreserveCanonicalBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name, canonical string
+		platform        bool
+	}{
+		{"menu", MenuResourceKind, true}, {"tenant", TenantResourceKind, true}, {"scope", ScopeResourceKind, true},
+		{"user", UserResourceKind, false}, {"group", GroupResourceKind, false}, {"role", RoleResourceKind, false},
+	} {
+		logical, canonical := targetFromResourceKind(test.name), targetFromResourceKind(test.canonical)
+		if logical != canonical || canonical.kind != test.canonical || canonical.platform != test.platform {
+			t.Fatalf("%s logical=%+v canonical=%+v", test.name, logical, canonical)
+		}
+	}
+}
+
+func TestIAMAccessAuthorizeUsesContextTenant(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
-	authorizer := NewIAMAuthorizer(nil)
+	authorizer := NewIAMAccess(nil)
 
 	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
 	if err != nil {
@@ -35,7 +75,7 @@ func TestIAMAuthorizerAuthorizeUsesContextTenant(t *testing.T) {
 		t.Fatalf("WithDataScope: %v", err)
 	}
 
-	decision, err := authorizer.Authorize(ctx, coreauth.Request{
+	decision, err := compiledIAMResource(t, authorizer, "user", "user:api:write").Authorize(ctx, coreauth.Request{
 		Resource:   "user",
 		Action:     "write",
 		Permission: "user:api:write",
@@ -51,9 +91,9 @@ func TestIAMAuthorizerAuthorizeUsesContextTenant(t *testing.T) {
 	}
 }
 
-func TestIAMAuthorizerDeniesMixedTenantResources(t *testing.T) {
+func TestIAMAccessDeniesMixedTenantResources(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
-	authorizer := NewIAMAuthorizer(nil)
+	authorizer := NewIAMAccess(nil)
 
 	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
 	if err != nil {
@@ -84,9 +124,9 @@ func TestIAMAuthorizerDeniesMixedTenantResources(t *testing.T) {
 	}
 }
 
-func TestIAMAuthorizerDeniesCreateResourceWithForeignTenantBoundary(t *testing.T) {
+func TestIAMAccessDeniesCreateResourceWithForeignTenantBoundary(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
-	authorizer := NewIAMAuthorizer(nil)
+	authorizer := NewIAMAccess(nil)
 
 	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
 	if err != nil {
@@ -119,9 +159,9 @@ func TestIAMAuthorizerDeniesCreateResourceWithForeignTenantBoundary(t *testing.T
 	}
 }
 
-func TestIAMAuthorizerAllowsPlatformScopeCrossTenant(t *testing.T) {
+func TestIAMAccessAllowsPlatformScopeCrossTenant(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
-	authorizer := NewIAMAuthorizer(nil)
+	authorizer := NewIAMAccess(nil)
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     "1",
@@ -145,8 +185,8 @@ func TestIAMAuthorizerAllowsPlatformScopeCrossTenant(t *testing.T) {
 	}
 }
 
-func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
-	authorizer := NewIAMAuthorizer(nil)
+func TestIAMAccessDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
+	authorizer := NewIAMAccess(nil)
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     "1",
@@ -158,7 +198,7 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 	}
 	ctx = iamauth.BindActiveScopeContext(tenant.WithPolicy(ctx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "erp-demo"}), 7, "tenant")
 
-	decision, err := authorizer.Authorize(ctx, coreauth.Request{
+	decision, err := compiledIAMResource(t, authorizer, "tenant", "tenant:api:write").Authorize(ctx, coreauth.Request{
 		Resource:   "tenant",
 		Action:     "write",
 		Permission: "tenant:api:write",
@@ -174,8 +214,8 @@ func TestIAMAuthorizerDeniesPlatformResourceOutsidePlatformScope(t *testing.T) {
 	}
 }
 
-func TestIAMAuthorizerManagedTargetUsesDataScopeSpec(t *testing.T) {
-	authorizer := NewIAMAuthorizer(nil)
+func TestIAMAccessManagedTargetUsesDataScopeSpec(t *testing.T) {
+	authorizer := NewIAMAccess(nil)
 
 	ctx, err := contextx.WithTenantID(context.Background(), "erp-demo")
 	if err != nil {
@@ -213,8 +253,8 @@ func TestIAMAuthorizerManagedTargetUsesDataScopeSpec(t *testing.T) {
 	}
 }
 
-func TestIAMAuthorizerAllowsPlatformOwnedUserInPlatformScope(t *testing.T) {
-	authorizer := NewIAMAuthorizer(nil)
+func TestIAMAccessAllowsPlatformOwnedUserInPlatformScope(t *testing.T) {
+	authorizer := NewIAMAccess(nil)
 
 	ctx, err := contextx.WithTenantID(context.Background(), "erp-demo")
 	if err != nil {
@@ -245,8 +285,8 @@ func TestIAMAuthorizerAllowsPlatformOwnedUserInPlatformScope(t *testing.T) {
 	}
 }
 
-func TestIAMAuthorizerAllowsPlatformScopedMenuWrite(t *testing.T) {
-	authorizer := NewIAMAuthorizer(nil)
+func TestIAMAccessAllowsPlatformScopedMenuWrite(t *testing.T) {
+	authorizer := NewIAMAccess(nil)
 
 	ctx, err := auth.WithPrincipal(context.Background(), auth.Principal{
 		SubjectID:     "1",
@@ -258,7 +298,7 @@ func TestIAMAuthorizerAllowsPlatformScopedMenuWrite(t *testing.T) {
 	}
 	ctx = iamauth.BindActiveScopeContext(tenant.WithPolicy(ctx, tenant.Policy{Mode: tenant.ModeSingle, SingleTenantID: "erp-demo"}), 1, "platform")
 
-	decision, err := authorizer.Authorize(ctx, coreauth.Request{
+	decision, err := compiledIAMResource(t, authorizer, "menu", "menu:api:write").Authorize(ctx, coreauth.Request{
 		Resource:   "menu",
 		Action:     "write",
 		Permission: "menu:api:write",
@@ -306,7 +346,7 @@ func TestWithSystemPrincipal_ReplaysAuthorizationRuntime(t *testing.T) {
 
 func TestAuthorizer_MultiTenantFailsClosedWithoutActiveScopeID(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
-	authorizer := NewIAMAuthorizer(&ScopeAuthorizer{})
+	authorizer := NewIAMAccess(&ScopeAuthorizer{})
 
 	// Principal 没有 ActiveScopeID (ActiveScopeID <= 0)
 	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
@@ -332,9 +372,9 @@ func TestAuthorizer_MultiTenantFailsClosedWithoutActiveScopeID(t *testing.T) {
 	}
 }
 
-func TestIAMAuthorizerRejectsNilScopeAuthorizerInMultiTenant(t *testing.T) {
+func TestIAMAccessRejectsNilScopeAuthorizerInMultiTenant(t *testing.T) {
 	t.Setenv("IAM_TENANT_MODE", "tenant")
-	authorizer := NewIAMAuthorizer(nil)
+	authorizer := NewIAMAccess(nil)
 
 	ctx, err := contextx.WithTenantID(context.Background(), "tenant-a")
 	if err != nil {
